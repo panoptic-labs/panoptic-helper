@@ -7,17 +7,10 @@ jobs:
     name: Foundry suite
     runs-on: mainnet-node
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
+          token: ${{ secrets.GH_PAT }}
           submodules: recursive
-      - uses: oven-sh/setup-bun@v1
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: nightly
-      - name: Compile metadata
-        run: |
-          bun run ./metadata/compiler.js
       - name: Build
         env:
           FOUNDRY_PROFILE: ci_test
@@ -38,10 +31,10 @@ jobs:
     name: Check contract size
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
-
+          token: ${{ secrets.GH_PAT }}
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
