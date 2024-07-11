@@ -396,7 +396,7 @@ contract PanopticHelperTest is PositionUtils {
    function boundLog(uint256 value, uint8 min, uint8 max) internal returns (uint256) {
         uint256 range = uint256(max) - uint256(min) + 1;
         uint256 m0 = value % 2**128;
-        return Math.mulDiv(2**255 + 2**127 - 1 + m0 * 2**127, (2 ** (min + (value % range) )), 2**255); 
+        return Math.mulDiv(2**255 + Math.mulDiv(2**255-1, m0, 2**128-1), (2 ** (min + (value % range) )), 2**255); 
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -477,6 +477,51 @@ contract PanopticHelperTest is PositionUtils {
                 )
         );
     }
+
+    function test_Success_boundLog_max() public {
+        uint8 min = 255;
+        uint8 max = 255;
+
+        uint256 b = boundLog(type(uint256).max, min, max);
+        assertEq(b, type(uint256).max);
+        
+        b = boundLog(0, min, max);
+        assertEq(b, 2**255);
+    } 
+
+    function test_Success_boundLog_min() public {
+        uint8 min = 0;
+        uint8 max = 0;
+
+        uint256 b = boundLog(type(uint256).max, min, max);
+        assertEq(b, 1);
+        
+        b = boundLog(0, min, max);
+        assertEq(b, 1);
+    } 
+
+    function test_Success_boundLog_narrow() public {
+
+        for (uint8 m; m!= 255; ++m) { 
+            uint256 b = boundLog(type(uint256).max, m, m);
+            assertEq(b, 2**(m+1)-1);
+            
+            b = boundLog(0, m, m);
+            assertEq(b, 2**m);
+        }
+    } 
+
+    function test_Success_boundLog_mid() public {
+
+        for (uint8 m; m!= 224; ++m) { 
+            uint256 b = boundLog(type(uint256).max, m, m + 31);
+            assertEq(b, 2**(m+32)-1);
+            
+            b = boundLog(0, m, m+31);
+            assertEq(b, 2**m);
+        }
+    } 
+
 
     /// forge-config: default.fuzz.runs = 100000
     function test_Success_boundLog(uint256 x) public {
