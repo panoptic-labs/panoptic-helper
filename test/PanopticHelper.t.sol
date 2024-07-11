@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 import "forge-std/Test.sol";
 import {Errors} from "@libraries/Errors.sol";
 import {PanopticMath} from "@libraries/PanopticMath.sol";
+import {Math} from "@libraries/Math.sol";
 import {Constants} from "@libraries/Constants.sol";
 import {TokenId} from "@types/TokenId.sol";
 import {LeftRightUnsigned, LeftRightSigned} from "@types/LeftRight.sol";
@@ -390,6 +391,13 @@ contract PanopticHelperTest is PositionUtils {
             new CollateralTracker(10, 2_000, 1_000, -1_024, 5_000, 9_000, 20_000)
         );
     }
+  
+   // bounds the input value between 2**min and 2**(max+1)-1 
+   function boundLog(uint256 value, uint8 min, uint8 max) internal returns (uint256) {
+        uint8 range = max - min + 1;
+        uint256 m0 = value % 2**128;
+        return Math.mulDiv(2**128 + m0, (2 ** (min + (value % range) )), 2**128); 
+    }
 
     /*//////////////////////////////////////////////////////////////
                           TEST DATA POPULATION
@@ -469,6 +477,24 @@ contract PanopticHelperTest is PositionUtils {
                 )
         );
     }
+
+    /// forge-config: default.fuzz.runs = 5000
+    function test_Success_boundLog(uint256 x) public {
+        x = uint256(keccak256(abi.encode(x)));
+        uint8 min = uint8(x);
+        uint8 max = uint8(x >> 8);
+
+            if (min > max) {
+                (min, max) = (max, min);
+            }
+
+            uint256 b = boundLog(x, min, max);
+
+            console2.log(x, b, 2**min, 2**max);
+            assertTrue(b >= 2**min);
+            assertTrue(b/2 <2**max);
+        
+    } 
 
     /// forge-config: default.fuzz.runs = 500
     function test_Success_wrapUnwrapTokenIds_1Leg(
@@ -1089,6 +1115,84 @@ contract PanopticHelperTest is PositionUtils {
         uint256 requiredAfter = ph.getRequiredBase(pp, optimizedTokenId, currentTick);
         console2.log("tokenIds", TokenId.unwrap(tokenId), TokenId.unwrap(optimizedTokenId));
         assertTrue(requiredAfter <= requiredBefore);
+    }
+
+    /// forge-config: default.fuzz.runs = 100
+    function test_Success_buyingPowers(uint256 x, uint256 seed) public {
+        _initPool(x);
+
+        seed = uint256(keccak256(abi.encode(seed)));
+        console2.log("seed", seed);
+        uint256 numberOfLegs = ((seed >> 222) % 4) + 1;
+
+        PanopticHelper.Leg[] memory inputLeg = new PanopticHelper.Leg[](numberOfLegs);
+
+        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId);
+
+        for (uint256 leg; leg < numberOfLegs; ++leg) {
+            tokenId = tokenId.addRiskPartner(leg, leg);
+        }
+
+        // keep option ratio same for all
+        uint256 optionRatio = uint256(seed % 2 ** 7);
+        optionRatio = optionRatio == 0 ? 1 : optionRatio;
+
+        // keep asset same for all
+        uint256 asset = uint256((seed >> 9) % 2);
+
+        for (uint256 i; i < numberOfLegs; ++i) {
+            // update seed
+            seed = uint256(keccak256(abi.encode(seed)));
+            uint256 isLong;
+            {
+                isLong = uint256((seed >> 7) % 2);
+
+                uint256 tokenType = uint256((seed >> 27) % 2);
+                tokenId = tokenId.addTokenType(tokenType, i);
+                // add optionRatio
+                tokenId = tokenId.addOptionRatio(optionRatio, i);
+
+                // add isLong
+                tokenId = tokenId.addIsLong(isLong, i);
+
+                // add asset
+                tokenId = tokenId.addAsset(asset, i);
+            }
+            // add strike
+            uint256 strikeTemp = uint256((seed >> 10) % 2 ** 20) / 100;
+            uint256 strikeSign = uint256((seed >> 30) % 2);
+            int24 strike = strikeTemp > 887272
+                ? int24(uint24(strikeTemp / 2))
+                : int24(uint24(strikeTemp));
+            strike = strikeSign == 0 ? -strike : strike;
+            strike = ((currentTick + strike) / pool.tickSpacing()) * pool.tickSpacing();
+            tokenId = tokenId.addStrike(strike, i);
+
+            // add width
+            int24 width = int24(uint24(uint256((seed >> 31) % 2 ** 12)));
+            width = (width / 2) * 2;
+            width = width == 0 ? int24(2) : width;
+
+            tokenId = tokenId.addWidth(width, i);
+
+            // add to input array of legs
+            PanopticHelper.Leg memory _Leg = PanopticHelper.Leg({
+                poolId: poolId,
+                UniswapV3Pool: address(pool),
+                optionRatio: optionRatio,
+                asset: asset,
+                isLong: isLong,
+                tokenType: tokenId.tokenType(i),
+                riskPartner: tokenId.riskPartner(i),
+                strike: strike,
+                width: width
+            });
+            inputLeg[i] = _Leg;
+        }
+
+        vm.startPrank(Alice);
+        uint128 positionSize = uint128((seed >> 23) % 2**64);
+        (uint128 r0, uint128 r1) = ph.positionBuyingPowerRequirement(pp, Alice, tokenId, positionSize);
     }
 
     function test_Success_checkCollateral_OTMandITMShortCall(
