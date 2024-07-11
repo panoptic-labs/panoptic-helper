@@ -10,7 +10,7 @@ import {Constants} from "@libraries/Constants.sol";
 import {PanopticMath} from "@libraries/PanopticMath.sol";
 import {Math} from "@libraries/Math.sol";
 // Custom types
-import {LeftRightUnsigned} from "@types/LeftRight.sol";
+import {LeftRightUnsigned, LeftRightSigned} from "@types/LeftRight.sol";
 import {TokenId, TokenIdLibrary} from "@types/TokenId.sol";
 
 /// @title Utility contract for token ID construction and advanced queries.
@@ -35,43 +35,6 @@ contract PanopticHelper {
     /// @dev the SFPM is used to get the pool ID for a given address
     constructor(SemiFungiblePositionManager _SFPM) payable {
         SFPM = _SFPM;
-    }
-
-    /// @notice Compute the total amount of collateral needed to cover the existing list of active positions in positionIdList.
-    /// @param pool The PanopticPool instance to check collateral on
-    /// @param account Address of the user that owns the positions
-    /// @param atTick At what price is the collateral requirement evaluated at
-    /// @param tokenType whether to return the values in term of token0 or token1
-    /// @param positionIdList List of positions. Written as [tokenId1, tokenId2, ...]
-    /// @return collateralBalance the total combined balance of token0 and token1 for a user in terms of tokenType
-    /// @return requiredCollateral The combined collateral requirement for a user in terms of tokenType
-    function checkCollateral(
-        PanopticPool pool,
-        address account,
-        int24 atTick,
-        uint256 tokenType,
-        TokenId[] calldata positionIdList
-    ) public view returns (uint256, uint256) {
-        // Compute premia for all options (includes short+long premium)
-        (int128 premium0, int128 premium1, uint256[2][] memory positionBalanceArray) = pool
-            .calculateAccumulatedFeesBatch(account, false, positionIdList);
-
-        // Query the current and required collateral amounts for the two tokens
-        LeftRightUnsigned tokenData0 = pool.collateralToken0().getAccountMarginDetails(
-            account,
-            atTick,
-            positionBalanceArray,
-            premium0
-        );
-        LeftRightUnsigned tokenData1 = pool.collateralToken1().getAccountMarginDetails(
-            account,
-            atTick,
-            positionBalanceArray,
-            premium1
-        );
-
-        // convert (using atTick) and return the total collateral balance and required balance in terms of tokenType
-        return PanopticMath.convertCollateralData(tokenData0, tokenData1, tokenType, atTick);
     }
 
     /// @notice optimizes the risk partneting of all legs within a tokenId
@@ -356,6 +319,192 @@ contract PanopticHelper {
         return PanopticMath.twapFilter(univ3pool, twapWindow);
     }
 
+    /*//////////////////////////////////////////////////////////////
+                        PORTFOLIO CALCULATIONS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Compute the total amount of collateral needed to cover the existing list of active positions in positionIdList.
+    /// @param pool The PanopticPool instance to check collateral on
+    /// @param account Address of the user that owns the positions
+    /// @param atTick At what price is the collateral requirement evaluated at
+    /// @param tokenType whether to return the values in term of token0 or token1
+    /// @param positionIdList List of positions. Written as [tokenId1, tokenId2, ...]
+    /// @return collateralBalance the total combined balance of token0 and token1 for a user in terms of tokenType
+    /// @return requiredCollateral The combined collateral requirement for a user in terms of tokenType
+    function checkCollateral(
+        PanopticPool pool,
+        address account,
+        int24 atTick,
+        uint256 tokenType,
+        TokenId[] calldata positionIdList
+    ) public view returns (uint256, uint256) {
+        // Compute premia for all options (includes short+long premium)
+        (int128 premium0, int128 premium1, uint256[2][] memory positionBalanceArray) = pool
+            .calculateAccumulatedFeesBatch(account, false, positionIdList);
+
+        // Query the current and required collateral amounts for the two tokens
+        LeftRightUnsigned tokenData0 = pool.collateralToken0().getAccountMarginDetails(
+            account,
+            atTick,
+            positionBalanceArray,
+            premium0
+        );
+        LeftRightUnsigned tokenData1 = pool.collateralToken1().getAccountMarginDetails(
+            account,
+            atTick,
+            positionBalanceArray,
+            premium1
+        );
+
+        // convert (using atTick) and return the total collateral balance and required balance in terms of tokenType
+        return PanopticMath.convertCollateralData(tokenData0, tokenData1, tokenType, atTick);
+    }
+
+    /// @notice return the buying power requirement of the account in terms of token0 and token1 at the current price
+    function buyingPowerRequirement(
+        address pool,
+        address account,
+        TokenId[] calldata positionIdList
+    ) public view returns (int256 buyingPowerRequirement0, int256 buyingPowerRequirement1) {
+
+        (uint160 sqrtPriceX96, int24 tick, , , , , ) = PanopticPool(pool).univ3pool().slot0();
+
+        (uint256 balanceCross, uint256 requiredCross) = checkCollateral(
+            PanopticPool(pool),
+            account,
+            tick,
+            0,
+            positionIdList
+        );
+
+        buyingPowerRequirement0 = int256(requiredCross);
+        buyingPowerRequirement1 = PanopticMath.convert0to1(buyingPowerRequirement0, sqrtPriceX96);
+    }
+
+    /// @notice return the buying power of the account
+    function buyingPower(
+        address pool,
+        address account,
+        TokenId[] calldata positionIdList
+    ) public view returns (int256 buyingPower0, int256 buyingPower1) {
+
+        (uint160 sqrtPriceX96, int24 tick, , , , , ) = PanopticPool(pool).univ3pool().slot0();
+
+        (uint256 balanceCross, uint256 requiredCross) = checkCollateral(
+            PanopticPool(pool),
+            account,
+            tick,
+            0,
+            positionIdList
+        );
+
+        buyingPower0 = int256(balanceCross) - int256(requiredCross);
+        buyingPower1 = PanopticMath.convert0to1(buyingPower0, sqrtPriceX96);
+    }
+
+    /// @notice return the buying power utilization = required/balance as a X10000 number
+    function buyingPowerUtilization(
+        address pool,
+        address account,
+        TokenId[] calldata positionIdList
+    ) public view returns (uint256 utilization) {
+        (, int24 tick, , , , , ) = PanopticPool(pool).univ3pool().slot0();
+        (uint256 balanceCross, uint256 requiredCross) = checkCollateral(
+            PanopticPool(pool),
+            account,
+            tick,
+            0,
+            positionIdList
+        );
+
+        utilization = (requiredCross * 10000) / balanceCross;
+    }
+
+    /// @notice compute the buying power requirement of all positions in an account
+    function buyingPowerRequirements(
+        address pool,
+        address account,
+        TokenId[] calldata positionIdList
+    ) public view returns (uint256[3][] memory) {
+        (, int24 tick, , , , , ) = PanopticPool(pool).univ3pool().slot0();
+
+        (int128 premium0, int128 premium1, uint256[2][] memory positionBalanceArray) = PanopticPool(pool)
+            .calculateAccumulatedFeesBatch(account, false, positionIdList);
+
+        uint256[3][] memory buyingPowerPerPosition = new uint256[3][](positionIdList.length);
+
+        for (uint256 i; i < positionIdList.length; ++i) {
+            uint256[2][] memory positionBalance = new uint256[2][](1);
+            positionBalance[0] = positionBalanceArray[i];
+            LeftRightUnsigned tokenData0 = PanopticPool(pool).collateralToken0().getAccountMarginDetails(
+                    account,
+                    tick,
+                    positionBalance,
+                    0
+                );
+                LeftRightUnsigned tokenData1 = PanopticPool(pool).collateralToken1().getAccountMarginDetails(
+                    account,
+                    tick,
+                    positionBalance,
+                    0
+                );
+                buyingPowerPerPosition[i][0] = positionBalance[0][0];
+                buyingPowerPerPosition[i][1] = tokenData0.leftSlot();
+                buyingPowerPerPosition[i][2] = tokenData1.leftSlot();
+        }
+
+        return buyingPowerPerPosition;
+    }
+
+    /// @notice compute the buying power requirement of a new tokenId, taking into account the increase in pool utilization
+    function positionBuyingPowerRequirement(
+        PanopticPool pool,
+        address account,
+        TokenId tokenId,
+        uint128 positionSize
+    ) public view returns (uint128, uint128) {
+
+        uint128 utilizations;
+        {
+            (uint256 poolAssets0, uint256 insideAMM0, ) = pool.collateralToken0().getPoolData();
+
+            (uint256 poolAssets1, uint256 insideAMM1, ) = pool.collateralToken1().getPoolData();
+
+            (LeftRightSigned longAmounts, LeftRightSigned shortAmounts) = PanopticMath.computeExercisedAmounts(tokenId, positionSize);
+
+            int256 net0 = shortAmounts.rightSlot() - longAmounts.rightSlot();
+            int256 net1 = shortAmounts.leftSlot() - longAmounts.leftSlot();
+
+            int256 newPoolUtilization0 = (int256(insideAMM0) + net0) / (int256(poolAssets0) + int256(insideAMM0) + net0);
+            int256 newPoolUtilization1 = (int256(insideAMM1) + net1) / (int256(poolAssets1) + int256(insideAMM1) + net1);
+            utilizations = uint128(uint256(newPoolUtilization0)) + uint128(uint256(newPoolUtilization1) << 64);
+        }
+
+        uint256[2][] memory positionBalance = new uint256[2][](1);
+        {
+            positionBalance[0][0] = TokenId.unwrap(tokenId);
+            positionBalance[0][1] = uint256(positionSize) + uint256(utilizations << 128);
+        }
+        {
+            (, int24 tick, , , , , ) = PanopticPool(pool).univ3pool().slot0();
+
+            // compute single position BPR using new pool utilizations
+            LeftRightUnsigned tokenData0 = pool.collateralToken0().getAccountMarginDetails(
+                account,
+                tick,
+                positionBalance,
+                0
+            );
+            LeftRightUnsigned tokenData1 = pool.collateralToken1().getAccountMarginDetails(
+                account,
+                tick,
+                positionBalance,
+                0
+            );
+            return (tokenData0.leftSlot(), tokenData1.leftSlot());
+        }
+    }
+
     /// @notice Returns the net assets (balance - maintenance margin) of a given account on a given pool.
     /// @dev does not work for very large tick gradients.
     /// @param pool address of the pool
@@ -379,6 +528,10 @@ contract PanopticHelper {
 
         return int256(balanceCross) - int256(requiredCross);
     }
+
+    /*//////////////////////////////////////////////////////////////
+                        POSITION CREATION
+    //////////////////////////////////////////////////////////////*/
 
     /// @notice Unwraps the contents of the tokenId into its legs.
     /// @param tokenId the input tokenId
