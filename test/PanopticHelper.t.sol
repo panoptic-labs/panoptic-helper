@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 import "forge-std/Test.sol";
 import {Errors} from "@libraries/Errors.sol";
 import {PanopticMath} from "@libraries/PanopticMath.sol";
+import {Math} from "@libraries/Math.sol";
 import {Constants} from "@libraries/Constants.sol";
 import {TokenId} from "@types/TokenId.sol";
 import {LeftRightUnsigned, LeftRightSigned} from "@types/LeftRight.sol";
@@ -391,6 +392,18 @@ contract PanopticHelperTest is PositionUtils {
         );
     }
 
+    // bounds the input value between 2**min and 2**(max+1)-1
+    function boundLog(uint256 value, uint8 min, uint8 max) internal returns (uint256) {
+        uint256 range = uint256(max) - uint256(min) + 1;
+        uint256 m0 = value % 2 ** 128;
+        return
+            Math.mulDiv(
+                2 ** 255 + Math.mulDiv(2 ** 255 - 1, m0, 2 ** 128 - 1),
+                (2 ** (min + (value % range))),
+                2 ** 255
+            );
+    }
+
     /*//////////////////////////////////////////////////////////////
                           TEST DATA POPULATION
     //////////////////////////////////////////////////////////////*/
@@ -468,6 +481,68 @@ contract PanopticHelperTest is PositionUtils {
                     positionSizes[1]
                 )
         );
+    }
+
+    function test_Success_boundLog_max() public {
+        uint8 min = 255;
+        uint8 max = 255;
+
+        uint256 b = boundLog(type(uint256).max, min, max);
+        assertEq(b, type(uint256).max);
+
+        b = boundLog(0, min, max);
+        assertEq(b, 2 ** 255);
+    }
+
+    function test_Success_boundLog_min() public {
+        uint8 min = 0;
+        uint8 max = 0;
+
+        uint256 b = boundLog(type(uint256).max, min, max);
+        assertEq(b, 1);
+
+        b = boundLog(0, min, max);
+        assertEq(b, 1);
+    }
+
+    function test_Success_boundLog_narrow() public {
+        for (uint8 m; m != 255; ++m) {
+            uint256 b = boundLog(type(uint256).max, m, m);
+            assertEq(b, 2 ** (m + 1) - 1);
+
+            b = boundLog(0, m, m);
+            assertEq(b, 2 ** m);
+        }
+    }
+
+    function test_Success_boundLog_mid() public {
+        for (uint8 m; m != 224; ++m) {
+            uint256 b = boundLog(type(uint256).max, m, m + 31);
+            assertEq(b, 2 ** (m + 32) - 1);
+
+            b = boundLog(0, m, m + 31);
+            assertEq(b, 2 ** m);
+        }
+    }
+
+    /// forge-config: default.fuzz.runs = 100000
+    function test_Success_boundLog(uint256 x) public {
+        x = uint256(keccak256(abi.encode(x)));
+        uint8 min = uint8(x);
+        uint8 max = uint8(x >> 8);
+
+        if (min > max) {
+            (min, max) = (max, min);
+        }
+
+        uint256 b = boundLog(x, min, max);
+
+        assertTrue(b >= 2 ** min);
+        if (max == 255) {
+            assertTrue(b <= (type(uint256).max));
+        } else {
+            assertTrue(b < 2 ** (max + 1));
+        }
     }
 
     /// forge-config: default.fuzz.runs = 500
