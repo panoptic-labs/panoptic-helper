@@ -1193,5 +1193,4 @@ contract PanopticHelperTest is PositionUtils {
             assertEq(requiredCollateral, calculatedRequiredCollateral);
         }
     }
-
 }
