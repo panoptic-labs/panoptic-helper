@@ -22,7 +22,7 @@ import {SemiFungiblePositionManager} from "@contracts/SemiFungiblePositionManage
 import {PanopticPool} from "@contracts/PanopticPool.sol";
 import {CollateralTracker} from "@contracts/CollateralTracker.sol";
 import {PanopticFactory} from "@contracts/PanopticFactory.sol";
-import {PanopticHelper} from "@periphery/PanopticHelper.sol";
+import {PanopticHelper} from "../src/PanopticHelper.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {PositionUtils} from "lib/panoptic-v1-core/test/foundry/testUtils/PositionUtils.sol";
 import {UniPoolPriceMock} from "lib/panoptic-v1-core/test/foundry/testUtils/PriceMocks.sol";
@@ -1011,6 +1011,86 @@ contract PanopticHelperTest is PositionUtils {
         assertEq(keccakIn, keccakOut);
     }
 
+    /// forge-config: default.fuzz.runs = 100
+    function test_Success_optimizePartners(uint256 x, uint256 seed) public {
+        _initPool(x);
+
+        seed = uint256(keccak256(abi.encode(seed)));
+        console2.log("seed", seed);
+        uint256 numberOfLegs = ((seed >> 222) % 4) + 1;
+
+        PanopticHelper.Leg[] memory inputLeg = new PanopticHelper.Leg[](numberOfLegs);
+
+        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId);
+
+        for (uint256 leg; leg < numberOfLegs; ++leg) {
+            tokenId = tokenId.addRiskPartner(leg, leg);
+        }
+
+        // keep option ratio same for all
+        uint256 optionRatio = uint256(seed % 2 ** 7);
+        optionRatio = optionRatio == 0 ? 1 : optionRatio;
+
+        // keep asset same for all
+        uint256 asset = uint256((seed >> 9) % 2);
+
+        for (uint256 i; i < numberOfLegs; ++i) {
+            // update seed
+            seed = uint256(keccak256(abi.encode(seed)));
+            uint256 isLong;
+            {
+                isLong = uint256((seed >> 7) % 2);
+
+                uint256 tokenType = uint256((seed >> 27) % 2);
+                tokenId = tokenId.addTokenType(tokenType, i);
+                // add optionRatio
+                tokenId = tokenId.addOptionRatio(optionRatio, i);
+
+                // add isLong
+                tokenId = tokenId.addIsLong(isLong, i);
+
+                // add asset
+                tokenId = tokenId.addAsset(asset, i);
+            }
+            // add strike
+            uint256 strikeTemp = uint256((seed >> 10) % 2 ** 20);
+            uint256 strikeSign = uint256((seed >> 30) % 2);
+            int24 strike = strikeTemp > 887272
+                ? int24(uint24(strikeTemp / 2))
+                : int24(uint24(strikeTemp));
+            strike = strikeSign == 0 ? -strike : strike;
+            strike = (strike / pool.tickSpacing()) * pool.tickSpacing();
+            tokenId = tokenId.addStrike(strike, i);
+
+            // add width
+            int24 width = int24(uint24(uint256((seed >> 31) % 2 ** 12)));
+            width = (width / 2) * 2;
+            width = width == 0 ? int24(2) : width;
+
+            tokenId = tokenId.addWidth(width, i);
+
+            // add to input array of legs
+            PanopticHelper.Leg memory _Leg = PanopticHelper.Leg({
+                poolId: poolId,
+                UniswapV3Pool: address(pool),
+                optionRatio: optionRatio,
+                asset: asset,
+                isLong: isLong,
+                tokenType: tokenId.tokenType(i),
+                riskPartner: tokenId.riskPartner(i),
+                strike: strike,
+                width: width
+            });
+            inputLeg[i] = _Leg;
+        }
+
+        uint256 requiredBefore = ph.getRequiredBase(pp, tokenId, currentTick);
+        TokenId optimizedTokenId = ph.optimizeRiskPartners(pp, currentTick, tokenId);
+        uint256 requiredAfter = ph.getRequiredBase(pp, optimizedTokenId, currentTick);
+        console2.log("tokenIds", TokenId.unwrap(tokenId), TokenId.unwrap(optimizedTokenId));
+        assertTrue(requiredAfter <= requiredBefore);
+    }
+
     function test_Success_checkCollateral_OTMandITMShortCall(
         uint256 x,
         uint256[2] memory widthSeeds,
@@ -1113,4 +1193,5 @@ contract PanopticHelperTest is PositionUtils {
             assertEq(requiredCollateral, calculatedRequiredCollateral);
         }
     }
+
 }
