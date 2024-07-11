@@ -394,9 +394,9 @@ contract PanopticHelperTest is PositionUtils {
   
    // bounds the input value between 2**min and 2**(max+1)-1 
    function boundLog(uint256 value, uint8 min, uint8 max) internal returns (uint256) {
-        uint8 range = max - min + 1;
+        uint256 range = uint256(max) - uint256(min) + 1;
         uint256 m0 = value % 2**128;
-        return Math.mulDiv(2**128 + m0, (2 ** (min + (value % range) )), 2**128); 
+        return Math.mulDiv(2**255 + 2**127 - 1 + m0 * 2**127, (2 ** (min + (value % range) )), 2**255); 
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -478,22 +478,24 @@ contract PanopticHelperTest is PositionUtils {
         );
     }
 
-    /// forge-config: default.fuzz.runs = 5000
+    /// forge-config: default.fuzz.runs = 100000
     function test_Success_boundLog(uint256 x) public {
         x = uint256(keccak256(abi.encode(x)));
         uint8 min = uint8(x);
         uint8 max = uint8(x >> 8);
 
-            if (min > max) {
-                (min, max) = (max, min);
-            }
+        if (min > max) {
+            (min, max) = (max, min);
+        }
 
-            uint256 b = boundLog(x, min, max);
+        uint256 b = boundLog(x, min, max);
 
-            console2.log(x, b, 2**min, 2**max);
-            assertTrue(b >= 2**min);
-            assertTrue(b/2 <2**max);
-        
+        assertTrue(b >= 2**min);
+        if (max == 255) {
+            assertTrue(b <= (type(uint256).max));
+        } else {
+            assertTrue(b < 2**(max+1));
+        }
     } 
 
     /// forge-config: default.fuzz.runs = 500
@@ -1191,7 +1193,7 @@ contract PanopticHelperTest is PositionUtils {
         }
 
         vm.startPrank(Alice);
-        uint128 positionSize = uint128((seed >> 23) % 2**64);
+        uint128 positionSize = uint128(boundLog(x, 0, 80));
         (uint128 r0, uint128 r1) = ph.positionBuyingPowerRequirement(pp, Alice, tokenId, positionSize);
     }
 
