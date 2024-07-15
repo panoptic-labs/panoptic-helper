@@ -391,7 +391,7 @@ contract PanopticHelperTest is PositionUtils {
             new CollateralTracker(10, 2_000, 1_000, -1_024, 5_000, 9_000, 20_000)
         );
     }
-  
+
     // bounds the input value between 2**min and 2**(max+1)-1
     function boundLog(uint256 value, uint8 min, uint8 max) internal returns (uint256) {
         uint256 range = uint256(max) - uint256(min) + 1;
@@ -1241,7 +1241,12 @@ contract PanopticHelperTest is PositionUtils {
 
         vm.startPrank(Alice);
         uint128 positionSize = uint128(boundLog(x, 0, 80));
-        (uint128 r0, uint128 r1) = ph.positionBuyingPowerRequirement(pp, Alice, tokenId, positionSize);
+        (uint128 r0, uint128 r1) = ph.positionBuyingPowerRequirement(
+            pp,
+            Alice,
+            tokenId,
+            positionSize
+        );
     }
 
     function test_Success_checkCollateral_OTMandITMShortCall(

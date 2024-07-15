@@ -366,7 +366,6 @@ contract PanopticHelper {
         address account,
         TokenId[] calldata positionIdList
     ) public view returns (int256 buyingPowerRequirement0, int256 buyingPowerRequirement1) {
-
         (uint160 sqrtPriceX96, int24 tick, , , , , ) = PanopticPool(pool).univ3pool().slot0();
 
         (uint256 balanceCross, uint256 requiredCross) = checkCollateral(
@@ -387,7 +386,6 @@ contract PanopticHelper {
         address account,
         TokenId[] calldata positionIdList
     ) public view returns (int256 buyingPower0, int256 buyingPower1) {
-
         (uint160 sqrtPriceX96, int24 tick, , , , , ) = PanopticPool(pool).univ3pool().slot0();
 
         (uint256 balanceCross, uint256 requiredCross) = checkCollateral(
@@ -428,29 +426,24 @@ contract PanopticHelper {
     ) public view returns (uint256[3][] memory) {
         (, int24 tick, , , , , ) = PanopticPool(pool).univ3pool().slot0();
 
-        (int128 premium0, int128 premium1, uint256[2][] memory positionBalanceArray) = PanopticPool(pool)
-            .calculateAccumulatedFeesBatch(account, false, positionIdList);
+        (int128 premium0, int128 premium1, uint256[2][] memory positionBalanceArray) = PanopticPool(
+            pool
+        ).calculateAccumulatedFeesBatch(account, false, positionIdList);
 
         uint256[3][] memory buyingPowerPerPosition = new uint256[3][](positionIdList.length);
 
         for (uint256 i; i < positionIdList.length; ++i) {
             uint256[2][] memory positionBalance = new uint256[2][](1);
             positionBalance[0] = positionBalanceArray[i];
-            LeftRightUnsigned tokenData0 = PanopticPool(pool).collateralToken0().getAccountMarginDetails(
-                    account,
-                    tick,
-                    positionBalance,
-                    0
-                );
-                LeftRightUnsigned tokenData1 = PanopticPool(pool).collateralToken1().getAccountMarginDetails(
-                    account,
-                    tick,
-                    positionBalance,
-                    0
-                );
-                buyingPowerPerPosition[i][0] = positionBalance[0][0];
-                buyingPowerPerPosition[i][1] = tokenData0.leftSlot();
-                buyingPowerPerPosition[i][2] = tokenData1.leftSlot();
+            LeftRightUnsigned tokenData0 = PanopticPool(pool)
+                .collateralToken0()
+                .getAccountMarginDetails(account, tick, positionBalance, 0);
+            LeftRightUnsigned tokenData1 = PanopticPool(pool)
+                .collateralToken1()
+                .getAccountMarginDetails(account, tick, positionBalance, 0);
+            buyingPowerPerPosition[i][0] = positionBalance[0][0];
+            buyingPowerPerPosition[i][1] = tokenData0.leftSlot();
+            buyingPowerPerPosition[i][2] = tokenData1.leftSlot();
         }
 
         return buyingPowerPerPosition;
@@ -463,21 +456,25 @@ contract PanopticHelper {
         TokenId tokenId,
         uint128 positionSize
     ) public view returns (uint128, uint128) {
-
         uint128 utilizations;
         {
             (uint256 poolAssets0, uint256 insideAMM0, ) = pool.collateralToken0().getPoolData();
 
             (uint256 poolAssets1, uint256 insideAMM1, ) = pool.collateralToken1().getPoolData();
 
-            (LeftRightSigned longAmounts, LeftRightSigned shortAmounts) = PanopticMath.computeExercisedAmounts(tokenId, positionSize);
+            (LeftRightSigned longAmounts, LeftRightSigned shortAmounts) = PanopticMath
+                .computeExercisedAmounts(tokenId, positionSize);
 
             int256 net0 = shortAmounts.rightSlot() - longAmounts.rightSlot();
             int256 net1 = shortAmounts.leftSlot() - longAmounts.leftSlot();
 
-            int256 newPoolUtilization0 = (int256(insideAMM0) + net0) / (int256(poolAssets0) + int256(insideAMM0) + net0);
-            int256 newPoolUtilization1 = (int256(insideAMM1) + net1) / (int256(poolAssets1) + int256(insideAMM1) + net1);
-            utilizations = uint128(uint256(newPoolUtilization0)) + uint128(uint256(newPoolUtilization1) << 64);
+            int256 newPoolUtilization0 = (int256(insideAMM0) + net0) /
+                (int256(poolAssets0) + int256(insideAMM0) + net0);
+            int256 newPoolUtilization1 = (int256(insideAMM1) + net1) /
+                (int256(poolAssets1) + int256(insideAMM1) + net1);
+            utilizations =
+                uint128(uint256(newPoolUtilization0)) +
+                uint128(uint256(newPoolUtilization1) << 64);
         }
 
         uint256[2][] memory positionBalance = new uint256[2][](1);
