@@ -395,7 +395,7 @@ contract PanopticHelperTest is PositionUtils {
     // bounds the input value between 2**min and 2**(max+1)-1
     function boundLog(uint256 value, uint8 min, uint8 max) internal returns (uint256) {
         uint256 range = uint256(max) - uint256(min) + 1;
-        uint256 m0 = value % 2 ** 128;
+        uint256 m0 = (value >> 128) % 2 ** 128;
         return
             Math.mulDiv(
                 2 ** 255 + Math.mulDiv(2 ** 255 - 1, m0, 2 ** 128 - 1),
