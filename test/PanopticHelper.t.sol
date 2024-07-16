@@ -92,7 +92,7 @@ contract PanopticHelperTest is PositionUtils {
         IUniswapV3Pool(0xCBCdF9626bC03E24f779434178A73a0B4bad62eD);
     IUniswapV3Pool constant USDC_WETH_30 =
         IUniswapV3Pool(0x8ad599c3A0ff1De082011EFDDc58f1908eb6e6D8);
-    IUniswapV3Pool[3] public pools = [USDC_WETH_5, USDC_WETH_5, USDC_WETH_5];
+    IUniswapV3Pool[3] public pools = [USDC_WETH_5, WBTC_ETH_30, USDC_WETH_30];
 
     /*//////////////////////////////////////////////////////////////
                               WORLD STATE
@@ -1267,5 +1267,37 @@ contract PanopticHelperTest is PositionUtils {
             assertEq(collateralBalance, calculatedCollateralBalance);
             assertEq(requiredCollateral, calculatedRequiredCollateral);
         }
+    }
+
+    function test_getTickData() public {
+        _initPool(1);
+
+        console2.log('pool', address(pool));
+        ph.getTickNets(pool);
+    }
+
+    function test_getSVG() public {
+        int256[] memory tickData = new int256[](8);
+        tickData[0] = 10;
+        tickData[1] = 15;
+        tickData[2] = 20;
+        tickData[3] = 25;
+        tickData[4] = 30;
+        tickData[5] = 35;
+        tickData[6] = 40;
+        tickData[7] = 45;
+
+        int256[] memory liquidityData = new int256[](8);
+        liquidityData[0] = 5;
+        liquidityData[1] = 7;
+        liquidityData[2] = 25;
+        liquidityData[3] = 10;
+        liquidityData[4] = 9;
+        liquidityData[5] = 20;
+        liquidityData[6] = 12;
+        liquidityData[7] = 6;
+
+
+        console2.log(ph.generateBase64EncodedSVG(tickData, liquidityData, 17, 1));
     }
 }
