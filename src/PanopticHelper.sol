@@ -378,24 +378,33 @@ contract PanopticHelper {
         int256[] memory liquidityNets = new int256[](201);
 
         uint256 i;
-        for (int256 dt = -100 * tickSpacing; dt < 100 * tickSpacing; ) {
-            (, int128 liquidityNet, , , , , , ) =  univ3pool.ticks(int24(scaledTick + dt));
+        for (int256 dt = -100; dt < 100; ) {
+            (, int128 liquidityNet, , , , , , ) =  univ3pool.ticks(int24(scaledTick + dt*tickSpacing));
 
             if (i == 0) {
-                tickData[i] = scaledTick + dt;
+                tickData[i] = scaledTick + dt*tickSpacing;
                 liquidityNets[i] = 250220217232024050;
                                   
             }
-            tickData[i+1] = scaledTick + dt;
+            tickData[i+1] = scaledTick + dt*tickSpacing;
             liquidityNets[i+1] = liquidityNets[i] + liquidityNet;
 
             console2.log(tickData[i+1]);
-            console2.log(liquidityNets[i+1]);
+            //console2.log(liquidityNets[i+1]);
             ++i;
-            dt += tickSpacing;
+            ++dt;
         }
 
         return (tickData, liquidityNets);
+    }
+
+    function toStringSignedPct(int256 value) internal pure returns (string memory) {
+        if (value < 0) {
+            return string(abi.encodePacked('-', uint256(-value/100).toString(),'.',uint256(-value % 100).toString()));
+        } else {
+            return string(abi.encodePacked(uint256(value/100).toString(),'.',uint256(value % 100).toString()));
+        }
+
     }
 
     function toStringSigned(int256 value) internal pure returns (string memory) {
@@ -415,7 +424,7 @@ contract PanopticHelper {
 
         string memory svgStart = string(abi.encodePacked(
             '<svg xmlns="http://www.w3.org/2000/svg" width="', uint256(WIDTH).toString(), '" height="', uint256(HEIGHT).toString(), '">',
-            '<rect width="100%" height="100%" fill="white"/><defs><linearGradient id="lineGradient" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" style="stop-color:rgba(0,0,255,0.75)"/><stop offset="100%" style="stop-color:rgba(0,0,255,0)"/></linearGradient><linearGradient id="barGradient" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" style="stop-color:rgba(0,0,255,0.75)"/><stop offset="100%" style="stop-color:rgba(0,0,255,0)"/></linearGradient></defs>'));
+            '<rect width="100%" height="100%" fill="white"/><defs><linearGradient id="lineGradient" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" style="stop-color:rgba(91,12,214,0.75)"/><stop offset="100%" style="stop-color:rgba(91,12,214,0)"/></linearGradient><linearGradient id="barGradient" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" style="stop-color:rgba(91,12,214,0.75)"/><stop offset="100%" style="stop-color:rgba(91,12,214,0.25)"/></linearGradient></defs>'));
 
         string memory chartData;
         if (chartType == 0) {
@@ -476,7 +485,7 @@ contract PanopticHelper {
        
        
         return string(abi.encodePacked(
-            '<path d="', pathData, '" fill="url(#lineGradient)" stroke="blue" stroke-width="2"/>',
+            '<path d="', pathData, '" fill="url(#lineGradient)" stroke="rgba(91,12,241,1)" stroke-width="2"/>',
             circles
         )); 
     }
@@ -506,7 +515,7 @@ contract PanopticHelper {
             int256 barHeight = HEIGHT - y - PADDING;
 
             bars = string(abi.encodePacked(bars, 
-                '<rect x="', toStringSigned(x - barWidth / 2), 
+                '<rect x="', toStringSigned(x - (barWidth) / 2), 
                 '" y="', toStringSigned(y),
                 '" width="', uint256(barWidth).toString(),
                 '" height="', uint256(barHeight).toString(),
