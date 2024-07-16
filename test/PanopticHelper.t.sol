@@ -1273,7 +1273,11 @@ contract PanopticHelperTest is PositionUtils {
         _initPool(1);
 
         console2.log('pool', address(pool));
-        ph.getTickNets(pool);
+        (int256[] memory tickData, int256[] memory liquidityData) = ph.getTickNets(pool);
+        
+        (, currentTick, , , , , ) = pool.slot0();
+
+        console2.log(ph.generateBase64EncodedSVG(tickData, liquidityData, currentTick, 1));
     }
 
     function test_getSVG() public {

@@ -369,25 +369,33 @@ contract PanopticHelper {
     }
 
 
-    function getTickNets(IUniswapV3Pool univ3pool) external view returns (int24[] memory, int256[] memory ) {
+    function getTickNets(IUniswapV3Pool univ3pool) external view returns (int256[] memory, int256[] memory ) {
         (, int24 currentTick, , , , , ) = univ3pool.slot0();
         int24 tickSpacing = univ3pool.tickSpacing();
-        int24 scaledTick = (currentTick / tickSpacing) * tickSpacing;
+        int256 scaledTick = int256((currentTick / tickSpacing) * tickSpacing);
 
-        int128[2][] memory liquidityNets = new int128[2][](1001);
+        int256[] memory tickData = new int256[](201);
+        int256[] memory liquidityNets = new int256[](201);
 
         uint256 i;
-        for (int24 dt = -250 * tickSpacing; dt < 250 * tickSpacing; ) {
-            (, int128 liquidityNet, , , , , , ) =  univ3pool.ticks(scaledTick + dt);
+        for (int256 dt = -100 * tickSpacing; dt < 100 * tickSpacing; ) {
+            (, int128 liquidityNet, , , , , , ) =  univ3pool.ticks(int24(scaledTick + dt));
 
-            liquidityNets[i][0] = scaledTick + dt;
-            liquidityNets[i][1] = liquidityNet;
+            if (i == 0) {
+                tickData[i] = scaledTick + dt;
+                liquidityNets[i] = 250220217232024050;
+                                  
+            }
+            tickData[i+1] = scaledTick + dt;
+            liquidityNets[i+1] = liquidityNets[i] + liquidityNet;
 
-            console2.log(liquidityNet);
+            console2.log(tickData[i+1]);
+            console2.log(liquidityNets[i+1]);
             ++i;
             dt += tickSpacing;
         }
 
+        return (tickData, liquidityNets);
     }
 
     function toStringSigned(int256 value) internal pure returns (string memory) {
