@@ -1272,9 +1272,9 @@ contract PanopticHelperTest is PositionUtils {
     function test_getTickData() public {
         _initPool(1);
 
-        console2.log('pool', address(pool));
+        console2.log("pool", address(pool));
         (int256[] memory tickData, int256[] memory liquidityData) = ph.getTickNets(pool);
-        
+
         (, currentTick, , , , , ) = pool.slot0();
 
         console2.log(ph.generateBase64EncodedSVG(tickData, liquidityData, currentTick, 1));
@@ -1300,7 +1300,6 @@ contract PanopticHelperTest is PositionUtils {
         liquidityData[5] = 20;
         liquidityData[6] = 12;
         liquidityData[7] = 6;
-
 
         console2.log(ph.generateBase64EncodedSVG(tickData, liquidityData, 17, 1));
     }
