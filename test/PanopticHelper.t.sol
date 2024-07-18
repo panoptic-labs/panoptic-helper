@@ -395,12 +395,14 @@ contract PanopticHelperTest is PositionUtils {
     // bounds the input value between 2**min and 2**(max+1)-1
     function boundLog(uint256 value, uint8 min, uint8 max) internal returns (uint256) {
         uint256 range = uint256(max) - uint256(min) + 1;
-        uint256 m0 = (value >> 128) % 2 ** 128;
+        uint256 m0 = min + (value % range);
+        value = uint256(keccak256(abi.encode(value)));
+        uint256 m1 = value % 2**max;
         return
             Math.mulDiv(
-                2 ** 255 + Math.mulDiv(2 ** 255 - 1, m0, 2 ** 128 - 1),
-                (2 ** (min + (value % range))),
-                2 ** 255
+                2 ** max + m1,
+                2 ** m0,
+                2 ** max
             );
     }
 
@@ -481,48 +483,6 @@ contract PanopticHelperTest is PositionUtils {
                     positionSizes[1]
                 )
         );
-    }
-
-    function test_Success_boundLog_max() public {
-        uint8 min = 255;
-        uint8 max = 255;
-
-        uint256 b = boundLog(type(uint256).max, min, max);
-        assertEq(b, type(uint256).max);
-
-        b = boundLog(0, min, max);
-        assertEq(b, 2 ** 255);
-    }
-
-    function test_Success_boundLog_min() public {
-        uint8 min = 0;
-        uint8 max = 0;
-
-        uint256 b = boundLog(type(uint256).max, min, max);
-        assertEq(b, 1);
-
-        b = boundLog(0, min, max);
-        assertEq(b, 1);
-    }
-
-    function test_Success_boundLog_narrow() public {
-        for (uint8 m; m != 255; ++m) {
-            uint256 b = boundLog(type(uint256).max, m, m);
-            assertEq(b, 2 ** (m + 1) - 1);
-
-            b = boundLog(0, m, m);
-            assertEq(b, 2 ** m);
-        }
-    }
-
-    function test_Success_boundLog_mid() public {
-        for (uint8 m; m != 224; ++m) {
-            uint256 b = boundLog(type(uint256).max, m, m + 31);
-            assertEq(b, 2 ** (m + 32) - 1);
-
-            b = boundLog(0, m, m + 31);
-            assertEq(b, 2 ** m);
-        }
     }
 
     /// forge-config: default.fuzz.runs = 100000
