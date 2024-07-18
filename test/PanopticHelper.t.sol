@@ -397,13 +397,8 @@ contract PanopticHelperTest is PositionUtils {
         uint256 range = uint256(max) - uint256(min) + 1;
         uint256 m0 = min + (value % range);
         value = uint256(keccak256(abi.encode(value)));
-        uint256 m1 = value % 2**max;
-        return
-            Math.mulDiv(
-                2 ** max + m1,
-                2 ** m0,
-                2 ** max
-            );
+        uint256 m1 = value % 2 ** max;
+        return Math.mulDiv(2 ** max + m1, 2 ** m0, 2 ** max);
     }
 
     /*//////////////////////////////////////////////////////////////
