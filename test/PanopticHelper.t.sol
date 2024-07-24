@@ -398,7 +398,7 @@ contract PanopticHelperTest is PositionUtils {
         uint256 m0 = min + (value % range);
         value = uint256(keccak256(abi.encode(value)));
         uint256 m1 = value % 2 ** max;
-        return Math.mulDiv(2 ** max + m1, 2 ** m0, 2 ** max);
+        return 2 ** m0 + (m1 >> (max - m0));
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -480,25 +480,88 @@ contract PanopticHelperTest is PositionUtils {
         );
     }
 
-    /// forge-config: default.fuzz.runs = 100000
-    function test_Success_boundLog(uint256 x) public {
-        x = uint256(keccak256(abi.encode(x)));
-        uint8 min = uint8(x);
-        uint8 max = uint8(x >> 8);
 
-        if (min > max) {
-            (min, max) = (max, min);
+
+
+
+    /*//////////////////////////////////////////////////////////////////////////
+                                     BOUND LOG
+    //////////////////////////////////////////////////////////////////////////*/
+
+    function test_boundLog() public {
+
+        for (uint256 i = 0; i <= 255; ++i) { 
+            assertEq(boundLog(0, uint8(0), uint8(i)), 2**0 + ((uint256(keccak256(abi.encode(uint256(0)))) % 2**i) >> i));
+           
+            assertEq(boundLog(0, uint8(i), uint8(255)), 2**i + ((uint256(keccak256(abi.encode(uint256(0)))) % 2**255) >> (255 - i)));
+
+            assertEq(boundLog(0, uint8(i), uint8(i)), 2**i + (uint256(keccak256(abi.encode(uint256(0)))) % 2**i));
+
         }
-
-        uint256 b = boundLog(x, min, max);
-
-        assertTrue(b >= 2 ** min);
-        if (max == 255) {
-            assertTrue(b <= (type(uint256).max));
-        } else {
-            assertTrue(b < 2 ** (max + 1));
-        }
+        
     }
+
+
+    /// forge-config: default.fuzz.runs = 100000
+    function test_boundLog(uint256 x, uint8 min, uint8 max) public {
+
+        if (min > max) (min, max) = (max, min);
+
+        uint256 result = boundLog(x, min, max);
+
+        assertGe(result, 2 ** min);
+        assertLe(result, max == 255 ? type(uint256).max : 2 ** (max + 1) - 1);
+        assertEq(result, boundLog(x, min, max));
+    }
+
+    /// forge-config: default.fuzz.runs = 1000
+    function test_Success_boundLog_sameLimits(uint256 x) public {
+        for (uint8 i; i < 255; ++i) {
+            x = uint256(keccak256(abi.encode(x)));
+            uint256 b = boundLog(x, i, i);
+
+            assertTrue(b >= 2**i);
+            assertTrue(b <= (2**(i+1) - 1));
+        }
+        x = uint256(keccak256(abi.encode(x)));
+        uint256 b = boundLog(x, 255, 255);
+
+        assertTrue(b >= 2 ** 255);
+        assertTrue(b <= (type(uint256).max));
+    }
+
+    /// forge-config: default.fuzz.runs = 1000
+    function test_Success_boundLog_low(uint256 x) public {
+        for (uint8 i; i < 255; ++i) {
+            x = uint256(keccak256(abi.encode(x)));
+            uint256 b = boundLog(x, 0, i);
+
+            assertTrue(b >= 2**0);
+            assertTrue(b <= (2**(i+1) - 1));
+        }
+        x = uint256(keccak256(abi.encode(x)));
+        uint256 b = boundLog(x, 0, 255);
+
+        assertTrue(b >= 2 ** 0);
+        assertTrue(b <= (type(uint256).max));
+    }
+
+    /// forge-config: default.fuzz.runs = 1000
+    function test_Success_boundLog_high(uint256 x) public {
+        for (uint8 i; i < 255; ++i) {
+            x = uint256(keccak256(abi.encode(x)));
+            uint256 b = boundLog(x, i, 255);
+
+            assertTrue(b >= 2**i);
+            assertTrue(b <= type(uint256).max);
+        }
+        x = uint256(keccak256(abi.encode(x)));
+        uint256 b = boundLog(x, 255, 255);
+
+        assertTrue(b >= 2 ** 255);
+        assertTrue(b <= (type(uint256).max));
+    }
+
 
     /// forge-config: default.fuzz.runs = 500
     function test_Success_wrapUnwrapTokenIds_1Leg(
