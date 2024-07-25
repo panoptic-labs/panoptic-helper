@@ -1286,44 +1286,4 @@ contract PanopticHelperTest is PositionUtils {
         }
     }
 
-    function test_getTickData() public {
-        _initPool(1);
-
-        console2.log(ph.plotPoolLiquidity(address(pool), 1));
-    }
-
-    function test_getSVG() public {
-        int256[] memory tickData = new int256[](8);
-        tickData[0] = 10;
-        tickData[1] = 15;
-        tickData[2] = 20;
-        tickData[3] = 25;
-        tickData[4] = 30;
-        tickData[5] = 35;
-        tickData[6] = 40;
-        tickData[7] = 45;
-
-        int256[] memory liquidityData = new int256[](8);
-        liquidityData[0] = 5;
-        liquidityData[1] = 7;
-        liquidityData[2] = 25;
-        liquidityData[3] = 10;
-        liquidityData[4] = 9;
-        liquidityData[5] = 20;
-        liquidityData[6] = 12;
-        liquidityData[7] = 6;
-
-        console2.log(ph.generateBase64EncodedSVG(tickData, liquidityData, 17, 1, ""));
-    }
-
-    function test_toStringSignedPct() public {
-        assertEq(ph.toStringSignedPct(int256(10)), "0.10");
-        assertEq(ph.toStringSignedPct(int256(-10)), "-0.10");
-
-        assertEq(ph.toStringSignedPct(int256(123321)), "1233.21");
-        assertEq(ph.toStringSignedPct(int256(-321123)), "-3211.23");
-
-        assertEq(ph.toStringSignedPct(int256(123301)), "1233.01");
-        assertEq(ph.toStringSignedPct(int256(-321103)), "-3211.03");
-    }
 }
