@@ -498,13 +498,18 @@ contract PanopticHelper {
     }
 
     function generateTitle(string memory title) private pure returns (string memory) {
-        return string(abi.encodePacked(
-            '<text x="', uint256(WIDTH / 2).toString(),
-            '" y="', uint256(TITLE_HEIGHT / 2).toString(),
-            '" font-size="12" text-anchor="middle" dominant-baseline="middle">',
-            title,
-            '</text>'
-        ));
+        return
+            string(
+                abi.encodePacked(
+                    '<text x="',
+                    uint256(WIDTH / 2).toString(),
+                    '" y="',
+                    uint256(TITLE_HEIGHT / 2).toString(),
+                    '" font-size="12" text-anchor="middle" dominant-baseline="middle">',
+                    title,
+                    "</text>"
+                )
+            );
     }
 
     function generateLineChart(
@@ -645,8 +650,8 @@ contract PanopticHelper {
             currentTickLine = string(
                 abi.encodePacked(
                     '<line x1="',
-                    currentTickLine, 
-                    '" stroke="white" stroke-width="1.5" /><line x1="',                    
+                    currentTickLine,
+                    '" stroke="white" stroke-width="1.5" /><line x1="',
                     currentTickLine,
                     '" stroke="deeppink" stroke-width="0.75" opacity="0.8" />'
                 )
@@ -811,7 +816,6 @@ contract PanopticHelper {
         address pool,
         uint256 chartType
     ) public view returns (string memory) {
-
         IUniswapV3Pool univ3pool = IUniswapV3Pool(pool);
         (int256[] memory tickData, int256[] memory liquidityData) = getTickNets(univ3pool);
 
@@ -821,12 +825,12 @@ contract PanopticHelper {
         string memory symbol0 = ERC20(univ3pool.token0()).symbol();
         string memory symbol1 = ERC20(univ3pool.token1()).symbol();
 
-        string memory title = string(abi.encodePacked(symbol0, '-', symbol1, '-', uint256(feeTier / 100).toString() ,'bps'));
+        string memory title = string(
+            abi.encodePacked(symbol0, "-", symbol1, "-", uint256(feeTier / 100).toString(), "bps")
+        );
 
         return generateBase64EncodedSVG(tickData, liquidityData, currentTick, chartType, title);
     }
-
-
 
     function generateBase64EncodedSVG(
         int256[] memory tickData,
@@ -835,7 +839,13 @@ contract PanopticHelper {
         uint256 chartType,
         string memory title
     ) public pure returns (string memory) {
-        string memory svg = generateSVGChart(tickData, liquidityData, currentTick, chartType, title);
+        string memory svg = generateSVGChart(
+            tickData,
+            liquidityData,
+            currentTick,
+            chartType,
+            title
+        );
         return string(abi.encodePacked("data:image/svg+xml;base64,", Base64.encode(bytes(svg))));
     }
 
