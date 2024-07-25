@@ -74,9 +74,9 @@ contract PanopticHelper {
         return PanopticMath.convertCollateralData(tokenData0, tokenData1, tokenType, atTick);
     }
 
-    /// @notice optimizes the risk partneting of all legs within a tokenId
+    /// @notice Optimize the risk partnering of all legs within a tokenId.
     /// @param pool The PanopticPool instance to optimize the tokenId for
-    /// @param atTick At what price is the collateral requirement evaluated at
+    /// @param atTick The price at which the collateral requirement is evaluated
     /// @param tokenId the input tokenId
     /// @return the optimized tokenId
     function optimizeRiskPartners(
@@ -202,9 +202,9 @@ contract PanopticHelper {
         }
     }
 
-    /// @notice An external function that returns the collateral needed for a single tokenId at the provided tick
+    /// @notice An external function that returns the collateral needed for a single tokenId at the provided tick.
     /// @param pool The PanopticPool instance to optimize the tokenId for
-    /// @param atTick At what price is the collateral requirement evaluated at
+    /// @param atTick The price at which the collateral requirement is evaluated
     /// @param tokenId the input tokenId
     /// @return the required collateral for that position in terms of token0
     function getRequiredBase(
@@ -246,7 +246,7 @@ contract PanopticHelper {
         }
     }
 
-    /// @notice an external function that validates a tokenId
+    /// @notice An external function that validates a tokenId.
     /// @param self the tokenId to be tested
     function validateTokenId(TokenId self) external pure returns (bool) {
         self.validate();
@@ -255,7 +255,7 @@ contract PanopticHelper {
         }
     }
 
-    /// @notice an external function that ensures that the proposed tokenId can be minted
+    /// @notice An external function that ensures that the proposed tokenId can be minted.
     /// @param tokenId the input tokenId
     /// @param positionSize the size of the position
     /// @return a boolean value, valid = true / invalid = false
