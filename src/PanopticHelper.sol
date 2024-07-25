@@ -409,8 +409,8 @@ contract PanopticHelper {
                         "-",
                         uint256(-value / 100).toString(),
                         ".",
-                        ((-value % 100) < 10) ? '0' : '',
-                        uint256(-value % 100).toString() 
+                        ((-value % 100) < 10) ? "0" : "",
+                        uint256(-value % 100).toString()
                     )
                 );
         } else {
@@ -419,7 +419,7 @@ contract PanopticHelper {
                     abi.encodePacked(
                         uint256(value / 100).toString(),
                         ".",
-                        ((value % 100) < 10) ? '0' : '',
+                        ((value % 100) < 10) ? "0" : "",
                         uint256(value % 100).toString()
                     )
                 );
@@ -590,7 +590,8 @@ contract PanopticHelper {
         int256 maxLiquidity
     ) private pure returns (string memory) {
         string memory bars = "";
-        int256 barWidth = (((100 * (WIDTH - 2 * PADDING)) / int256(tickData.length + 1)) * 92) / 100; // fill available width, just about
+        int256 barWidth = (((100 * (WIDTH - 2 * PADDING)) / int256(tickData.length + 1)) * 92) /
+            100; // fill available width, just about
 
         minLiquidity = minLiquidity / 2;
         maxLiquidity = (maxLiquidity * 11) / 10;
@@ -601,7 +602,8 @@ contract PanopticHelper {
         for (uint i = 0; i < tickData.length; i++) {
             int256 x = (100 * (tickData[i] - minTick) * (WIDTH - 2 * PADDING)) /
                 (maxTick - minTick) +
-                100 * PADDING;
+                100 *
+                PADDING;
             int256 y = HEIGHT -
                 (((liquidityData[i] - minLiquidity) * (HEIGHT - 2 * PADDING)) /
                     (maxLiquidity - minLiquidity) +
@@ -614,7 +616,7 @@ contract PanopticHelper {
                     '<rect x="',
                     toStringSignedPct(x - (barWidth) / 2),
                     '" y="',
-                    toStringSignedPct(100*y),
+                    toStringSignedPct(100 * y),
                     '" width="',
                     toStringSignedPct(barWidth),
                     '" height="',

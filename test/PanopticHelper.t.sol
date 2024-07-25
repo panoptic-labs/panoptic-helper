@@ -1317,17 +1317,13 @@ contract PanopticHelperTest is PositionUtils {
     }
 
     function test_toStringSignedPct() public {
-
         assertEq(ph.toStringSignedPct(int256(10)), "0.10");
         assertEq(ph.toStringSignedPct(int256(-10)), "-0.10");
-    
+
         assertEq(ph.toStringSignedPct(int256(123321)), "1233.21");
         assertEq(ph.toStringSignedPct(int256(-321123)), "-3211.23");
-        
+
         assertEq(ph.toStringSignedPct(int256(123301)), "1233.01");
         assertEq(ph.toStringSignedPct(int256(-321103)), "-3211.03");
-   
-   
-
     }
 }
