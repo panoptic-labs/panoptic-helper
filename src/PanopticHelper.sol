@@ -16,6 +16,7 @@ import {TokenId, TokenIdLibrary} from "@types/TokenId.sol";
 
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {Base64} from "@openzeppelin/contracts/utils/Base64.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 /// @title Utility contract for token ID construction and advanced queries.
 /// @author Axicon Labs Limited
@@ -28,6 +29,7 @@ contract PanopticHelper {
     int256 private constant WIDTH = 500;
     int256 private constant HEIGHT = 300;
     int256 private constant PADDING = 40;
+    int256 private constant TITLE_HEIGHT = 20;
 
     struct Leg {
         uint64 poolId;
@@ -369,7 +371,7 @@ contract PanopticHelper {
 
     function getTickNets(
         IUniswapV3Pool univ3pool
-    ) external view returns (int256[] memory, int256[] memory) {
+    ) internal view returns (int256[] memory, int256[] memory) {
         (, int24 currentTick, , , , , ) = univ3pool.slot0();
         int24 tickSpacing = univ3pool.tickSpacing();
         int256 scaledTick = int256((currentTick / tickSpacing) * tickSpacing);
@@ -436,7 +438,8 @@ contract PanopticHelper {
         int256[] memory tickData,
         int256[] memory liquidityData,
         int256 currentTick,
-        uint256 chartType
+        uint256 chartType,
+        string memory title
     ) public pure returns (string memory) {
         require(tickData.length == liquidityData.length, "Data length mismatch");
         require(tickData.length > 1, "Not enough data points");
@@ -456,6 +459,8 @@ contract PanopticHelper {
                 '<rect width="100%" height="100%" fill="white"/><defs><linearGradient id="lineGradient" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" style="stop-color:rgba(91,12,214,0.75)"/><stop offset="100%" style="stop-color:rgba(91,12,214,0)"/></linearGradient><linearGradient id="barGradient" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" style="stop-color:rgba(91,12,214,0.75)"/><stop offset="100%" style="stop-color:rgba(91,12,214,0.25)"/></linearGradient></defs>'
             )
         );
+
+        string memory chartTitle = generateTitle(title);
 
         string memory chartData;
         if (chartType == 0) {
@@ -489,8 +494,17 @@ contract PanopticHelper {
         );
 
         string memory svgEnd = "</svg>";
+        return string(abi.encodePacked(svgStart, chartTitle, chartData, axes, svgEnd));
+    }
 
-        return string(abi.encodePacked(svgStart, chartData, axes, svgEnd));
+    function generateTitle(string memory title) private pure returns (string memory) {
+        return string(abi.encodePacked(
+            '<text x="', uint256(WIDTH / 2).toString(),
+            '" y="', uint256(TITLE_HEIGHT / 2).toString(),
+            '" font-size="12" text-anchor="middle" dominant-baseline="middle">',
+            title,
+            '</text>'
+        ));
     }
 
     function generateLineChart(
@@ -617,15 +631,22 @@ contract PanopticHelper {
             // Add the vertical line for the current tick
             string memory currentTickLine = string(
                 abi.encodePacked(
-                    '<line x1="',
                     uint256(currentTickX).toString(),
                     '" y1="',
                     uint256(PADDING).toString(),
                     '" x2="',
                     uint256(currentTickX).toString(),
                     '" y2="',
-                    uint256(HEIGHT - PADDING).toString(),
-                    '" stroke="deeppink" stroke-width="2" />'
+                    uint256(HEIGHT - PADDING).toString()
+                )
+            );
+            currentTickLine = string(
+                abi.encodePacked(
+                    '<line x1="',
+                    currentTickLine, 
+                    '" stroke="white" stroke-width="1.5" /><line x1="',                    
+                    currentTickLine,
+                    '" stroke="deeppink" stroke-width="0.75" opacity="0.8" />'
                 )
             );
 
@@ -784,13 +805,35 @@ contract PanopticHelper {
         return (minTick, maxTick, minLiquidity, maxLiquidity);
     }
 
+    function plotPoolLiquidity(
+        address pool,
+        uint256 chartType
+    ) public view returns (string memory) {
+
+        IUniswapV3Pool univ3pool = IUniswapV3Pool(pool);
+        (int256[] memory tickData, int256[] memory liquidityData) = getTickNets(univ3pool);
+
+        (, int24 currentTick, , , , , ) = univ3pool.slot0();
+
+        uint24 feeTier = univ3pool.fee();
+        string memory symbol0 = ERC20(univ3pool.token0()).symbol();
+        string memory symbol1 = ERC20(univ3pool.token1()).symbol();
+
+        string memory title = string(abi.encodePacked(symbol0, '-', symbol1, '-', uint256(feeTier / 100).toString() ,'bps'));
+
+        return generateBase64EncodedSVG(tickData, liquidityData, currentTick, chartType, title);
+    }
+
+
+
     function generateBase64EncodedSVG(
         int256[] memory tickData,
         int256[] memory liquidityData,
         int256 currentTick,
-        uint256 chartType
+        uint256 chartType,
+        string memory title
     ) public pure returns (string memory) {
-        string memory svg = generateSVGChart(tickData, liquidityData, currentTick, chartType);
+        string memory svg = generateSVGChart(tickData, liquidityData, currentTick, chartType, title);
         return string(abi.encodePacked("data:image/svg+xml;base64,", Base64.encode(bytes(svg))));
     }
 
