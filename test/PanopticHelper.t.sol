@@ -480,31 +480,31 @@ contract PanopticHelperTest is PositionUtils {
         );
     }
 
-
-
-
-
     /*//////////////////////////////////////////////////////////////////////////
                                      BOUND LOG
     //////////////////////////////////////////////////////////////////////////*/
 
     function test_boundLog() public {
+        for (uint256 i = 0; i <= 255; ++i) {
+            assertEq(
+                boundLog(0, uint8(0), uint8(i)),
+                2 ** 0 + ((uint256(keccak256(abi.encode(uint256(0)))) % 2 ** i) >> i)
+            );
 
-        for (uint256 i = 0; i <= 255; ++i) { 
-            assertEq(boundLog(0, uint8(0), uint8(i)), 2**0 + ((uint256(keccak256(abi.encode(uint256(0)))) % 2**i) >> i));
-           
-            assertEq(boundLog(0, uint8(i), uint8(255)), 2**i + ((uint256(keccak256(abi.encode(uint256(0)))) % 2**255) >> (255 - i)));
+            assertEq(
+                boundLog(0, uint8(i), uint8(255)),
+                2 ** i + ((uint256(keccak256(abi.encode(uint256(0)))) % 2 ** 255) >> (255 - i))
+            );
 
-            assertEq(boundLog(0, uint8(i), uint8(i)), 2**i + (uint256(keccak256(abi.encode(uint256(0)))) % 2**i));
-
+            assertEq(
+                boundLog(0, uint8(i), uint8(i)),
+                2 ** i + (uint256(keccak256(abi.encode(uint256(0)))) % 2 ** i)
+            );
         }
-        
     }
-
 
     /// forge-config: default.fuzz.runs = 100000
     function test_boundLog(uint256 x, uint8 min, uint8 max) public {
-
         if (min > max) (min, max) = (max, min);
 
         uint256 result = boundLog(x, min, max);
@@ -520,8 +520,8 @@ contract PanopticHelperTest is PositionUtils {
             x = uint256(keccak256(abi.encode(x)));
             uint256 b = boundLog(x, i, i);
 
-            assertTrue(b >= 2**i);
-            assertTrue(b <= (2**(i+1) - 1));
+            assertTrue(b >= 2 ** i);
+            assertTrue(b <= (2 ** (i + 1) - 1));
         }
         x = uint256(keccak256(abi.encode(x)));
         uint256 b = boundLog(x, 255, 255);
@@ -536,8 +536,8 @@ contract PanopticHelperTest is PositionUtils {
             x = uint256(keccak256(abi.encode(x)));
             uint256 b = boundLog(x, 0, i);
 
-            assertTrue(b >= 2**0);
-            assertTrue(b <= (2**(i+1) - 1));
+            assertTrue(b >= 2 ** 0);
+            assertTrue(b <= (2 ** (i + 1) - 1));
         }
         x = uint256(keccak256(abi.encode(x)));
         uint256 b = boundLog(x, 0, 255);
@@ -552,7 +552,7 @@ contract PanopticHelperTest is PositionUtils {
             x = uint256(keccak256(abi.encode(x)));
             uint256 b = boundLog(x, i, 255);
 
-            assertTrue(b >= 2**i);
+            assertTrue(b >= 2 ** i);
             assertTrue(b <= type(uint256).max);
         }
         x = uint256(keccak256(abi.encode(x)));
@@ -561,7 +561,6 @@ contract PanopticHelperTest is PositionUtils {
         assertTrue(b >= 2 ** 255);
         assertTrue(b <= (type(uint256).max));
     }
-
 
     /// forge-config: default.fuzz.runs = 500
     function test_Success_wrapUnwrapTokenIds_1Leg(
