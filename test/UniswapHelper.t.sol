@@ -38,12 +38,29 @@ contract SemiFungiblePositionManagerHarness is SemiFungiblePositionManager {
     }
 }
 
+contract UniswapHelperHarness is UniswapHelper {
+    constructor(IUniswapV3Factory _factory) UniswapHelper(_factory) {}
+
+    function generateBase64Pool(
+        int256[] memory tickData,
+        int256[] memory liquidityData,
+        int256 currentTick,
+        uint256 chartType,
+        string memory title
+    ) public pure returns (string memory) {
+        return generateBase64PoolSVG(tickData, liquidityData, currentTick, chartType, title);
+    }
+
+    function exportToStringSignedPct(int256 value) public pure returns (string memory) {
+        return toStringSignedPct(value);
+    }
+
+}
 contract UniswapHelperTest is PositionUtils {
     /*//////////////////////////////////////////////////////////////
                            MAINNET CONTRACTS
     //////////////////////////////////////////////////////////////*/
 
-    console2.log('foo2');
     // the instance of SFPM we are testing
     SemiFungiblePositionManagerHarness sfpm;
 
@@ -91,7 +108,7 @@ contract UniswapHelperTest is PositionUtils {
     int24 medianTick;
     int24 TWAPtick;
 
-    UniswapHelper uh;
+    UniswapHelperHarness uh;
 
     address Deployer = address(0x1234);
     address Alice = address(0x123456);
@@ -204,10 +221,8 @@ contract UniswapHelperTest is PositionUtils {
     }
 
     function setUp() public {
-        console2.log('foo');
         sfpm = new SemiFungiblePositionManagerHarness(V3FACTORY);
-        console2.log('bar');
-        uh = new UniswapHelper(SemiFungiblePositionManager(sfpm));
+        uh = new UniswapHelperHarness(V3FACTORY);
 
     }
 
@@ -329,19 +344,19 @@ contract UniswapHelperTest is PositionUtils {
         liquidityData[6] = 12;
         liquidityData[7] = 6;
 
-        console2.log(uh.generateBase64EncodedSVG(tickData, liquidityData, 17, 1,''));
+        console2.log(uh.generateBase64Pool(tickData, liquidityData, 17, 1,''));
     }
 
     function test_toStringSignedPct() public {
 
-        assertEq(uh.toStringSignedPct(int256(10)), "0.10");
-        assertEq(uh.toStringSignedPct(int256(-10)), "-0.10");
+        assertEq(uh.exportToStringSignedPct(int256(10)), "0.10");
+        assertEq(uh.exportToStringSignedPct(int256(-10)), "-0.10");
     
-        assertEq(uh.toStringSignedPct(int256(123321)), "1233.21");
-        assertEq(uh.toStringSignedPct(int256(-321123)), "-3211.23");
+        assertEq(uh.exportToStringSignedPct(int256(123321)), "1233.21");
+        assertEq(uh.exportToStringSignedPct(int256(-321123)), "-3211.23");
         
-        assertEq(uh.toStringSignedPct(int256(123301)), "1233.01");
-        assertEq(uh.toStringSignedPct(int256(-321103)), "-3211.03");
+        assertEq(uh.exportToStringSignedPct(int256(123301)), "1233.01");
+        assertEq(uh.exportToStringSignedPct(int256(-321103)), "-3211.03");
    
 
     }

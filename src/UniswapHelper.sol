@@ -19,7 +19,7 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 /// @title Utility contract for token ID construction and advanced queries.
 /// @author Axicon Labs Limited
 contract UniswapHelper {
-    SemiFungiblePositionManager internal immutable SFPM;
+    IUniswapV3Factory internal immutable FACTORY;
 
     using Strings for uint256;
 
@@ -30,10 +30,9 @@ contract UniswapHelper {
     int256 private constant TITLE_HEIGHT = 20;
 
     /// @notice Construct the PanopticHelper contract
-    /// @param _SFPM address of the SemiFungiblePositionManager
-    /// @dev the SFPM is used to get the pool ID for a given address
-    constructor(SemiFungiblePositionManager _SFPM) payable {
-        SFPM = _SFPM;
+    /// @param _factory address of the Uniswap factory
+    constructor(IUniswapV3Factory _factory) payable {
+        FACTORY = _factory;
     }
 
     function getTickNets(
@@ -68,7 +67,7 @@ contract UniswapHelper {
         return (tickData, liquidityNets);
     }
 
-    function toStringSignedPct(int256 value) public pure returns (string memory) {
+    function toStringSignedPct(int256 value) internal pure returns (string memory) {
         if (value < 0) {
             return
                 string(
@@ -101,13 +100,13 @@ contract UniswapHelper {
         }
     }
 
-    function generateSVGChart(
+    function generatePoolSVGChart(
         int256[] memory tickData,
         int256[] memory liquidityData,
         int256 currentTick,
         uint256 chartType,
         string memory title
-    ) public pure returns (string memory) {
+    ) internal pure returns (string memory) {
         require(tickData.length == liquidityData.length, "Data length mismatch");
         require(tickData.length > 1, "Not enough data points");
 
@@ -479,14 +478,14 @@ contract UniswapHelper {
         return (minTick, maxTick, minLiquidity, maxLiquidity);
     }
 
-    function generateBase64EncodedSVG(
+    function generateBase64PoolSVG(
         int256[] memory tickData,
         int256[] memory liquidityData,
         int256 currentTick,
         uint256 chartType,
         string memory title
-    ) public pure returns (string memory) {
-        string memory svg = generateSVGChart(
+    ) internal pure returns (string memory) {
+        string memory svg = generatePoolSVGChart(
             tickData,
             liquidityData,
             currentTick,
@@ -513,6 +512,6 @@ contract UniswapHelper {
             abi.encodePacked(symbol0, "-", symbol1, "-", uint256(feeTier / 100).toString(), "bps")
         );
 
-        return generateBase64EncodedSVG(tickData, liquidityData, currentTick, chartType, title);
+        return generateBase64PoolSVG(tickData, liquidityData, currentTick, chartType, title);
     }
 }
