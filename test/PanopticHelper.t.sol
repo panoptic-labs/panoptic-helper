@@ -1313,7 +1313,7 @@ contract PanopticHelperTest is PositionUtils {
         liquidityData[6] = 12;
         liquidityData[7] = 6;
 
-        console2.log(ph.generateBase64EncodedSVG(tickData, liquidityData, 17, 1,''));
+        console2.log(ph.generateBase64EncodedSVG(tickData, liquidityData, 17, 1, ""));
     }
 
     function test_toStringSignedPct() public {
