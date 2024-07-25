@@ -1321,4 +1321,19 @@ contract PanopticHelperTest is PositionUtils {
 
         console2.log(ph.generateBase64EncodedSVG(tickData, liquidityData, 17, 1));
     }
+
+    function test_toStringSignedPct() public {
+
+        assertEq(ph.toStringSignedPct(int256(10)), "0.10");
+        assertEq(ph.toStringSignedPct(int256(-10)), "-0.10");
+    
+        assertEq(ph.toStringSignedPct(int256(123321)), "1233.21");
+        assertEq(ph.toStringSignedPct(int256(-321123)), "-3211.23");
+        
+        assertEq(ph.toStringSignedPct(int256(123301)), "1233.01");
+        assertEq(ph.toStringSignedPct(int256(-321103)), "-3211.03");
+   
+   
+
+    }
 }
