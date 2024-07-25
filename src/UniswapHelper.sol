@@ -488,9 +488,7 @@ contract UniswapHelper {
         return string(abi.encodePacked("data:image/svg+xml;base64,", Base64.encode(bytes(svg))));
     }
 
-    function plotPoolLiquidity(
-        address pool
-    ) public view returns (string memory) {
+    function plotPoolLiquidity(address pool) public view returns (string memory) {
         IUniswapV3Pool univ3pool = IUniswapV3Pool(pool);
         (int256[] memory tickData, int256[] memory liquidityData) = getTickNets(univ3pool);
 

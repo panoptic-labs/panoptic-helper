@@ -54,8 +54,8 @@ contract UniswapHelperHarness is UniswapHelper {
     function exportToStringSignedPct(int256 value) public pure returns (string memory) {
         return toStringSignedPct(value);
     }
-
 }
+
 contract UniswapHelperTest is PositionUtils {
     /*//////////////////////////////////////////////////////////////
                            MAINNET CONTRACTS
@@ -217,13 +217,11 @@ contract UniswapHelperTest is PositionUtils {
 
         IERC20Partial(token0).approve(address(router), type(uint256).max);
         IERC20Partial(token1).approve(address(router), type(uint256).max);
-
     }
 
     function setUp() public {
         sfpm = new SemiFungiblePositionManagerHarness(V3FACTORY);
         uh = new UniswapHelperHarness(V3FACTORY);
-
     }
 
     // bounds the input value between 2**min and 2**(max+1)-1
@@ -344,21 +342,17 @@ contract UniswapHelperTest is PositionUtils {
         liquidityData[6] = 12;
         liquidityData[7] = 6;
 
-
-        console2.log(uh.generateBase64Pool(tickData, liquidityData, 17, 1,''));
+        console2.log(uh.generateBase64Pool(tickData, liquidityData, 17, 1, ""));
     }
 
     function test_toStringSignedPct() public {
-
         assertEq(uh.exportToStringSignedPct(int256(10)), "0.10");
         assertEq(uh.exportToStringSignedPct(int256(-10)), "-0.10");
-    
+
         assertEq(uh.exportToStringSignedPct(int256(123321)), "1233.21");
         assertEq(uh.exportToStringSignedPct(int256(-321123)), "-3211.23");
-        
+
         assertEq(uh.exportToStringSignedPct(int256(123301)), "1233.01");
         assertEq(uh.exportToStringSignedPct(int256(-321103)), "-3211.03");
-   
-
     }
 }
