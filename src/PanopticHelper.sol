@@ -390,7 +390,7 @@ contract PanopticHelper {
             tickData[i + 1] = scaledTick + dt * tickSpacing;
             liquidityNets[i + 1] = liquidityNets[i] + liquidityNet;
 
-            console2.log(tickData[i + 1]);
+            //console2.log(tickData[i + 1]);
             //console2.log(liquidityNets[i+1]);
             ++i;
             ++dt;
@@ -399,7 +399,7 @@ contract PanopticHelper {
         return (tickData, liquidityNets);
     }
 
-    function toStringSignedPct(int256 value) internal pure returns (string memory) {
+    function toStringSignedPct(int256 value) public pure returns (string memory) {
         if (value < 0) {
             return
                 string(
@@ -407,7 +407,8 @@ contract PanopticHelper {
                         "-",
                         uint256(-value / 100).toString(),
                         ".",
-                        uint256(-value % 100).toString()
+                        ((-value % 100) < 10) ? '0' : '',
+                        uint256(-value % 100).toString() 
                     )
                 );
         } else {
@@ -416,6 +417,7 @@ contract PanopticHelper {
                     abi.encodePacked(
                         uint256(value / 100).toString(),
                         ".",
+                        ((value % 100) < 10) ? '0' : '',
                         uint256(value % 100).toString()
                     )
                 );
@@ -574,7 +576,7 @@ contract PanopticHelper {
         int256 maxLiquidity
     ) private pure returns (string memory) {
         string memory bars = "";
-        int256 barWidth = (((WIDTH - 2 * PADDING) / int256(tickData.length + 1)) * 97) / 100; // fill available width, just about
+        int256 barWidth = (((100 * (WIDTH - 2 * PADDING)) / int256(tickData.length + 1)) * 92) / 100; // fill available width, just about
 
         minLiquidity = minLiquidity / 2;
         maxLiquidity = (maxLiquidity * 11) / 10;
@@ -583,9 +585,9 @@ contract PanopticHelper {
         maxTick = maxTick + (tickData[1] - tickData[0]);
 
         for (uint i = 0; i < tickData.length; i++) {
-            int256 x = ((tickData[i] - minTick) * (WIDTH - 2 * PADDING)) /
+            int256 x = (100 * (tickData[i] - minTick) * (WIDTH - 2 * PADDING)) /
                 (maxTick - minTick) +
-                PADDING;
+                100 * PADDING;
             int256 y = HEIGHT -
                 (((liquidityData[i] - minLiquidity) * (HEIGHT - 2 * PADDING)) /
                     (maxLiquidity - minLiquidity) +
@@ -596,14 +598,14 @@ contract PanopticHelper {
                 abi.encodePacked(
                     bars,
                     '<rect x="',
-                    toStringSigned(x - (barWidth) / 2),
+                    toStringSignedPct(x - (barWidth) / 2),
                     '" y="',
-                    toStringSigned(y),
+                    toStringSignedPct(100*y),
                     '" width="',
-                    uint256(barWidth).toString(),
+                    toStringSignedPct(barWidth),
                     '" height="',
-                    uint256(barHeight).toString(),
-                    '" fill="url(#barGradient)" stroke="white" stroke-width="0.5" />'
+                    toStringSignedPct(100 * barHeight),
+                    '" fill="url(#barGradient)" stroke="white" stroke-width="0.25" />'
                 )
             );
         }
@@ -725,8 +727,8 @@ contract PanopticHelper {
                     '<text x="',
                     toStringSigned(x),
                     '" y="',
-                    uint256(HEIGHT - PADDING + 20).toString(),
-                    '" font-size="10" text-anchor="middle">',
+                    uint256(HEIGHT - PADDING + 15).toString(),
+                    '" font-size="7" text-anchor="middle">',
                     toStringSigned(value),
                     "</text>"
                 )
@@ -755,10 +757,10 @@ contract PanopticHelper {
                     toStringSigned(y),
                     '" stroke="black" />',
                     '<text x="',
-                    uint256(PADDING - 10).toString(),
+                    uint256(PADDING - 4).toString(),
                     '" y="',
                     toStringSigned(y),
-                    '" font-size="10" text-anchor="end" dominant-baseline="middle">',
+                    '" font-size="6" text-anchor="end" dominant-baseline="middle">',
                     toStringSigned(value),
                     "</text>"
                 )
