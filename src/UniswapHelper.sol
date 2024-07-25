@@ -75,8 +75,8 @@ contract UniswapHelper {
                         "-",
                         uint256(-value / 100).toString(),
                         ".",
-                        ((-value % 100) < 10) ? '0' : '',
-                        uint256(-value % 100).toString() 
+                        ((-value % 100) < 10) ? "0" : "",
+                        uint256(-value % 100).toString()
                     )
                 );
         } else {
@@ -85,7 +85,7 @@ contract UniswapHelper {
                     abi.encodePacked(
                         uint256(value / 100).toString(),
                         ".",
-                        ((value % 100) < 10) ? '0' : '',
+                        ((value % 100) < 10) ? "0" : "",
                         uint256(value % 100).toString()
                     )
                 );
@@ -164,13 +164,18 @@ contract UniswapHelper {
     }
 
     function generateTitle(string memory title) private pure returns (string memory) {
-        return string(abi.encodePacked(
-            '<text x="', uint256(WIDTH / 2).toString(),
-            '" y="', uint256(TITLE_HEIGHT / 2).toString(),
-            '" font-size="12" text-anchor="middle" dominant-baseline="middle">',
-            title,
-            '</text>'
-        ));
+        return
+            string(
+                abi.encodePacked(
+                    '<text x="',
+                    uint256(WIDTH / 2).toString(),
+                    '" y="',
+                    uint256(TITLE_HEIGHT / 2).toString(),
+                    '" font-size="12" text-anchor="middle" dominant-baseline="middle">',
+                    title,
+                    "</text>"
+                )
+            );
     }
 
     function generateLineChart(
@@ -256,7 +261,8 @@ contract UniswapHelper {
         int256 maxLiquidity
     ) private pure returns (string memory) {
         string memory bars = "";
-        int256 barWidth = (((100 * (WIDTH - 2 * PADDING)) / int256(tickData.length + 1)) * 92) / 100; // fill available width, just about
+        int256 barWidth = (((100 * (WIDTH - 2 * PADDING)) / int256(tickData.length + 1)) * 92) /
+            100; // fill available width, just about
 
         minLiquidity = minLiquidity / 2;
         maxLiquidity = (maxLiquidity * 11) / 10;
@@ -267,7 +273,8 @@ contract UniswapHelper {
         for (uint i = 0; i < tickData.length; i++) {
             int256 x = (100 * (tickData[i] - minTick) * (WIDTH - 2 * PADDING)) /
                 (maxTick - minTick) +
-                100 * PADDING;
+                100 *
+                PADDING;
             int256 y = HEIGHT -
                 (((liquidityData[i] - minLiquidity) * (HEIGHT - 2 * PADDING)) /
                     (maxLiquidity - minLiquidity) +
@@ -280,7 +287,7 @@ contract UniswapHelper {
                     '<rect x="',
                     toStringSignedPct(x - (barWidth) / 2),
                     '" y="',
-                    toStringSignedPct(100*y),
+                    toStringSignedPct(100 * y),
                     '" width="',
                     toStringSignedPct(barWidth),
                     '" height="',
@@ -309,8 +316,8 @@ contract UniswapHelper {
             currentTickLine = string(
                 abi.encodePacked(
                     '<line x1="',
-                    currentTickLine, 
-                    '" stroke="white" stroke-width="1.5" /><line x1="',                    
+                    currentTickLine,
+                    '" stroke="white" stroke-width="1.5" /><line x1="',
                     currentTickLine,
                     '" stroke="deeppink" stroke-width="0.75" opacity="0.8" />'
                 )
@@ -471,7 +478,6 @@ contract UniswapHelper {
         return (minTick, maxTick, minLiquidity, maxLiquidity);
     }
 
-
     function generateBase64EncodedSVG(
         int256[] memory tickData,
         int256[] memory liquidityData,
@@ -479,17 +485,20 @@ contract UniswapHelper {
         uint256 chartType,
         string memory title
     ) public pure returns (string memory) {
-        string memory svg = generateSVGChart(tickData, liquidityData, currentTick, chartType, title);
+        string memory svg = generateSVGChart(
+            tickData,
+            liquidityData,
+            currentTick,
+            chartType,
+            title
+        );
         return string(abi.encodePacked("data:image/svg+xml;base64,", Base64.encode(bytes(svg))));
     }
-
-
 
     function plotPoolLiquidity(
         address pool,
         uint256 chartType
     ) public view returns (string memory) {
-
         IUniswapV3Pool univ3pool = IUniswapV3Pool(pool);
         (int256[] memory tickData, int256[] memory liquidityData) = getTickNets(univ3pool);
 
@@ -499,10 +508,10 @@ contract UniswapHelper {
         string memory symbol0 = ERC20(univ3pool.token0()).symbol();
         string memory symbol1 = ERC20(univ3pool.token1()).symbol();
 
-        string memory title = string(abi.encodePacked(symbol0, '-', symbol1, '-', uint256(feeTier / 100).toString() ,'bps'));
+        string memory title = string(
+            abi.encodePacked(symbol0, "-", symbol1, "-", uint256(feeTier / 100).toString(), "bps")
+        );
 
         return generateBase64EncodedSVG(tickData, liquidityData, currentTick, chartType, title);
     }
-
-
 }
