@@ -1,17 +1,10 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.18;
-import "forge-std/Test.sol";
 
 // Interfaces
 import {IUniswapV3Pool} from "univ3-core/interfaces/IUniswapV3Pool.sol";
 import {IUniswapV3Factory} from "univ3-core/interfaces/IUniswapV3Factory.sol";
-import {SemiFungiblePositionManager} from "@contracts/SemiFungiblePositionManager.sol";
 // Libraries
-import {Constants} from "@libraries/Constants.sol";
-import {PanopticMath} from "@libraries/PanopticMath.sol";
-import {Math} from "@libraries/Math.sol";
-import {IERC20Partial} from "@tokens/interfaces/IERC20Partial.sol";
-
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {Base64} from "@openzeppelin/contracts/utils/Base64.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -496,8 +489,7 @@ contract UniswapHelper {
     }
 
     function plotPoolLiquidity(
-        address pool,
-        uint256 chartType
+        address pool
     ) public view returns (string memory) {
         IUniswapV3Pool univ3pool = IUniswapV3Pool(pool);
         (int256[] memory tickData, int256[] memory liquidityData) = getTickNets(univ3pool);
@@ -512,6 +504,6 @@ contract UniswapHelper {
             abi.encodePacked(symbol0, "-", symbol1, "-", uint256(feeTier / 100).toString(), "bps")
         );
 
-        return generateBase64PoolSVG(tickData, liquidityData, currentTick, chartType, title);
+        return generateBase64PoolSVG(tickData, liquidityData, currentTick, 1, title);
     }
 }

@@ -344,6 +344,7 @@ contract UniswapHelperTest is PositionUtils {
         liquidityData[6] = 12;
         liquidityData[7] = 6;
 
+
         console2.log(uh.generateBase64Pool(tickData, liquidityData, 17, 1,''));
     }
 
