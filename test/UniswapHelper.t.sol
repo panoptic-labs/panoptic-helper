@@ -329,6 +329,10 @@ contract UniswapHelperTest is PositionUtils {
         console2.log(uh.plotPoolLiquidity(address(pool)));
     }
 
+    function test_PnL() public {
+        console2.log(uh.plotPnL(4));
+    }
+
     function test_getSVG() public {
         int256[] memory tickData = new int256[](8);
         tickData[0] = 10;
@@ -346,11 +350,11 @@ contract UniswapHelperTest is PositionUtils {
         liquidityData[2] = 25;
         liquidityData[3] = 10;
         liquidityData[4] = 9;
-        liquidityData[5] = 20;
+        liquidityData[5] = -20;
         liquidityData[6] = 12;
         liquidityData[7] = 6;
 
-        console2.log(uh.generateBase64Pool(tickData, liquidityData, 17, 1, ""));
+        console2.log(uh.generateBase64Pool(tickData, liquidityData, 17, 0, ""));
     }
 
     function test_toStringSignedPct() public {

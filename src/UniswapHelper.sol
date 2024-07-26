@@ -119,6 +119,10 @@ contract UniswapHelper {
             liquidityData
         );
 
+        // Adjust minLiquidity and maxLiquidity to ensure 0 is included if necessary
+        if (minLiquidity > 0) minLiquidity = 0;
+        if (maxLiquidity < 0) maxLiquidity = 0;
+
         string memory svgStart = string(
             abi.encodePacked(
                 '<svg xmlns="http://www.w3.org/2000/svg" width="',
@@ -195,26 +199,34 @@ contract UniswapHelper {
         int256 minLiquidity,
         int256 maxLiquidity
     ) private pure returns (string memory) {
-        string memory pathData = "M";
-        string memory circles = "";
+        string memory linePath = "M";
+        string memory fillPath = "M";
 
-        minLiquidity = minLiquidity / 2;
+        minLiquidity = minLiquidity > 0 ? minLiquidity / 2 : (minLiquidity * 3) / 2;
         maxLiquidity = (maxLiquidity * 11) / 10;
         minTick = minTick - (tickData[1] - tickData[0]);
         maxTick = maxTick + (tickData[1] - tickData[0]);
 
-        for (uint i = 0; i < tickData.length; i++) {
-            int256 x = ((tickData[i] - minTick) * (WIDTH - 2 * PADDING)) /
-                (maxTick - minTick) +
-                PADDING;
-            int256 y = HEIGHT -
-                (((liquidityData[i] - minLiquidity) * (HEIGHT - 2 * PADDING)) /
-                    (maxLiquidity - minLiquidity) +
-                    PADDING);
+        int256 zeroY = calculateYPosition(0, minLiquidity, maxLiquidity);
+        console2.log("zeroY", zeroY);
 
-            pathData = string(
+        for (uint i = 0; i < tickData.length; i++) {
+            int256 x = calculateXPosition(tickData[i], minTick, maxTick);
+            int256 y = calculateYPosition(liquidityData[i], minLiquidity, maxLiquidity);
+
+            linePath = string(
                 abi.encodePacked(
-                    pathData,
+                    linePath,
+                    i == 0 ? "" : " L",
+                    toStringSigned(x),
+                    ",",
+                    toStringSigned(y)
+                )
+            );
+
+            fillPath = string(
+                abi.encodePacked(
+                    fillPath,
                     i == 0 ? "" : " L",
                     toStringSigned(x),
                     ",",
@@ -223,17 +235,18 @@ contract UniswapHelper {
             );
         }
 
-        pathData = string(
+        // Close the fill path
+        fillPath = string(
             abi.encodePacked(
-                pathData,
+                fillPath,
                 " L",
-                uint256(WIDTH - PADDING).toString(),
+                toStringSigned(calculateXPosition(tickData[tickData.length - 1], minTick, maxTick)),
                 ",",
-                uint256(HEIGHT - PADDING).toString(),
+                toStringSigned(zeroY),
                 " L",
-                uint256(PADDING).toString(),
+                toStringSigned(calculateXPosition(tickData[0], minTick, maxTick)),
                 ",",
-                uint256(HEIGHT - PADDING).toString(),
+                toStringSigned(zeroY),
                 " Z"
             )
         );
@@ -242,8 +255,11 @@ contract UniswapHelper {
             string(
                 abi.encodePacked(
                     '<path d="',
-                    pathData,
-                    '" fill="url(#lineGradient)" stroke="rgba(91,12,241,1)" stroke-width="2"/>'
+                    fillPath,
+                    '" fill="url(#lineGradient)" fill-opacity="0.25" />',
+                    '<path d="',
+                    linePath,
+                    '" fill="none" stroke="rgba(91,12,241,1)" stroke-width="2"/>'
                 )
             );
     }
@@ -261,7 +277,7 @@ contract UniswapHelper {
         int256 barWidth = (((100 * (WIDTH - 2 * PADDING)) / int256(tickData.length + 1)) * 92) /
             100; // fill available width, just about
 
-        minLiquidity = minLiquidity / 2;
+        minLiquidity = minLiquidity > 0 ? minLiquidity / 2 : (minLiquidity * 3) / 2;
         maxLiquidity = (maxLiquidity * 11) / 10;
 
         minTick = minTick - (tickData[1] - tickData[0]);
@@ -270,15 +286,9 @@ contract UniswapHelper {
         for (uint i = 0; i < tickData.length; i++) {
             int256 _tick = tickData[i];
             int256 _liquidity = liquidityData[i];
-            int256 x = (100 * (_tick - minTick) * (WIDTH - 2 * PADDING)) /
-                (maxTick - minTick) +
-                100 *
-                PADDING;
-            int256 y = HEIGHT -
-                (((_liquidity - minLiquidity) * (HEIGHT - 2 * PADDING)) /
-                    (maxLiquidity - minLiquidity) +
-                    PADDING);
-            int256 barHeight = HEIGHT - y - PADDING;
+            int256 x = calculateXPosition(tickData[i], minTick, maxTick);
+            int256 y = calculateYPosition(liquidityData[i], minLiquidity, maxLiquidity);
+            int256 barHeight = y - calculateYPosition(0, minLiquidity, maxLiquidity);
 
             string memory barProps;
             {
@@ -304,9 +314,8 @@ contract UniswapHelper {
         }
 
         {
-            int256 currentTickX = ((currentTick - minTick) * (WIDTH - 2 * PADDING)) /
-                (maxTick - minTick) +
-                PADDING;
+            int256 currentTickX = calculateXPosition(currentTick, minTick, maxTick);
+
             // Add the vertical line for the current tick
             string memory currentTickLine = string(
                 abi.encodePacked(
@@ -344,12 +353,15 @@ contract UniswapHelper {
         string memory xAxisLabel,
         string memory yAxisLabel
     ) private pure returns (string memory) {
-        int256 axisMinLiquidity = minLiquidity / 2;
+        int256 axisMinLiquidity = minLiquidity > 0 ? minLiquidity / 2 : (minLiquidity * 3) / 2;
         int256 axisMaxLiquidity = (maxLiquidity * 11) / 10; // 110% of max
 
         int256 axisMinTick = minTick - (tickData[1] - tickData[0]);
         int256 axisMaxTick = maxTick + (tickData[1] - tickData[0]);
 
+        int256 xAxis0 = calculateYPosition(0, axisMinLiquidity, axisMaxLiquidity);
+
+        console2.log("xAxis0", xAxis0);
         // x-axis line
         string memory axes = string(
             abi.encodePacked(
@@ -360,7 +372,6 @@ contract UniswapHelper {
             )
         );
 
-        // y-axis line
         axes = string(
             abi.encodePacked(
                 axes,
@@ -371,6 +382,29 @@ contract UniswapHelper {
                 '" stroke="black" />'
             )
         );
+
+        axes = string(
+            abi.encodePacked(
+                axes,
+                '<line x1="',
+                uint256(PADDING).toString(),
+                '" y1="',
+                uint256(xAxis0).toString()
+            )
+        );
+
+        axes = string(
+            abi.encodePacked(
+                axes,
+                '" x2="',
+                uint256(WIDTH - PADDING).toString(),
+                '" y2="',
+                uint256(xAxis0).toString(),
+                '" stroke="red" />'
+            )
+        );
+
+        // y-axis line
         axes = string(
             abi.encodePacked(
                 axes,
@@ -413,7 +447,7 @@ contract UniswapHelper {
             abi.encodePacked(
                 axes,
                 '<text x="',
-                uint256(WIDTH - PADDING - 40).toString(),
+                uint256(WIDTH - PADDING - 60).toString(),
                 '" y="',
                 uint256(HEIGHT + TITLE_HEIGHT - 35).toString(),
                 '" font-family="Arial, sans-serif" font-size="9" text-anchor="middle">',
@@ -446,23 +480,24 @@ contract UniswapHelper {
         int256 minTick,
         int256 maxTick
     ) private pure returns (string memory) {
-        int256 x = ((value - minTick) * (WIDTH - 2 * PADDING)) / (maxTick - minTick) + PADDING;
+        int256 x = calculateXPosition(value, minTick, maxTick);
+        int256 y = HEIGHT - PADDING;
         return
             string(
                 abi.encodePacked(
                     '<line x1="',
                     toStringSigned(x),
                     '" y1="',
-                    uint256(HEIGHT - PADDING).toString(),
+                    uint256(y).toString(),
                     '" x2="',
                     toStringSigned(x),
                     '" y2="',
-                    uint256(HEIGHT - PADDING + 5).toString(),
+                    uint256(y + 5).toString(),
                     '" stroke="black" />',
                     '<text x="',
                     toStringSigned(x),
                     '" y="',
-                    uint256(HEIGHT - PADDING + 15).toString(),
+                    uint256(y + 15).toString(),
                     '" font-size="7" text-anchor="middle">',
                     toStringSigned(value),
                     "</text>"
@@ -475,10 +510,7 @@ contract UniswapHelper {
         int256 minLiquidity,
         int256 maxLiquidity
     ) private pure returns (string memory) {
-        int256 y = HEIGHT -
-            (((value - minLiquidity) * (HEIGHT - 2 * PADDING)) /
-                (maxLiquidity - minLiquidity) +
-                PADDING);
+        int256 y = calculateYPosition(value, minLiquidity, maxLiquidity);
         return
             string(
                 abi.encodePacked(
@@ -592,6 +624,27 @@ contract UniswapHelper {
             );
     }
 
+    function calculateXPosition(
+        int256 value,
+        int256 minTick,
+        int256 maxTick
+    ) private pure returns (int256) {
+        return ((value - minTick) * (WIDTH - 2 * PADDING)) / (maxTick - minTick) + PADDING;
+    }
+
+    function calculateYPosition(
+        int256 value,
+        int256 minLiquidity,
+        int256 maxLiquidity
+    ) private pure returns (int256) {
+        return
+            HEIGHT +
+            TITLE_HEIGHT -
+            (((value - minLiquidity) * (HEIGHT - 2 * PADDING)) /
+                (maxLiquidity - minLiquidity) +
+                PADDING);
+    }
+
     function recastLiquidity(
         int256[] memory tickData,
         int256[] memory liquidityData,
@@ -684,7 +737,71 @@ contract UniswapHelper {
         return generateBase64PoolSVG(tickData, liquidityData, currentTick, 1, title);
     }
 
-    function plotPnL(uint256 tokenId) public view returns (string memory) {}
+    function plotPnL(uint256 tokenId) public view returns (string memory) {
+        (
+            ,
+            ,
+            ,
+            ,
+            ,
+            //address token0,
+            //address token1,
+            //uint24 fee,
+            int24 tickLower,
+            int24 tickUpper,
+            uint128 liquidity,
+            uint256 feeGrowthInside0LastX128,
+            uint256 feeGrowthInside1LastX128, //uint128 tokensOwed0,
+            ,
+
+        ) = //uint128 tokensOwed1
+            NFPM.positions(tokenId);
+
+        console2.log(feeGrowthInside0LastX128, feeGrowthInside1LastX128);
+        int256[] memory tickData = new int256[](300);
+        {
+            int24 positionWidth = tickUpper - tickLower;
+
+            int24 minTick = tickLower - 1 * positionWidth;
+            int24 maxTick = tickUpper + 1 * positionWidth;
+
+            for (uint256 i; i < 100; ++i) {
+                tickData[i] = minTick + int256((int256(i) * 1 * positionWidth) / 100);
+
+                tickData[i + 100] = tickLower + int256((int256(i) * positionWidth) / 100);
+
+                tickData[i + 200] = tickUpper + int256((int256(i) * 1 * positionWidth) / 100);
+            }
+        }
+        int256[] memory pnlData = new int256[](300);
+        for (uint256 i; i < 300; ++i) {
+            int24 _tick = int24(tickData[i]);
+            (uint256 amount0, uint256 amount1) = getAmountsForLiquidity(
+                _tick,
+                liquidity,
+                tickLower,
+                tickUpper
+            );
+
+            pnlData[i] =
+                int256(amount1) +
+                int256(convert0to1(amount0, getSqrtRatioAtTick(int24(tickData[i]))));
+
+            tickData[i] = int256(uint256(getSqrtRatioAtTick(2 * _tick) >> 96));
+        }
+        string memory svg = generatePoolSVGChart(
+            tickData,
+            pnlData,
+            tickData[150],
+            0,
+            string(abi.encodePacked("positionId: ", uint256(tokenId).toString()))
+        );
+        return string(abi.encodePacked("data:image/svg+xml;base64,", Base64.encode(bytes(svg))));
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                           TICK ALGORITHMS
+    //////////////////////////////////////////////////////////////*/
 
     /// @notice Calculates 1.0001^(tick/2) as an X96 number.
     /// @dev Implemented using Uniswap's "incorrect" constants. Supplying commented-out real values for an accurate calculation.
@@ -965,6 +1082,23 @@ contract UniswapHelper {
             prod0 |= prod1 * 2 ** 160;
 
             return prod0;
+        }
+    }
+
+    /// @notice Convert an amount of token0 into an amount of token1 given the sqrtPriceX96 in a Uniswap pool defined as sqrt(1/0)*2^96.
+    /// @dev Uses reduced precision after tick 443636 in order to accommodate the full range of ticks
+    /// @param amount The amount of token0 to convert into token1
+    /// @param sqrtPriceX96 The square root of the price at which to convert `amount` of token0 into token1
+    /// @return The converted `amount` of token0 represented in terms of token1
+    function convert0to1(uint256 amount, uint160 sqrtPriceX96) internal pure returns (uint256) {
+        unchecked {
+            // the tick 443636 is the maximum price where (price) * 2**192 fits into a uint256 (< 2**256-1)
+            // above that tick, we are forced to reduce the amount of decimals in the final price by 2**64 to 2**128
+            if (sqrtPriceX96 < type(uint128).max) {
+                return mulDiv(amount, uint256(sqrtPriceX96) ** 2, 2 ** 192);
+            } else {
+                return mulDiv(amount, mulDiv(sqrtPriceX96, sqrtPriceX96, 2 ** 64), 2 ** 128);
+            }
         }
     }
 
