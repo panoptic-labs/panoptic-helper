@@ -208,7 +208,6 @@ contract UniswapHelper {
         maxTick = maxTick + (tickData[1] - tickData[0]);
 
         int256 zeroY = calculateYPosition(0, minLiquidity, maxLiquidity);
-        console2.log("zeroY", zeroY);
 
         for (uint i = 0; i < tickData.length; i++) {
             int256 x = calculateXPosition(tickData[i], minTick, maxTick);
@@ -361,7 +360,6 @@ contract UniswapHelper {
 
         int256 xAxis0 = calculateYPosition(0, axisMinLiquidity, axisMaxLiquidity);
 
-        console2.log("xAxis0", xAxis0);
         // x-axis line
         string memory axes = string(
             abi.encodePacked(
@@ -757,20 +755,19 @@ contract UniswapHelper {
         ) = //uint128 tokensOwed1
             NFPM.positions(tokenId);
 
-        console2.log(feeGrowthInside0LastX128, feeGrowthInside1LastX128);
         int256[] memory tickData = new int256[](300);
         {
             int24 positionWidth = tickUpper - tickLower;
 
-            int24 minTick = tickLower - 1 * positionWidth;
-            int24 maxTick = tickUpper + 1 * positionWidth;
+            int24 minTick = tickLower - 2 * positionWidth;
+            int24 maxTick = tickUpper + positionWidth / 2;
 
             for (uint256 i; i < 100; ++i) {
-                tickData[i] = minTick + int256((int256(i) * 1 * positionWidth) / 100);
+                tickData[i] = minTick + int256((int256(i) * 2 * positionWidth) / 100);
 
                 tickData[i + 100] = tickLower + int256((int256(i) * positionWidth) / 100);
 
-                tickData[i + 200] = tickUpper + int256((int256(i) * 1 * positionWidth) / 100);
+                tickData[i + 200] = tickUpper + int256((int256(i) * positionWidth) / 200);
             }
         }
         int256[] memory pnlData = new int256[](300);
@@ -789,13 +786,23 @@ contract UniswapHelper {
 
             tickData[i] = int256(uint256(getSqrtRatioAtTick(2 * _tick) >> 96));
         }
-        string memory svg = generatePoolSVGChart(
-            tickData,
-            pnlData,
-            tickData[150],
-            0,
-            string(abi.encodePacked("positionId: ", uint256(tokenId).toString()))
-        );
+
+        int256 basePnL = pnlData[150];
+        for (uint256 i; i < 300; ++i) {
+            pnlData[i] -= basePnL;
+        }
+
+        string memory svg;
+        {
+            uint256 _tokenId = tokenId;
+            svg = generatePoolSVGChart(
+                tickData,
+                pnlData,
+                tickData[150],
+                0,
+                string(abi.encodePacked("positionId: ", uint256(_tokenId).toString()))
+            );
+        }
         return string(abi.encodePacked("data:image/svg+xml;base64,", Base64.encode(bytes(svg))));
     }
 
