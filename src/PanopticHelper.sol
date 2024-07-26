@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.18;
+import "forge-std/Test.sol";
 
 // Interfaces
 import {IUniswapV3Pool} from "univ3-core/interfaces/IUniswapV3Pool.sol";
@@ -12,6 +13,10 @@ import {Math} from "@libraries/Math.sol";
 // Custom types
 import {LeftRightUnsigned, LeftRightSigned} from "@types/LeftRight.sol";
 import {TokenId, TokenIdLibrary} from "@types/TokenId.sol";
+
+import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
+import {Base64} from "@openzeppelin/contracts/utils/Base64.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 /// @title Utility contract for token ID construction and advanced queries.
 /// @author Axicon Labs Limited
@@ -39,7 +44,7 @@ contract PanopticHelper {
 
     /// @notice optimizes the risk partneting of all legs within a tokenId
     /// @param pool The PanopticPool instance to optimize the tokenId for
-    /// @param atTick At what price is the collateral requirement evaluated at
+    /// @param atTick The price at which the collateral requirement is evaluated
     /// @param tokenId the input tokenId
     /// @return the optimized tokenId
     function optimizeRiskPartners(
@@ -165,9 +170,9 @@ contract PanopticHelper {
         }
     }
 
-    /// @notice An external function that returns the collateral needed for a single tokenId at the provided tick
+    /// @notice An external function that returns the collateral needed for a single tokenId at the provided tick.
     /// @param pool The PanopticPool instance to optimize the tokenId for
-    /// @param atTick At what price is the collateral requirement evaluated at
+    /// @param atTick The price at which the collateral requirement is evaluated
     /// @param tokenId the input tokenId
     /// @return the required collateral for that position in terms of token0
     function getRequiredBase(
@@ -209,7 +214,7 @@ contract PanopticHelper {
         }
     }
 
-    /// @notice an external function that validates a tokenId
+    /// @notice An external function that validates a tokenId.
     /// @param self the tokenId to be tested
     function validateTokenId(TokenId self) external pure returns (bool) {
         self.validate();
@@ -218,7 +223,7 @@ contract PanopticHelper {
         }
     }
 
-    /// @notice an external function that ensures that the proposed tokenId can be minted
+    /// @notice An external function that ensures that the proposed tokenId can be minted.
     /// @param tokenId the input tokenId
     /// @param positionSize the size of the position
     /// @return a boolean value, valid = true / invalid = false
