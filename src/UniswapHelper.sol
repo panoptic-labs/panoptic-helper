@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.18;
+import "forge-std/Test.sol";
 
 // Interfaces
 import {IUniswapV3Pool} from "univ3-core/interfaces/IUniswapV3Pool.sol";
@@ -45,11 +46,11 @@ contract UniswapHelper {
         int24 tickSpacing = univ3pool.tickSpacing();
         int256 scaledTick = int256((currentTick / tickSpacing) * tickSpacing);
 
-        int256[] memory tickData = new int256[](201);
-        int256[] memory liquidityNets = new int256[](201);
+        int256[] memory tickData = new int256[](301);
+        int256[] memory liquidityNets = new int256[](301);
 
         uint256 i;
-        for (int256 dt = -100; dt < 100; ) {
+        for (int256 dt = -150; dt < 150; ) {
             (, int128 liquidityNet, , , , , , ) = univ3pool.ticks(
                 int24(scaledTick + dt * tickSpacing)
             );
@@ -159,7 +160,9 @@ contract UniswapHelper {
             minTick,
             maxTick,
             minLiquidity,
-            maxLiquidity
+            maxLiquidity,
+            "tick",
+            "liquidity (token0)"
         );
 
         string memory secondaryAxes = generateSecondaryYAxes(0, 0);
@@ -337,7 +340,9 @@ contract UniswapHelper {
         int256 minTick,
         int256 maxTick,
         int256 minLiquidity,
-        int256 maxLiquidity
+        int256 maxLiquidity,
+        string memory xAxisLabel,
+        string memory yAxisLabel
     ) private pure returns (string memory) {
         int256 axisMinLiquidity = minLiquidity / 2;
         int256 axisMaxLiquidity = (maxLiquidity * 11) / 10; // 110% of max
@@ -403,6 +408,36 @@ contract UniswapHelper {
             )
         );
 
+        // Add x-axis label
+        axes = string(
+            abi.encodePacked(
+                axes,
+                '<text x="',
+                uint256(WIDTH - PADDING - 40).toString(),
+                '" y="',
+                uint256(HEIGHT + TITLE_HEIGHT - 35).toString(),
+                '" font-family="Arial, sans-serif" font-size="9" text-anchor="middle">',
+                xAxisLabel,
+                "</text>"
+            )
+        );
+
+        // Add y-axis label
+        axes = string(
+            abi.encodePacked(
+                axes,
+                '<text x="',
+                uint256(10).toString(),
+                '" y="',
+                uint256((HEIGHT + TITLE_HEIGHT) / 2).toString(),
+                '" font-family="Arial, sans-serif" font-size="9" text-anchor="middle" transform="rotate(-90, 10, ',
+                uint256((HEIGHT + TITLE_HEIGHT) / 2).toString(),
+                ')">',
+                yAxisLabel,
+                "</text>"
+            )
+        );
+
         return axes;
     }
 
@@ -457,11 +492,11 @@ contract UniswapHelper {
                     toStringSigned(y),
                     '" stroke="black" />',
                     '<text x="',
-                    uint256(PADDING - 4).toString(),
+                    uint256(PADDING - 6).toString(),
                     '" y="',
                     toStringSigned(y),
                     '" font-size="6" text-anchor="end" dominant-baseline="middle">',
-                    toStringSigned(value),
+                    toStringSignedPct(value),
                     "</text>"
                 )
             );
@@ -557,6 +592,32 @@ contract UniswapHelper {
             );
     }
 
+    function recastLiquidity(
+        int256[] memory tickData,
+        int256[] memory liquidityData,
+        int24 currentTick,
+        uint256 decimals0
+    ) private pure returns (int256[] memory) {
+        int256[] memory recastedLiquidity = new int256[](liquidityData.length);
+
+        int24 tickSpacing = int24(tickData[2] - tickData[1]);
+
+        for (uint256 i; i < tickData.length; ++i) {
+            (uint256 amount0, uint256 amount1) = getAmountsForLiquidity(
+                currentTick,
+                uint128(uint256(liquidityData[i])),
+                int24(tickData[i]),
+                int24(tickData[i] + tickSpacing)
+            );
+            recastedLiquidity[i] =
+                (int256(amount0) +
+                    int256(convert1to0(amount1, getSqrtRatioAtTick(int24(tickData[i]))))) /
+                int256(10 ** (decimals0 - 2));
+        }
+
+        return recastedLiquidity;
+    }
+
     function findMinMax(
         int256[] memory tickData,
         int256[] memory liquidityData
@@ -593,18 +654,33 @@ contract UniswapHelper {
 
     function plotPoolLiquidity(address pool) public view returns (string memory) {
         IUniswapV3Pool univ3pool = IUniswapV3Pool(pool);
-        (int256[] memory tickData, int256[] memory liquidityData) = getTickNets(univ3pool);
 
         (, int24 currentTick, , , , , ) = univ3pool.slot0();
+        uint256 decimals0 = ERC20(univ3pool.token0()).decimals();
 
-        uint24 feeTier = univ3pool.fee();
-        string memory symbol0 = ERC20(univ3pool.token0()).symbol();
-        string memory symbol1 = ERC20(univ3pool.token1()).symbol();
+        (int256[] memory tickData, int256[] memory liquidityData) = getTickNets(univ3pool);
 
-        string memory title = string(
-            abi.encodePacked(symbol0, "-", symbol1, "-", uint256(feeTier / 100).toString(), "bps")
-        );
+        // recard liquidityData into token0
+        liquidityData = recastLiquidity(tickData, liquidityData, int24(currentTick), decimals0);
 
+        string memory title;
+
+        {
+            uint24 feeTier = univ3pool.fee();
+            string memory symbol0 = ERC20(univ3pool.token0()).symbol();
+            string memory symbol1 = ERC20(univ3pool.token1()).symbol();
+
+            title = string(
+                abi.encodePacked(
+                    symbol0,
+                    "-",
+                    symbol1,
+                    "-",
+                    uint256(feeTier / 100).toString(),
+                    "bps"
+                )
+            );
+        }
         return generateBase64PoolSVG(tickData, liquidityData, currentTick, 1, title);
     }
 
@@ -889,6 +965,23 @@ contract UniswapHelper {
             prod0 |= prod1 * 2 ** 160;
 
             return prod0;
+        }
+    }
+
+    /// @notice Convert an amount of token1 into an amount of token0 given the sqrtPriceX96 in a Uniswap pool defined as sqrt(1/0)*2^96.
+    /// @dev Uses reduced precision after tick 443636 in order to accommodate the full range of ticks.
+    /// @param amount The amount of token1 to convert into token0
+    /// @param sqrtPriceX96 The square root of the price at which to convert `amount` of token1 into token0
+    /// @return The converted `amount` of token1 represented in terms of token0
+    function convert1to0(uint256 amount, uint160 sqrtPriceX96) internal pure returns (uint256) {
+        unchecked {
+            // the tick 443636 is the maximum price where (price) * 2**192 fits into a uint256 (< 2**256-1)
+            // above that tick, we are forced to reduce the amount of decimals in the final price by 2**64 to 2**128
+            if (sqrtPriceX96 < type(uint128).max) {
+                return mulDiv(amount, 2 ** 192, uint256(sqrtPriceX96) ** 2);
+            } else {
+                return mulDiv(amount, 2 ** 128, mulDiv(sqrtPriceX96, sqrtPriceX96, 2 ** 64));
+            }
         }
     }
 }
