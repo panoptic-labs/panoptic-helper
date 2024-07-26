@@ -750,10 +750,10 @@ contract UniswapHelper {
             uint128 liquidity,
             uint256 feeGrowthInside0LastX128,
             uint256 feeGrowthInside1LastX128, //uint128 tokensOwed0,
+            //uint128 tokensOwed1
             ,
 
-        ) = //uint128 tokensOwed1
-            NFPM.positions(tokenId);
+        ) = NFPM.positions(tokenId);
 
         int256[] memory tickData = new int256[](300);
         {
