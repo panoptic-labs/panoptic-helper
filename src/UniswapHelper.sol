@@ -4,6 +4,8 @@ pragma solidity ^0.8.18;
 // Interfaces
 import {IUniswapV3Pool} from "univ3-core/interfaces/IUniswapV3Pool.sol";
 import {IUniswapV3Factory} from "univ3-core/interfaces/IUniswapV3Factory.sol";
+import {INonfungiblePositionManager} from "v3-periphery/interfaces/INonfungiblePositionManager.sol";
+import {SemiFungiblePositionManager} from "@contracts/SemiFungiblePositionManager.sol";
 // Libraries
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {Base64} from "@openzeppelin/contracts/utils/Base64.sol";
@@ -13,6 +15,8 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 /// @author Axicon Labs Limited
 contract UniswapHelper {
     IUniswapV3Factory internal immutable FACTORY;
+    INonfungiblePositionManager immutable NFPM;
+    SemiFungiblePositionManager internal immutable SFPM;
 
     using Strings for uint256;
 
@@ -24,8 +28,14 @@ contract UniswapHelper {
 
     /// @notice Construct the PanopticHelper contract
     /// @param _factory address of the Uniswap factory
-    constructor(IUniswapV3Factory _factory) payable {
+    constructor(
+        IUniswapV3Factory _factory,
+        INonfungiblePositionManager _NFPM,
+        SemiFungiblePositionManager _SFPM
+    ) payable {
         FACTORY = _factory;
+        NFPM = _NFPM;
+        SFPM = _SFPM;
     }
 
     function getTickNets(
@@ -152,8 +162,11 @@ contract UniswapHelper {
             maxLiquidity
         );
 
+        string memory secondaryAxes = generateSecondaryYAxes(0, 1);
+
         string memory svgEnd = "</svg>";
-        return string(abi.encodePacked(svgStart, chartTitle, chartData, axes, svgEnd));
+        return
+            string(abi.encodePacked(svgStart, chartTitle, chartData, axes, secondaryAxes, svgEnd));
     }
 
     function generateTitle(string memory title) private pure returns (string memory) {
@@ -205,17 +218,6 @@ contract UniswapHelper {
                     toStringSigned(y)
                 )
             );
-
-            circles = string(
-                abi.encodePacked(
-                    circles,
-                    '<circle cx="',
-                    toStringSigned(x),
-                    '" cy="',
-                    toStringSigned(y),
-                    '" r="3" fill="black" />'
-                )
-            );
         }
 
         pathData = string(
@@ -238,8 +240,7 @@ contract UniswapHelper {
                 abi.encodePacked(
                     '<path d="',
                     pathData,
-                    '" fill="url(#lineGradient)" stroke="rgba(91,12,241,1)" stroke-width="2"/>',
-                    circles
+                    '" fill="url(#lineGradient)" stroke="rgba(91,12,241,1)" stroke-width="2"/>'
                 )
             );
     }
@@ -335,6 +336,7 @@ contract UniswapHelper {
         int256 axisMinTick = minTick - (tickData[1] - tickData[0]);
         int256 axisMaxTick = maxTick + (tickData[1] - tickData[0]);
 
+        // x-axis line
         string memory axes = string(
             abi.encodePacked(
                 '<line x1="',
@@ -343,6 +345,8 @@ contract UniswapHelper {
                 uint256(HEIGHT - PADDING).toString()
             )
         );
+
+        // y-axis line
         axes = string(
             abi.encodePacked(
                 axes,
@@ -454,6 +458,96 @@ contract UniswapHelper {
             );
     }
 
+    function generateSecondaryYAxes(
+        int256 minLiquidity,
+        int256 maxLiquidity
+    ) private pure returns (string memory) {
+        string memory axes = "";
+
+        // Generate secondary y-axis (right) if minLiquidity != maxLiquidity
+        if (minLiquidity != maxLiquidity) {
+            axes = string(
+                abi.encodePacked(
+                    axes,
+                    '<line x1="',
+                    uint256(WIDTH - PADDING).toString(),
+                    '" y1="',
+                    uint256(PADDING).toString(),
+                    '" x2="',
+                    uint256(WIDTH - PADDING).toString(),
+                    '" y2="',
+                    uint256(HEIGHT - PADDING).toString(),
+                    '" stroke="green" />',
+                    generateSecondaryYAxisTick(minLiquidity, minLiquidity, maxLiquidity),
+                    generateSecondaryYAxisTick(maxLiquidity, minLiquidity, maxLiquidity)
+                )
+            );
+        }
+
+        return axes;
+    }
+
+    function generateSecondaryXAxisTick(
+        int256 value,
+        int256 minTick,
+        int256 maxTick
+    ) private pure returns (string memory) {
+        int256 x = ((value - minTick) * (WIDTH - 2 * PADDING)) / (maxTick - minTick) + PADDING;
+        return
+            string(
+                abi.encodePacked(
+                    '<line x1="',
+                    uint256(x).toString(),
+                    '" y1="',
+                    uint256(PADDING + TITLE_HEIGHT).toString(),
+                    '" x2="',
+                    uint256(x).toString(),
+                    '" y2="',
+                    uint256(PADDING + TITLE_HEIGHT - 5).toString(),
+                    '" stroke="black" />',
+                    '<text x="',
+                    uint256(x).toString(),
+                    '" y="',
+                    uint256(PADDING + TITLE_HEIGHT - 10).toString(),
+                    '" font-size="10" text-anchor="middle">',
+                    toStringSigned(value),
+                    "</text>"
+                )
+            );
+    }
+
+    function generateSecondaryYAxisTick(
+        int256 value,
+        int256 minLiquidity,
+        int256 maxLiquidity
+    ) private pure returns (string memory) {
+        int256 y = HEIGHT -
+            (((value - minLiquidity) * (HEIGHT - 2 * PADDING)) /
+                (maxLiquidity - minLiquidity) +
+                PADDING);
+        return
+            string(
+                abi.encodePacked(
+                    '<line x1="',
+                    uint256(WIDTH - PADDING).toString(),
+                    '" y1="',
+                    uint256(y).toString(),
+                    '" x2="',
+                    uint256(WIDTH - PADDING + 5).toString(),
+                    '" y2="',
+                    uint256(y).toString(),
+                    '" stroke="black" />',
+                    '<text x="',
+                    uint256(WIDTH - PADDING + 10).toString(),
+                    '" y="',
+                    uint256(y).toString(),
+                    '" font-size="10" text-anchor="start" dominant-baseline="middle">',
+                    toStringSigned(value),
+                    "</text>"
+                )
+            );
+    }
+
     function findMinMax(
         int256[] memory tickData,
         int256[] memory liquidityData
@@ -504,4 +598,6 @@ contract UniswapHelper {
 
         return generateBase64PoolSVG(tickData, liquidityData, currentTick, 1, title);
     }
+
+    function plotPnL(uint256 tokenId) public view returns (string memory) {}
 }
