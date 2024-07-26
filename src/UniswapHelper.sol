@@ -125,7 +125,7 @@ contract UniswapHelper {
                 '" height="',
                 uint256(HEIGHT).toString(),
                 '">',
-                '<rect width="100%" height="100%" fill="white"/><defs><linearGradient id="lineGradient" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" style="stop-color:rgba(91,12,214,0.75)"/><stop offset="100%" style="stop-color:rgba(91,12,214,0)"/></linearGradient><linearGradient id="barGradient" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" style="stop-color:rgba(91,12,214,0.75)"/><stop offset="100%" style="stop-color:rgba(91,12,214,0.25)"/></linearGradient></defs>'
+                '<rect width="100%" height="100%" fill="white"/><defs><linearGradient id="lineGradient" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" style="stop-color:rgba(91,12,214,0.75)"/><stop offset="100%" style="stop-color:rgba(91,12,214,0)"/></linearGradient><linearGradient id="barGradientBelow" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" style="stop-color:rgba(91,12,214,0.5)"/><stop offset="100%" style="stop-color:rgba(91,12,214,0.65)"/></linearGradient><linearGradient id="barGradientAbove" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" style="stop-color:rgba(155,12,214,0.5)"/><stop offset="100%" style="stop-color:rgba(155,12,214,0.65)"/></linearGradient></defs>'
             )
         );
 
@@ -162,7 +162,7 @@ contract UniswapHelper {
             maxLiquidity
         );
 
-        string memory secondaryAxes = generateSecondaryYAxes(0, 1);
+        string memory secondaryAxes = generateSecondaryYAxes(0, 0);
 
         string memory svgEnd = "</svg>";
         return
@@ -265,30 +265,39 @@ contract UniswapHelper {
         maxTick = maxTick + (tickData[1] - tickData[0]);
 
         for (uint i = 0; i < tickData.length; i++) {
-            int256 x = (100 * (tickData[i] - minTick) * (WIDTH - 2 * PADDING)) /
+            int256 _tick = tickData[i];
+            int256 _liquidity = liquidityData[i];
+            int256 x = (100 * (_tick - minTick) * (WIDTH - 2 * PADDING)) /
                 (maxTick - minTick) +
                 100 *
                 PADDING;
             int256 y = HEIGHT -
-                (((liquidityData[i] - minLiquidity) * (HEIGHT - 2 * PADDING)) /
+                (((_liquidity - minLiquidity) * (HEIGHT - 2 * PADDING)) /
                     (maxLiquidity - minLiquidity) +
                     PADDING);
             int256 barHeight = HEIGHT - y - PADDING;
 
-            bars = string(
-                abi.encodePacked(
-                    bars,
-                    '<rect x="',
-                    toStringSignedPct(x - (barWidth) / 2),
-                    '" y="',
-                    toStringSignedPct(100 * y),
-                    '" width="',
-                    toStringSignedPct(barWidth),
-                    '" height="',
-                    toStringSignedPct(100 * barHeight),
-                    '" fill="url(#barGradient)" stroke="white" stroke-width="0.25" />'
-                )
-            );
+            string memory barProps;
+            {
+                bool aboveCurrent = _tick > currentTick;
+                barProps = string(
+                    abi.encodePacked(
+                        '<rect x="',
+                        toStringSignedPct(x - (barWidth) / 2),
+                        '" y="',
+                        toStringSignedPct(100 * y),
+                        '" width="',
+                        toStringSignedPct(barWidth),
+                        '" height="',
+                        toStringSignedPct(100 * barHeight),
+                        '" fill="url(#',
+                        aboveCurrent ? "barGradientAbove" : "barGradientBelow",
+                        ')" stroke="white" stroke-width="0.25" />'
+                    )
+                );
+            }
+
+            bars = string(abi.encodePacked(bars, barProps));
         }
 
         {
