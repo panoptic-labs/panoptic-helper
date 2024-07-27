@@ -219,9 +219,9 @@ contract UniswapHelper {
                 abi.encodePacked(
                     linePath,
                     i == 0 ? "" : " L",
-                    toStringSigned(x),
+                    toStringSignedPct(x),
                     ",",
-                    toStringSigned(y)
+                    toStringSignedPct(y)
                 )
             );
 
@@ -229,9 +229,9 @@ contract UniswapHelper {
                 abi.encodePacked(
                     fillPath,
                     i == 0 ? "" : " L",
-                    toStringSigned(x),
+                    toStringSignedPct(x),
                     ",",
-                    toStringSigned(y)
+                    toStringSignedPct(y)
                 )
             );
         }
@@ -241,13 +241,15 @@ contract UniswapHelper {
             abi.encodePacked(
                 fillPath,
                 " L",
-                toStringSigned(calculateXPosition(tickData[tickData.length - 1], minTick, maxTick)),
+                toStringSignedPct(
+                    calculateXPosition(tickData[tickData.length - 1], minTick, maxTick)
+                ),
                 ",",
-                toStringSigned(zeroY),
+                toStringSignedPct(zeroY),
                 " L",
-                toStringSigned(calculateXPosition(tickData[0], minTick, maxTick)),
+                toStringSignedPct(calculateXPosition(tickData[0], minTick, maxTick)),
                 ",",
-                toStringSigned(zeroY),
+                toStringSignedPct(zeroY),
                 " Z"
             )
         );
@@ -256,11 +258,11 @@ contract UniswapHelper {
         // Add the vertical line for the current tick
         string memory currentTickLine = string(
             abi.encodePacked(
-                uint256(currentTickX).toString(),
+                toStringSignedPct(currentTickX),
                 '" y1="',
                 uint256(PADDING).toString(),
                 '" x2="',
-                uint256(currentTickX).toString(),
+                toStringSignedPct(currentTickX),
                 '" y2="',
                 uint256(HEIGHT - PADDING).toString()
             )
@@ -344,11 +346,11 @@ contract UniswapHelper {
             // Add the vertical line for the current tick
             string memory currentTickLine = string(
                 abi.encodePacked(
-                    uint256(currentTickX).toString(),
+                    toStringSignedPct(currentTickX),
                     '" y1="',
                     uint256(PADDING).toString(),
                     '" x2="',
-                    uint256(currentTickX).toString(),
+                    toStringSignedPct(currentTickX),
                     '" y2="',
                     uint256(HEIGHT - PADDING).toString()
                 )
@@ -413,7 +415,7 @@ contract UniswapHelper {
                 '<line x1="',
                 uint256(PADDING).toString(),
                 '" y1="',
-                uint256(xAxis0).toString()
+                toStringSignedPct(xAxis0)
             )
         );
 
@@ -423,8 +425,8 @@ contract UniswapHelper {
                 '" x2="',
                 uint256(WIDTH - PADDING).toString(),
                 '" y2="',
-                uint256(xAxis0).toString(),
-                '" stroke="red" />'
+                toStringSignedPct(xAxis0),
+                '" stroke="grey" />'
             )
         );
 
@@ -510,18 +512,18 @@ contract UniswapHelper {
             string(
                 abi.encodePacked(
                     '<line x1="',
-                    toStringSigned(x),
+                    toStringSignedPct(x),
                     '" y1="',
-                    uint256(y).toString(),
+                    toStringSigned(y),
                     '" x2="',
-                    toStringSigned(x),
+                    toStringSignedPct(x),
                     '" y2="',
-                    uint256(y + 5).toString(),
+                    toStringSigned(y + 5),
                     '" stroke="black" />',
                     '<text x="',
-                    toStringSigned(x),
+                    toStringSignedPct(x),
                     '" y="',
-                    uint256(y + 15).toString(),
+                    toStringSigned(y + 15),
                     '" font-size="7" text-anchor="middle">',
                     toStringSigned(value),
                     "</text>"
@@ -541,16 +543,16 @@ contract UniswapHelper {
                     '<line x1="',
                     uint256(PADDING).toString(),
                     '" y1="',
-                    toStringSigned(y),
+                    toStringSignedPct(y),
                     '" x2="',
                     uint256(PADDING - 5).toString(),
                     '" y2="',
-                    toStringSigned(y),
+                    toStringSignedPct(y),
                     '" stroke="black" />',
                     '<text x="',
                     uint256(PADDING - 6).toString(),
                     '" y="',
-                    toStringSigned(y),
+                    toStringSignedPct(y),
                     '" font-size="6" text-anchor="end" dominant-baseline="middle">',
                     toStringSignedPct(value),
                     "</text>"
@@ -653,7 +655,8 @@ contract UniswapHelper {
         int256 minTick,
         int256 maxTick
     ) private pure returns (int256) {
-        return ((value - minTick) * (WIDTH - 2 * PADDING)) / (maxTick - minTick) + PADDING;
+        return
+            (100 * (value - minTick) * (WIDTH - 2 * PADDING)) / (maxTick - minTick) + 100 * PADDING;
     }
 
     function calculateYPosition(
@@ -662,10 +665,13 @@ contract UniswapHelper {
         int256 maxLiquidity
     ) private pure returns (int256) {
         return
+            100 *
             HEIGHT +
+            100 *
             TITLE_HEIGHT -
-            (((value - minLiquidity) * (HEIGHT - 2 * PADDING)) /
+            ((100 * (value - minLiquidity) * (HEIGHT - 2 * PADDING)) /
                 (maxLiquidity - minLiquidity) +
+                100 *
                 PADDING);
     }
 
