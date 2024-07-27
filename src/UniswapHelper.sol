@@ -120,8 +120,8 @@ contract UniswapHelper {
         );
 
         // Adjust minLiquidity and maxLiquidity to ensure 0 is included if necessary
-        if (minLiquidity > 0) minLiquidity = 0;
-        if (maxLiquidity < 0) maxLiquidity = 0;
+        //if (minLiquidity > 0) minLiquidity = 0;
+        //if (maxLiquidity < 0) maxLiquidity = 0;
 
         string memory svgStart = string(
             abi.encodePacked(
@@ -313,9 +313,9 @@ contract UniswapHelper {
         for (uint i = 0; i < tickData.length; i++) {
             int256 _tick = tickData[i];
             int256 _liquidity = liquidityData[i];
-            int256 x = calculateXPosition(tickData[i], minTick, maxTick);
-            int256 y = calculateYPosition(liquidityData[i], minLiquidity, maxLiquidity);
-            int256 barHeight = y - calculateYPosition(0, minLiquidity, maxLiquidity);
+            int256 x = calculateXPosition(_tick, minTick, maxTick);
+            int256 y = calculateYPosition(_liquidity, minLiquidity, maxLiquidity);
+            int256 barHeight = 100 * (HEIGHT - PADDING) - y;
 
             string memory barProps;
             {
@@ -325,11 +325,11 @@ contract UniswapHelper {
                         '<rect x="',
                         toStringSignedPct(x - (barWidth) / 2),
                         '" y="',
-                        toStringSignedPct(100 * y),
+                        toStringSignedPct(y),
                         '" width="',
                         toStringSignedPct(barWidth),
                         '" height="',
-                        toStringSignedPct(100 * barHeight),
+                        toStringSignedPct(barHeight),
                         '" fill="url(#',
                         aboveCurrent ? "barGradientAbove" : "barGradientBelow",
                         ')" stroke="white" stroke-width="0.25" />'
@@ -386,8 +386,6 @@ contract UniswapHelper {
         int256 axisMinTick = minTick - (tickData[1] - tickData[0]);
         int256 axisMaxTick = maxTick + (tickData[1] - tickData[0]);
 
-        int256 xAxis0 = calculateYPosition(0, axisMinLiquidity, axisMaxLiquidity);
-
         // x-axis line
         string memory axes = string(
             abi.encodePacked(
@@ -409,26 +407,31 @@ contract UniswapHelper {
             )
         );
 
-        axes = string(
-            abi.encodePacked(
-                axes,
-                '<line x1="',
-                uint256(PADDING).toString(),
-                '" y1="',
-                toStringSignedPct(xAxis0)
-            )
-        );
+        // y=0 line, if some values are negative
+        if (minLiquidity < 0) {
+            int256 xAxis0 = calculateYPosition(0, axisMinLiquidity, axisMaxLiquidity);
 
-        axes = string(
-            abi.encodePacked(
-                axes,
-                '" x2="',
-                uint256(WIDTH - PADDING).toString(),
-                '" y2="',
-                toStringSignedPct(xAxis0),
-                '" stroke="grey" />'
-            )
-        );
+            axes = string(
+                abi.encodePacked(
+                    axes,
+                    '<line x1="',
+                    uint256(PADDING).toString(),
+                    '" y1="',
+                    toStringSignedPct(xAxis0)
+                )
+            );
+
+            axes = string(
+                abi.encodePacked(
+                    axes,
+                    '" x2="',
+                    uint256(WIDTH - PADDING).toString(),
+                    '" y2="',
+                    toStringSignedPct(xAxis0),
+                    '" stroke="grey" />'
+                )
+            );
+        }
 
         // y-axis line
         axes = string(
@@ -666,13 +669,11 @@ contract UniswapHelper {
     ) private pure returns (int256) {
         return
             100 *
-            HEIGHT +
+            HEIGHT -
             100 *
-            TITLE_HEIGHT -
-            ((100 * (value - minLiquidity) * (HEIGHT - 2 * PADDING)) /
-                (maxLiquidity - minLiquidity) +
-                100 *
-                PADDING);
+            PADDING -
+            (100 * (value - minLiquidity) * (HEIGHT - 2 * PADDING)) /
+            (maxLiquidity - minLiquidity);
     }
 
     function recastLiquidity(
