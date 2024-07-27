@@ -800,7 +800,6 @@ contract UniswapHelper {
 
             (, currentTick, , , , , ) = univ3pool.slot0();
         }
-
         int256[] memory tickData = new int256[](300);
         {
             int24 positionWidth = tickUpper - tickLower;
