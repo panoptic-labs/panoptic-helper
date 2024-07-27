@@ -141,6 +141,7 @@ contract UniswapHelper {
             chartData = generateLineChart(
                 tickData,
                 liquidityData,
+                currentTick,
                 minTick,
                 maxTick,
                 minLiquidity,
@@ -194,6 +195,7 @@ contract UniswapHelper {
     function generateLineChart(
         int256[] memory tickData,
         int256[] memory liquidityData,
+        int256 currentTick,
         int256 minTick,
         int256 maxTick,
         int256 minLiquidity,
@@ -249,6 +251,29 @@ contract UniswapHelper {
                 " Z"
             )
         );
+        int256 currentTickX = calculateXPosition(currentTick, minTick, maxTick);
+
+        // Add the vertical line for the current tick
+        string memory currentTickLine = string(
+            abi.encodePacked(
+                uint256(currentTickX).toString(),
+                '" y1="',
+                uint256(PADDING).toString(),
+                '" x2="',
+                uint256(currentTickX).toString(),
+                '" y2="',
+                uint256(HEIGHT - PADDING).toString()
+            )
+        );
+        currentTickLine = string(
+            abi.encodePacked(
+                '<line x1="',
+                currentTickLine,
+                '" stroke="white" stroke-width="1.5" /><line x1="',
+                currentTickLine,
+                '" stroke="deeppink" stroke-width="0.75" opacity="0.8" />'
+            )
+        );
 
         return
             string(
@@ -258,7 +283,8 @@ contract UniswapHelper {
                     '" fill="url(#lineGradient)" fill-opacity="0.25" />',
                     '<path d="',
                     linePath,
-                    '" fill="none" stroke="rgba(91,12,241,1)" stroke-width="2"/>'
+                    '" fill="none" stroke="rgba(91,12,241,1)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />',
+                    currentTickLine
                 )
             );
     }
@@ -736,24 +762,37 @@ contract UniswapHelper {
     }
 
     function plotPnL(uint256 tokenId) public view returns (string memory) {
-        (
-            ,
-            ,
-            ,
-            ,
-            ,
-            //address token0,
-            //address token1,
-            //uint24 fee,
-            int24 tickLower,
-            int24 tickUpper,
-            uint128 liquidity,
-            uint256 feeGrowthInside0LastX128,
-            uint256 feeGrowthInside1LastX128, //uint128 tokensOwed0,
-            ,
+        int24 currentTick;
+        int24 tickLower;
+        int24 tickUpper;
+        uint128 liquidity;
 
-        ) = //uint128 tokensOwed1
-            NFPM.positions(tokenId);
+        {
+            address token0;
+            address token1;
+            uint24 fee;
+            (
+                ,
+                ,
+                token0,
+                token1,
+                fee,
+                tickLower,
+                tickUpper,
+                liquidity, //uint256 feeGrowthInside0LastX128,
+                //uint256 feeGrowthInside1LastX128,
+                //uint128 tokensOwed0,
+                //uint128 tokensOwed1
+                ,
+                ,
+                ,
+
+            ) = NFPM.positions(tokenId);
+
+            IUniswapV3Pool univ3pool = IUniswapV3Pool(FACTORY.getPool(token0, token1, fee));
+
+            (, currentTick, , , , , ) = univ3pool.slot0();
+        }
 
         int256[] memory tickData = new int256[](300);
         {
@@ -780,25 +819,23 @@ contract UniswapHelper {
                 tickUpper
             );
 
-            pnlData[i] =
-                int256(amount1) +
-                int256(convert0to1(amount0, getSqrtRatioAtTick(int24(tickData[i]))));
+            pnlData[i] = int256(amount1) + int256(convert0to1(amount0, getSqrtRatioAtTick(_tick)));
 
             tickData[i] = int256(uint256(getSqrtRatioAtTick(2 * _tick) >> 96));
         }
 
         int256 basePnL = pnlData[150];
+
         for (uint256 i; i < 300; ++i) {
             pnlData[i] -= basePnL;
         }
-
         string memory svg;
         {
             uint256 _tokenId = tokenId;
             svg = generatePoolSVGChart(
                 tickData,
                 pnlData,
-                tickData[150],
+                int256(uint256(getSqrtRatioAtTick(2 * currentTick) >> 96)),
                 0,
                 string(abi.encodePacked("positionId: ", uint256(_tokenId).toString()))
             );
