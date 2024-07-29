@@ -204,8 +204,8 @@ contract UniswapHelper {
         string memory linePath = "M";
         string memory fillPath = "M";
 
-        minLiquidity = minLiquidity > 0 ? minLiquidity / 2 : (minLiquidity * 3) / 2;
-        maxLiquidity = (maxLiquidity * 11) / 10;
+        minLiquidity = minLiquidity > 0 ? minLiquidity / 2 : (minLiquidity * 5) / 4;
+        maxLiquidity = (maxLiquidity * 13) / 10;
         minTick = minTick - (tickData[1] - tickData[0]);
         maxTick = maxTick + (tickData[1] - tickData[0]);
 
@@ -253,27 +253,29 @@ contract UniswapHelper {
                 " Z"
             )
         );
-        int256 currentTickX = calculateXPosition(currentTick, minTick, maxTick);
-
         // Add the vertical line for the current tick
-        string memory currentTickLine = string(
+
+        string memory tickArea = generateSharedArea(
+            calculateXPosition(tickData[100], minTick, maxTick),
+            calculateXPosition(tickData[200], minTick, maxTick),
+            "green"
+        );
+
+        string memory tickLines = generateVerticalLine(
+            calculateXPosition(currentTick, minTick, maxTick),
+            "deeppink"
+        );
+
+        tickLines = string(
             abi.encodePacked(
-                toStringSignedPct(currentTickX),
-                '" y1="',
-                uint256(PADDING).toString(),
-                '" x2="',
-                toStringSignedPct(currentTickX),
-                '" y2="',
-                uint256(HEIGHT - PADDING).toString()
+                tickLines,
+                generateVerticalLine(calculateXPosition(tickData[100], minTick, maxTick), "grey")
             )
         );
-        currentTickLine = string(
+        tickLines = string(
             abi.encodePacked(
-                '<line x1="',
-                currentTickLine,
-                '" stroke="white" stroke-width="1.5" /><line x1="',
-                currentTickLine,
-                '" stroke="deeppink" stroke-width="0.75" opacity="0.8" />'
+                tickLines,
+                generateVerticalLine(calculateXPosition(tickData[200], minTick, maxTick), "grey")
             )
         );
 
@@ -286,7 +288,8 @@ contract UniswapHelper {
                     '<path d="',
                     linePath,
                     '" fill="none" stroke="rgba(91,12,241,1)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />',
-                    currentTickLine
+                    tickArea,
+                    tickLines
                 )
             );
     }
@@ -305,7 +308,7 @@ contract UniswapHelper {
             100; // fill available width, just about
 
         minLiquidity = minLiquidity > 0 ? minLiquidity / 2 : (minLiquidity * 3) / 2;
-        maxLiquidity = (maxLiquidity * 11) / 10;
+        maxLiquidity = (maxLiquidity * 13) / 10;
 
         minTick = minTick - (tickData[1] - tickData[0]);
         maxTick = maxTick + (tickData[1] - tickData[0]);
@@ -342,32 +345,68 @@ contract UniswapHelper {
 
         {
             int256 currentTickX = calculateXPosition(currentTick, minTick, maxTick);
-
-            // Add the vertical line for the current tick
-            string memory currentTickLine = string(
-                abi.encodePacked(
-                    toStringSignedPct(currentTickX),
-                    '" y1="',
-                    uint256(PADDING).toString(),
-                    '" x2="',
-                    toStringSignedPct(currentTickX),
-                    '" y2="',
-                    uint256(HEIGHT - PADDING).toString()
-                )
-            );
-            currentTickLine = string(
-                abi.encodePacked(
-                    '<line x1="',
-                    currentTickLine,
-                    '" stroke="white" stroke-width="1.5" /><line x1="',
-                    currentTickLine,
-                    '" stroke="deeppink" stroke-width="0.75" opacity="0.8" />'
-                )
-            );
+            string memory currentTickLine = generateVerticalLine(currentTickX, "deeppink");
 
             bars = string(abi.encodePacked(bars, currentTickLine));
         }
         return bars;
+    }
+
+    function generateVerticalLine(
+        int256 x,
+        string memory strokeColor
+    ) private pure returns (string memory) {
+        string memory lineCoordinates = string(
+            abi.encodePacked(
+                toStringSignedPct(x),
+                '" y1="',
+                uint256(PADDING).toString(),
+                '" x2="',
+                toStringSignedPct(x),
+                '" y2="',
+                uint256(HEIGHT - PADDING).toString()
+            )
+        );
+
+        return
+            string(
+                abi.encodePacked(
+                    '<line x1="',
+                    lineCoordinates,
+                    '" stroke="white" stroke-width="1.5" opacity="0.8" /><line x1="',
+                    lineCoordinates,
+                    '" stroke="',
+                    strokeColor,
+                    '" stroke-width="0.75" />'
+                )
+            );
+    }
+
+    function generateSharedArea(
+        int256 x1,
+        int256 x2,
+        string memory color
+    ) private pure returns (string memory) {
+        int256 leftX = x1 < x2 ? x1 : x2;
+        int256 rightX = x1 < x2 ? x2 : x1;
+        int256 width = rightX - leftX;
+
+        return
+            string(
+                abi.encodePacked(
+                    '<rect x="',
+                    toStringSignedPct(leftX),
+                    '" y="',
+                    uint256(PADDING).toString(),
+                    '" width="',
+                    toStringSignedPct(width),
+                    '" height="',
+                    uint256(HEIGHT - 2 * PADDING).toString(),
+                    '" fill="',
+                    color,
+                    '" fill-opacity="0.05" />'
+                )
+            );
     }
 
     function generateAxes(
@@ -380,8 +419,8 @@ contract UniswapHelper {
         string memory xAxisLabel,
         string memory yAxisLabel
     ) private pure returns (string memory) {
-        int256 axisMinLiquidity = minLiquidity > 0 ? minLiquidity / 2 : (minLiquidity * 3) / 2;
-        int256 axisMaxLiquidity = (maxLiquidity * 11) / 10; // 110% of max
+        int256 axisMinLiquidity = minLiquidity > 0 ? minLiquidity / 2 : (minLiquidity * 5) / 4;
+        int256 axisMaxLiquidity = (maxLiquidity * 13) / 10; // 110% of max
 
         int256 axisMinTick = minTick - (tickData[1] - tickData[0]);
         int256 axisMaxTick = maxTick + (tickData[1] - tickData[0]);
@@ -778,6 +817,8 @@ contract UniswapHelper {
             address token0;
             address token1;
             uint24 fee;
+            uint256 feeGrowthInside0LastX128;
+            uint256 feeGrowthInside1LastX128;
             (
                 ,
                 ,
@@ -786,17 +827,26 @@ contract UniswapHelper {
                 fee,
                 tickLower,
                 tickUpper,
-                liquidity, //uint256 feeGrowthInside0LastX128,
-                //uint256 feeGrowthInside1LastX128,
+                liquidity,
+                feeGrowthInside0LastX128,
+                feeGrowthInside1LastX128,
                 //uint128 tokensOwed0,
                 //uint128 tokensOwed1
-                ,
-                ,
                 ,
 
             ) = NFPM.positions(tokenId);
 
             IUniswapV3Pool univ3pool = IUniswapV3Pool(FACTORY.getPool(token0, token1, fee));
+
+            (uint128 _liq, uint256 l0, uint256 l1, , ) = univ3pool.positions(
+                keccak256(abi.encodePacked(address(NFPM), tickLower, tickUpper))
+            );
+            //console2.logBytes32(keccak256(abi.encodePacked(address(NFPM), tickLower, tickUpper)));
+            //console2.log('tickLower', tickLower);
+            //console2.log('tickUpper', tickUpper);
+            //console2.log('liquidities', feeGrowthInside0LastX128, l0);
+            //console2.log('liquidities', feeGrowthInside1LastX128, l1);
+            //console2.log('info.liquidity', positionInfo.liquidity);
 
             (, currentTick, , , , , ) = univ3pool.slot0();
         }
@@ -845,6 +895,10 @@ contract UniswapHelper {
                 0,
                 string(abi.encodePacked("positionId: ", uint256(_tokenId).toString()))
             );
+
+            //TODO: add legend box for accumulated fees
+
+            //TODO: find way to compute entry price?
         }
         return string(abi.encodePacked("data:image/svg+xml;base64,", Base64.encode(bytes(svg))));
     }
