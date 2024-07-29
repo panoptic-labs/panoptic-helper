@@ -318,7 +318,7 @@ contract UniswapHelperTest is PositionUtils {
     function test_getTickData() public {
         _initPool(1);
 
-        console2.log(uh.plotPoolLiquidity(address(pool), 1));
+        console2.log(uh.plotPoolLiquidity(address(pool)));
     }
 
     function test_getSVG() public {
