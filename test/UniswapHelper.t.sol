@@ -20,6 +20,7 @@ import {PoolAddress} from "v3-periphery/libraries/PoolAddress.sol";
 import {PositionKey} from "v3-periphery/libraries/PositionKey.sol";
 import {ISwapRouter} from "v3-periphery/interfaces/ISwapRouter.sol";
 import {SemiFungiblePositionManager} from "@contracts/SemiFungiblePositionManager.sol";
+import {INonfungiblePositionManager} from "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import {UniswapHelper} from "../src/UniswapHelper.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {PositionUtils} from "lib/panoptic-v1-core/test/foundry/testUtils/PositionUtils.sol";
@@ -39,7 +40,11 @@ contract SemiFungiblePositionManagerHarness is SemiFungiblePositionManager {
 }
 
 contract UniswapHelperHarness is UniswapHelper {
-    constructor(IUniswapV3Factory _factory) UniswapHelper(_factory) {}
+    constructor(
+        IUniswapV3Factory _factory,
+        INonfungiblePositionManager _NFPM,
+        SemiFungiblePositionManager _SFPM
+    ) UniswapHelper(_factory, _NFPM, _SFPM) {}
 
     function generateBase64Pool(
         int256[] memory tickData,
@@ -66,6 +71,9 @@ contract UniswapHelperTest is PositionUtils {
 
     // Mainnet factory address - SFPM is dependent on this for several checks and callbacks
     IUniswapV3Factory V3FACTORY = IUniswapV3Factory(0x1F98431c8aD98523631AE4a59f267346ea31F984);
+
+    INonfungiblePositionManager V3NFPM =
+        INonfungiblePositionManager(0xC36442b4a4522E871399CD717aBDD847Ab11FE88);
 
     // Mainnet router address - used for swaps to test fees/premia
     ISwapRouter router = ISwapRouter(0xE592427A0AEce92De3Edee1F18E0157C05861564);
@@ -221,7 +229,7 @@ contract UniswapHelperTest is PositionUtils {
 
     function setUp() public {
         sfpm = new SemiFungiblePositionManagerHarness(V3FACTORY);
-        uh = new UniswapHelperHarness(V3FACTORY);
+        uh = new UniswapHelperHarness(V3FACTORY, V3NFPM, sfpm);
     }
 
     // bounds the input value between 2**min and 2**(max+1)-1
@@ -321,6 +329,10 @@ contract UniswapHelperTest is PositionUtils {
         console2.log(uh.plotPoolLiquidity(address(pool)));
     }
 
+    function test_PnL() public {
+        console2.log(uh.plotPnL(4));
+    }
+
     function test_getSVG() public {
         int256[] memory tickData = new int256[](8);
         tickData[0] = 10;
@@ -338,11 +350,11 @@ contract UniswapHelperTest is PositionUtils {
         liquidityData[2] = 25;
         liquidityData[3] = 10;
         liquidityData[4] = 9;
-        liquidityData[5] = 20;
+        liquidityData[5] = -20;
         liquidityData[6] = 12;
         liquidityData[7] = 6;
 
-        console2.log(uh.generateBase64Pool(tickData, liquidityData, 17, 1, ""));
+        console2.log(uh.generateBase64Pool(tickData, liquidityData, 17, 0, ""));
     }
 
     function test_toStringSignedPct() public {
