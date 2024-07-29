@@ -255,7 +255,7 @@ contract UniswapHelper {
         );
         // Add the vertical line for the current tick
 
-        string memory tickArea = generateSharedArea(
+        string memory tickArea = generateShadedArea(
             calculateXPosition(tickData[100], minTick, maxTick),
             calculateXPosition(tickData[200], minTick, maxTick),
             "green"
@@ -382,7 +382,7 @@ contract UniswapHelper {
             );
     }
 
-    function generateSharedArea(
+    function generateShadedArea(
         int256 x1,
         int256 x2,
         string memory color
