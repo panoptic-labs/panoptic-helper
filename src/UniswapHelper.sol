@@ -813,12 +813,13 @@ contract UniswapHelper {
         int24 tickUpper;
         uint128 liquidity;
 
+        IUniswapV3Pool univ3pool;
+        //uint256 fees0;
+        //uint256 fees1;
         {
             address token0;
             address token1;
             uint24 fee;
-            uint256 feeGrowthInside0LastX128;
-            uint256 feeGrowthInside1LastX128;
             (
                 ,
                 ,
@@ -827,26 +828,17 @@ contract UniswapHelper {
                 fee,
                 tickLower,
                 tickUpper,
-                liquidity,
-                feeGrowthInside0LastX128,
-                feeGrowthInside1LastX128,
+                liquidity, //feeGrowthInside0LastX128,
+                //feeGrowthInside1LastX128,
                 //uint128 tokensOwed0,
                 //uint128 tokensOwed1
+                ,
+                ,
                 ,
 
             ) = NFPM.positions(tokenId);
 
-            IUniswapV3Pool univ3pool = IUniswapV3Pool(FACTORY.getPool(token0, token1, fee));
-
-            (uint128 _liq, uint256 l0, uint256 l1, , ) = univ3pool.positions(
-                keccak256(abi.encodePacked(address(NFPM), tickLower, tickUpper))
-            );
-            //console2.logBytes32(keccak256(abi.encodePacked(address(NFPM), tickLower, tickUpper)));
-            //console2.log('tickLower', tickLower);
-            //console2.log('tickUpper', tickUpper);
-            //console2.log('liquidities', feeGrowthInside0LastX128, l0);
-            //console2.log('liquidities', feeGrowthInside1LastX128, l1);
-            //console2.log('info.liquidity', positionInfo.liquidity);
+            univ3pool = IUniswapV3Pool(FACTORY.getPool(token0, token1, fee));
 
             (, currentTick, , , , , ) = univ3pool.slot0();
         }
@@ -866,20 +858,44 @@ contract UniswapHelper {
             }
         }
         int256[] memory pnlData = new int256[](300);
-        for (uint256 i; i < 300; ++i) {
-            int24 _tick = int24(tickData[i]);
-            (uint256 amount0, uint256 amount1) = getAmountsForLiquidity(
-                _tick,
-                liquidity,
-                tickLower,
-                tickUpper
-            );
+        {
+            uint256 fees0;
+            uint256 fees1;
+            {
+                uint256 feeGrowthInside0LastX128;
+                uint256 feeGrowthInside1LastX128;
+                (, , , , , , , , feeGrowthInside0LastX128, feeGrowthInside1LastX128, , ) = NFPM
+                    .positions(tokenId);
 
-            pnlData[i] = int256(amount1) + int256(convert0to1(amount0, getSqrtRatioAtTick(_tick)));
+                (
+                    uint256 feeGrowthInside0X128,
+                    uint256 feeGrowthInside1X128
+                ) = _getAMMSwapFeesPerLiquidityCollected(
+                        univ3pool,
+                        currentTick,
+                        tickLower,
+                        tickUpper
+                    );
 
-            tickData[i] = int256(uint256(getSqrtRatioAtTick(2 * _tick) >> 96));
+                fees0 = (feeGrowthInside0X128 * liquidity) / 2 ** 128;
+                fees1 = (feeGrowthInside1X128 * liquidity) / 2 ** 128;
+            }
+            for (uint256 i; i < 300; ++i) {
+                int24 _tick = int24(tickData[i]);
+                (uint256 amount0, uint256 amount1) = getAmountsForLiquidity(
+                    _tick,
+                    liquidity,
+                    tickLower,
+                    tickUpper
+                );
+
+                pnlData[i] =
+                    int256(fees1 + amount1) +
+                    int256(convert0to1(fees0 + amount0, getSqrtRatioAtTick(_tick)));
+
+                tickData[i] = int256(uint256(getSqrtRatioAtTick(2 * _tick) >> 96));
+            }
         }
-
         int256 basePnL = pnlData[150];
 
         for (uint256 i; i < 300; ++i) {
@@ -1219,6 +1235,95 @@ contract UniswapHelper {
                 return mulDiv(amount, 2 ** 192, uint256(sqrtPriceX96) ** 2);
             } else {
                 return mulDiv(amount, 2 ** 128, mulDiv(sqrtPriceX96, sqrtPriceX96, 2 ** 64));
+            }
+        }
+    }
+
+    /// @notice Calculates the fee growth that has occurred (per unit of liquidity) in the AMM/Uniswap for an
+    /// option position's tick range.
+    /// @dev Extracts the feeGrowth from the uniswap v3 pool.
+    /// @param univ3pool The AMM pool where the leg is deployed
+    /// @param currentTick The current price tick in the AMM
+    /// @param tickLower The lower tick of the option position leg (a liquidity chunk)
+    /// @param tickUpper The upper tick of the option position leg (a liquidity chunk)
+    /// @return feeGrowthInside0X128 The fee growth in the AMM of token0
+    /// @return feeGrowthInside1X128 The fee growth in the AMM of token1
+    function _getAMMSwapFeesPerLiquidityCollected(
+        IUniswapV3Pool univ3pool,
+        int24 currentTick,
+        int24 tickLower,
+        int24 tickUpper
+    ) internal view returns (uint256 feeGrowthInside0X128, uint256 feeGrowthInside1X128) {
+        // Get feesGrowths from the option position's lower+upper ticks
+        // lowerOut0: For token0: fee growth per unit of liquidity on the _other_ side of tickLower (relative to currentTick)
+        // only has relative meaning, not absolute — the value depends on when the tick is initialized
+        // (...)
+        // upperOut1: For token1: fee growth on the _other_ side of tickUpper (again: relative to currentTick)
+        // the point is: the range covered by lowerOut0 changes depending on where currentTick is.
+        (, , uint256 lowerOut0, uint256 lowerOut1, , , , ) = univ3pool.ticks(tickLower);
+        (, , uint256 upperOut0, uint256 upperOut1, , , , ) = univ3pool.ticks(tickUpper);
+
+        // compute the effective feeGrowth, depending on whether price is above/below/within range
+        unchecked {
+            if (currentTick < tickLower) {
+                /**
+                  Diagrams shown for token0, and applies for token1 the same
+                  L = lowerTick, U = upperTick
+
+                    liquidity         lowerOut0 (all fees collected in this price tick range for token0)
+                        ▲            ◄──────────────^v───► (to MAX_TICK)
+                        │
+                        │                      upperOut0
+                        │                     ◄─────^v───►
+                        │           ┌────────┐
+                        │           │ chunk  │
+                        │           │        │
+                        └─────▲─────┴────────┴────────► price tick
+                              │     L        U
+                              │
+                           current
+                            tick
+                */
+                feeGrowthInside0X128 = lowerOut0 - upperOut0; // fee growth inside the chunk
+                feeGrowthInside1X128 = lowerOut1 - upperOut1;
+            } else if (currentTick >= tickUpper) {
+                /**
+                    liquidity
+                        ▲           upperOut0
+                        │◄─^v─────────────────────►
+                        │     
+                        │     lowerOut0  ┌────────┐
+                        │◄─^v───────────►│ chunk  │
+                        │                │        │
+                        └────────────────┴────────┴─▲─────► price tick
+                                         L        U │
+                                                    │
+                                                 current
+                                                  tick
+                 */
+                feeGrowthInside0X128 = upperOut0 - lowerOut0;
+                feeGrowthInside1X128 = upperOut1 - lowerOut1;
+            } else {
+                /**
+                  current AMM tick is within the option position range (within the chunk)
+
+                     liquidity
+                        ▲        feeGrowthGlobal0X128 = global fee growth
+                        │                             = (all fees collected for the entire price range for token 0)
+                        │
+                        │                        
+                        │     lowerOut0  ┌──────────────┐ upperOut0
+                        │◄─^v───────────►│              │◄─────^v───►
+                        │                │     chunk    │
+                        │                │              │
+                        └────────────────┴───────▲──────┴─────► price tick
+                                         L       │      U
+                                                 │
+                                              current
+                                               tick
+                */
+                feeGrowthInside0X128 = univ3pool.feeGrowthGlobal0X128() - lowerOut0 - upperOut0;
+                feeGrowthInside1X128 = univ3pool.feeGrowthGlobal1X128() - lowerOut1 - upperOut1;
             }
         }
     }
