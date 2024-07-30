@@ -13,6 +13,7 @@ import {Math} from "@libraries/Math.sol";
 // Custom types
 import {LeftRightUnsigned, LeftRightSigned} from "@types/LeftRight.sol";
 import {TokenId, TokenIdLibrary} from "@types/TokenId.sol";
+import {LiquidityChunk} from "@types/LiquidityChunk.sol";
 
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {Base64} from "@openzeppelin/contracts/utils/Base64.sol";
@@ -467,15 +468,13 @@ contract PanopticHelper {
 
             (uint256 poolAssets1, uint256 insideAMM1, ) = pool.collateralToken1().getPoolData();
 
-            (LeftRightSigned longAmounts, LeftRightSigned shortAmounts) = PanopticMath
-                .computeExercisedAmounts(tokenId, positionSize);
+            (, int24 currentTick, , , , , ) = PanopticPool(pool).univ3pool().slot0();
 
-            int256 net0 = shortAmounts.rightSlot() - longAmounts.rightSlot();
-            int256 net1 = shortAmounts.leftSlot() - longAmounts.leftSlot();
+            (int256 net0, int256 net1) = getTokenFlow(tokenId, positionSize, currentTick);
 
-            int256 newPoolUtilization0 = (int256(insideAMM0) + net0) /
+            int256 newPoolUtilization0 = (10000 * (int256(insideAMM0) + net0)) /
                 (int256(poolAssets0) + int256(insideAMM0) + net0);
-            int256 newPoolUtilization1 = (int256(insideAMM1) + net1) /
+            int256 newPoolUtilization1 = (10000 * (int256(insideAMM1) + net1)) /
                 (int256(poolAssets1) + int256(insideAMM1) + net1);
             utilizations =
                 uint128(uint256(newPoolUtilization0)) +
@@ -504,6 +503,51 @@ contract PanopticHelper {
                 0
             );
             return (tokenData0.leftSlot(), tokenData1.leftSlot());
+        }
+    }
+
+    /// @notice checks whether the mint is value
+    function isMintValid(TokenId tokenId, uint128 positionSize) external pure returns (bool) {
+        for (uint256 leg; leg < tokenId.countLegs(); ++leg) {
+            LiquidityChunk liquidityChunk = PanopticMath.getLiquidityChunk(
+                tokenId,
+                leg,
+                positionSize
+            );
+
+            if (liquidityChunk.liquidity() == 0) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// @notice get actual amounts moved
+    function getTokenFlow(
+        TokenId tokenId,
+        uint128 positionSize,
+        int24 currentTick
+    ) internal pure returns (int256 netFlow0, int256 netFlow1) {
+        for (uint256 leg; leg < tokenId.countLegs(); ++leg) {
+            LiquidityChunk liquidityChunk = PanopticMath.getLiquidityChunk(
+                tokenId,
+                leg,
+                positionSize
+            );
+
+            (uint256 amount0, uint256 amount1) = Math.getAmountsForLiquidity(
+                currentTick,
+                liquidityChunk
+            );
+
+            if (tokenId.isLong(leg) == 0) {
+                netFlow0 += int256(amount0);
+                netFlow1 += int256(amount1);
+            } else {
+                netFlow0 -= int256(amount0);
+                netFlow1 -= int256(amount1);
+            }
         }
     }
 

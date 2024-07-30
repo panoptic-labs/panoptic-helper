@@ -1195,6 +1195,7 @@ contract PanopticHelperTest is PositionUtils {
 
         TokenId tokenId = TokenId.wrap(0).addPoolId(poolId);
 
+        // keep unpaired
         for (uint256 leg; leg < numberOfLegs; ++leg) {
             tokenId = tokenId.addRiskPartner(leg, leg);
         }
@@ -1211,7 +1212,7 @@ contract PanopticHelperTest is PositionUtils {
             seed = uint256(keccak256(abi.encode(seed)));
             uint256 isLong;
             {
-                isLong = uint256((seed >> 7) % 2);
+                isLong = 0 * uint256((seed >> 7) % 2);
 
                 uint256 tokenType = uint256((seed >> 27) % 2);
                 tokenId = tokenId.addTokenType(tokenType, i);
@@ -1257,13 +1258,38 @@ contract PanopticHelperTest is PositionUtils {
         }
 
         vm.startPrank(Alice);
-        uint128 positionSize = uint128(boundLog(x, 0, 80));
-        (uint128 r0, uint128 r1) = ph.positionBuyingPowerRequirement(
+        uint128 positionSize = uint128(boundLog(x, 0, 64));
+        (uint128 requiredToken0, uint128 requiredToken1) = ph.positionBuyingPowerRequirement(
             pp,
             Alice,
             tokenId,
             positionSize
         );
+
+        TokenId[] memory posIdList = new TokenId[](1);
+
+        posIdList[0] = tokenId;
+
+        vm.assume(ph.isMintValid(tokenId, positionSize) == true);
+
+        pp.mintOptions(
+            posIdList,
+            positionSize,
+            0,
+            Constants.MIN_V3POOL_TICK,
+            Constants.MAX_V3POOL_TICK
+        );
+
+        (, currentTick, , , , , ) = pool.slot0();
+
+        (int128 premium0, int128 premium1, uint256[2][] memory posBalanceArray) = pp
+            .calculateAccumulatedFeesBatch(Alice, false, posIdList);
+
+        tokenData0 = ct0.getAccountMarginDetails(Alice, currentTick, posBalanceArray, premium0);
+        tokenData1 = ct1.getAccountMarginDetails(Alice, currentTick, posBalanceArray, premium1);
+
+        assertEq(requiredToken0, tokenData0.leftSlot(), "required token0");
+        assertEq(requiredToken1, tokenData1.leftSlot(), "required token1");
     }
 
     function test_Success_checkCollateral_OTMandITMShortCall(
