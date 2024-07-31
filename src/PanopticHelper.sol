@@ -386,6 +386,14 @@ contract PanopticHelper {
         buyingPowerRequirement1 = PanopticMath.convert0to1(buyingPowerRequirement0, sqrtPriceX96);
     }
 
+    /// TODO:
+    /// @notice return the covered amount requirement of the account in terms of token0 and token1 at the current price
+    function coveredRequirement(
+        address pool,
+        address account,
+        TokenId[] calldata positionIdList
+    ) public view returns (int256 buyingPowerRequirement0, int256 buyingPowerRequirement1) {}
+
     /// @notice return the buying power of the account
     function buyingPower(
         address pool,
