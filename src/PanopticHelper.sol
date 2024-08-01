@@ -89,21 +89,26 @@ contract PanopticHelper {
         TokenId[] calldata positionIdList
     ) public view returns (uint256, uint256) {
         // Compute premia for all options (includes short+long premium)
-        (int128 premium0, int128 premium1, uint256[2][] memory positionBalanceArray) = pool
-            .calculateAccumulatedFeesBatch(account, false, positionIdList);
+        (
+            LeftRightUnsigned shortPremium,
+            LeftRightUnsigned longPremium,
+            uint256[2][] memory positionBalanceArray
+        ) = pool.calculateAccumulatedFeesBatch(account, false, positionIdList);
 
         // Query the current and required collateral amounts for the two tokens
         LeftRightUnsigned tokenData0 = pool.collateralToken0().getAccountMarginDetails(
             account,
             atTick,
             positionBalanceArray,
-            premium0
+            shortPremium.rightSlot(),
+            longPremium.rightSlot()
         );
         LeftRightUnsigned tokenData1 = pool.collateralToken1().getAccountMarginDetails(
             account,
             atTick,
             positionBalanceArray,
-            premium1
+            shortPremium.leftSlot(),
+            longPremium.leftSlot()
         );
 
         // convert (using atTick) and return the total collateral balance and required balance in terms of tokenType
@@ -259,12 +264,14 @@ contract PanopticHelper {
                     address(0xdead),
                     atTick,
                     positionBalance,
+                    0,
                     0
                 );
                 LeftRightUnsigned tokenData1 = pool.collateralToken1().getAccountMarginDetails(
                     address(0xdead),
                     atTick,
                     positionBalance,
+                    0,
                     0
                 );
                 (, uint256 required0) = PanopticMath.convertCollateralData(
@@ -340,22 +347,21 @@ contract PanopticHelper {
     /// @param univ3pool The Uniswap pool to get the median observation from
     /// @param cardinality The number of `periods` to in the median price array, should be odd.
     /// @param period The number of observations to average to compute one entry in the median price array
-    /// @return The median of `cardinality` observations spaced by `period` in the Uniswap pool
+    /// @return medianTick The median of `cardinality` observations spaced by `period` in the Uniswap pool
     function computeMedianObservedPrice(
         IUniswapV3Pool univ3pool,
         uint256 cardinality,
         uint256 period
-    ) external view returns (int24) {
+    ) external view returns (int24 medianTick) {
         (, , uint16 observationIndex, uint16 observationCardinality, , , ) = univ3pool.slot0();
 
-        return
-            PanopticMath.computeMedianObservedPrice(
-                univ3pool,
-                observationIndex,
-                observationCardinality,
-                cardinality,
-                period
-            );
+        (medianTick, ) = PanopticMath.computeMedianObservedPrice(
+            univ3pool,
+            observationIndex,
+            observationCardinality,
+            cardinality,
+            period
+        );
     }
 
     /// @notice Takes a packed structure representing a sorted 8-slot queue of ticks and returns the median of those values.

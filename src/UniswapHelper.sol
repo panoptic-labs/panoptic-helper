@@ -805,7 +805,6 @@ contract UniswapHelper {
             int24 positionWidth = tickUpper - tickLower;
 
             int24 minTick = tickLower - 2 * positionWidth;
-            int24 maxTick = tickUpper + positionWidth / 2;
 
             for (uint256 i; i < 100; ++i) {
                 tickData[i] = minTick + int256((int256(i) * 2 * positionWidth) / 100);
