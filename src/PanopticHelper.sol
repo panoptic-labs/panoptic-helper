@@ -558,7 +558,27 @@ contract PanopticHelper {
 
     /// @notice checks whether the mint is value
     function isMintValid(TokenId tokenId, uint128 positionSize) external pure returns (bool) {
+        uint256 amount0;
+        uint256 amount1;
+
         for (uint256 leg; leg < tokenId.countLegs(); ++leg) {
+            (int24 tickLower, int24 tickUpper) = tokenId.asTicks(leg);
+            uint256 amount = uint256(positionSize) * tokenId.optionRatio(leg);
+            uint160 lowPriceX96 = Math.getSqrtRatioAtTick(tickLower);
+            uint160 highPriceX96 = Math.getSqrtRatioAtTick(tickUpper);
+
+            if (tokenId.asset(leg) == 0) {
+                uint256 liquidity = Math.mulDiv(
+                    amount,
+                    Math.mulDiv96(highPriceX96, lowPriceX96),
+                    highPriceX96 - lowPriceX96
+                );
+
+                if (liquidity > type(uint128).max) return false;
+            } else {
+                uint256 liquidity = Math.mulDiv(amount1, 2 ** 96, highPriceX96 - lowPriceX96);
+                if (liquidity > type(uint128).max) return false;
+            }
             LiquidityChunk liquidityChunk = PanopticMath.getLiquidityChunk(
                 tokenId,
                 leg,
@@ -568,7 +588,23 @@ contract PanopticHelper {
             if (liquidityChunk.liquidity() == 0) {
                 return false;
             }
+
+            unchecked {
+                // increment accumulators of the upper bound on tokens contained across all legs of the position at any given tick
+                amount0 += uint256(Math.getAmount0ForLiquidity(liquidityChunk));
+
+                amount1 += uint256(Math.getAmount1ForLiquidity(liquidityChunk));
+            }
         }
+        if (
+            amount0 > uint256(uint128(type(int128).max - 4)) ||
+            amount1 > uint256(uint128(type(int128).max - 4))
+        ) return false;
+
+        if (
+            amount0 > uint256(uint104(type(int104).max - 4)) ||
+            amount1 > uint256(uint104(type(int104).max - 4))
+        ) return false;
 
         return true;
     }

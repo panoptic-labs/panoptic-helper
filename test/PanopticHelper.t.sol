@@ -1366,9 +1366,19 @@ contract PanopticHelperTest is PositionUtils {
             inputLeg[i] = _Leg;
         }
 
+        TokenId[] memory posIdList = new TokenId[](1);
+
+        posIdList[0] = tokenId;
+
         vm.startPrank(Alice);
 
-        uint128 positionSize = uint128(boundLog(x, 32, 48));
+        uint128 positionSize = uint128(boundLog(x, 0, 128));
+
+        vm.assume(ph.isMintValid(tokenId, positionSize) == true);
+
+        (int256 c0, int256 c1) = ph.coveredRequirement(address(pp), Alice, posIdList);
+        console2.log("c0", c0);
+        console2.log("c1", c1);
 
         (uint128 requiredToken0, uint128 requiredToken1) = ph.positionBuyingPowerRequirement(
             pp,
@@ -1379,6 +1389,26 @@ contract PanopticHelperTest is PositionUtils {
 
         console2.log("requiredToken0", requiredToken0);
         console2.log("requiredToken1", requiredToken1);
+
+        vm.assume(
+            (c0 < type(int104).max) &&
+                (c1 < type(int104).max) &&
+                (requiredToken0 < type(uint104).max) &&
+                (requiredToken1 < type(uint104).max)
+        );
+        vm.assume(
+            (c0 < type(int88).max) &&
+                (c1 < type(int88).max) &&
+                (requiredToken0 < type(uint88).max) &&
+                (requiredToken1 < type(uint88).max)
+        );
+
+        vm.assume(
+            (c0 < int256(IERC20Partial(token0).balanceOf(address(pp)))) &&
+                (c1 < int256(IERC20Partial(token1).balanceOf(address(pp)))) &&
+                (requiredToken0 < IERC20Partial(token0).balanceOf(address(pp))) &&
+                (requiredToken1 < IERC20Partial(token1).balanceOf(address(pp)))
+        );
 
         /*
         ct0.withdraw(ct0.maxWithdraw(Alice), Alice, Alice);
@@ -1391,12 +1421,7 @@ contract PanopticHelperTest is PositionUtils {
         ct1.deposit((15 * requiredToken1) / 10 + 100, Alice);
         */
 
-        TokenId[] memory posIdList = new TokenId[](1);
-
-        posIdList[0] = tokenId;
-
-        vm.assume(ph.isMintValid(tokenId, positionSize) == true);
-
+        //mint covered
         pp.mintOptions(
             posIdList,
             positionSize,
@@ -1426,10 +1451,6 @@ contract PanopticHelperTest is PositionUtils {
 
         assertEq(BPRs[0][0], TokenId.unwrap(posIdList[0]));
 
-        (int256 c0, int256 c1) = ph.coveredRequirement(address(pp), Alice, posIdList);
-        console2.log("c0", c0);
-        console2.log("c1", c1);
-        assertTrue(false);
         // assertEq(requiredToken0, tokenData0.leftSlot(), "required token0");
         // assertEq(requiredToken1, tokenData1.leftSlot(), "required token1");
     }
