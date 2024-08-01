@@ -392,7 +392,49 @@ contract PanopticHelper {
         address pool,
         address account,
         TokenId[] calldata positionIdList
-    ) public view returns (int256 buyingPowerRequirement0, int256 buyingPowerRequirement1) {}
+    ) public view returns (int256 coveredRequirement0, int256 coveredRequirement1) {
+        (, , uint256[2][] memory positionBalanceArray) = PanopticPool(pool)
+            .calculateAccumulatedFeesBatch(account, false, positionIdList);
+
+        for (uint256 i; i < positionIdList.length; ++i) {
+            TokenId tokenId = positionIdList[i];
+            uint128 positionSize = LeftRightUnsigned.wrap(positionBalanceArray[i][1]).rightSlot();
+            for (uint256 legIndex; legIndex < tokenId.countLegs(); ++legIndex) {
+                uint256 amount0;
+                uint256 amount1;
+
+                (int24 tickLower, int24 tickUpper) = tokenId.asTicks(legIndex);
+
+                // effective strike price of the option (avg. price over LP range)
+                // geometric mean of two numbers = √(x1 * x2) = √x1 * √x2
+                uint256 geometricMeanPriceX96 = Math.mulDiv(
+                    Math.getSqrtRatioAtTick(tickLower),
+                    Math.getSqrtRatioAtTick(tickUpper),
+                    2 ** 96
+                );
+
+                if (tokenId.asset(legIndex) == 0) {
+                    amount0 = positionSize * uint128(tokenId.optionRatio(legIndex));
+
+                    amount1 = Math.mulDiv(amount0, geometricMeanPriceX96, 2 ** 96);
+                } else {
+                    amount1 = positionSize * uint128(tokenId.optionRatio(legIndex));
+
+                    amount0 = Math.mulDiv(amount1, 2 ** 96, geometricMeanPriceX96);
+                }
+
+                if (tokenId.tokenType(legIndex) == tokenId.isLong(legIndex)) {
+                    // if option is a short call or a long put, add amountsMoved0 to right slot and subtract amountsMoved1 from left slot
+                    coveredRequirement0 += int256(amount0);
+                    coveredRequirement1 -= int256(amount1);
+                } else {
+                    // if option is a short put or a long call, add amountsMoved1 to left slot and subtract amountsMoved0 from right slot
+                    coveredRequirement0 -= int256(amount0);
+                    coveredRequirement1 += int256(amount1);
+                }
+            }
+        }
+    }
 
     /// @notice return the buying power of the account
     function buyingPower(

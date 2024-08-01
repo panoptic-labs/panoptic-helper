@@ -1368,7 +1368,7 @@ contract PanopticHelperTest is PositionUtils {
 
         vm.startPrank(Alice);
 
-        uint128 positionSize = uint128(boundLog(x, 0, 64));
+        uint128 positionSize = uint128(boundLog(x, 32, 48));
 
         (uint128 requiredToken0, uint128 requiredToken1) = ph.positionBuyingPowerRequirement(
             pp,
@@ -1426,6 +1426,10 @@ contract PanopticHelperTest is PositionUtils {
 
         assertEq(BPRs[0][0], TokenId.unwrap(posIdList[0]));
 
+        (int256 c0, int256 c1) = ph.coveredRequirement(address(pp), Alice, posIdList);
+        console2.log("c0", c0);
+        console2.log("c1", c1);
+        assertTrue(false);
         // assertEq(requiredToken0, tokenData0.leftSlot(), "required token0");
         // assertEq(requiredToken1, tokenData1.leftSlot(), "required token1");
     }
