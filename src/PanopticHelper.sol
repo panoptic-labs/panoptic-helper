@@ -326,6 +326,127 @@ contract PanopticHelper {
     }
 
     /*//////////////////////////////////////////////////////////////
+                        PORTFOLIO GREEKS
+    //////////////////////////////////////////////////////////////*/
+
+    function delta(
+        address pool,
+        address account,
+        int24 tick,
+        TokenId[] calldata positionIdList
+    ) public view returns (int256 delta0, int256 delta1) {
+        int256 ts = int256(PanopticPool(pool).univ3pool().tickSpacing());
+
+        // https://en.wikipedia.org/wiki/Numerical_differentiation#Higher-order_methods
+        // https://web.media.mit.edu/~crtaylor/calculator.html derivative order=1 using sample points (-2,-1,0,1,2)
+        {
+            (int256 v00, int256 v10) = getPortfolioValue(
+                PanopticPool(pool),
+                account,
+                tick - 2 * int24(ts),
+                positionIdList
+            );
+            (int256 v01, int256 v11) = getPortfolioValue(
+                PanopticPool(pool),
+                account,
+                tick - 1 * int24(ts),
+                positionIdList
+            );
+            console2.log("v00", v00);
+            console2.log("v10", v10);
+            console2.log("v01", v01);
+            console2.log("v11", v11);
+            delta0 += (v00 - 8 * v01) / (12 * ts);
+            delta1 += (v10 - 8 * v11) / (12 * ts);
+        }
+        (int256 v0, int256 v1) = getPortfolioValue(
+            PanopticPool(pool),
+            account,
+            tick - 1 * int24(ts),
+            positionIdList
+        );
+        console2.log("v0", v0);
+        console2.log("v1", v1);
+        {
+            (int256 v02, int256 v12) = getPortfolioValue(
+                PanopticPool(pool),
+                account,
+                tick + 1 * int24(ts),
+                positionIdList
+            );
+            (int256 v03, int256 v13) = getPortfolioValue(
+                PanopticPool(pool),
+                account,
+                tick + 2 * int24(ts),
+                positionIdList
+            );
+            console2.log("v02", v02);
+            console2.log("v12", v12);
+            console2.log("v03", v03);
+            console2.log("v13", v13);
+            delta0 += (8 * v02 - v03) / (12 * ts);
+            delta1 += (8 * v12 - v13) / (12 * ts);
+        }
+    }
+
+    function gamma(
+        address pool,
+        address account,
+        int24 tick,
+        TokenId[] calldata positionIdList
+    ) public view returns (int256 delta0, int256 delta1) {
+        int256 ts = int256(PanopticPool(pool).univ3pool().tickSpacing());
+
+        // https://en.wikipedia.org/wiki/Numerical_differentiation#Higher-order_methods
+        // https://web.media.mit.edu/~crtaylor/calculator.html derivative order=2 using sample points (-2,-1,0,1,2)
+        {
+            (int256 v00, int256 v10) = PanopticPool(pool).calculatePortfolioValue(
+                account,
+                tick - 2 * int24(ts),
+                positionIdList
+            );
+            delta0 -= v00 / (12 * ts * ts);
+            delta1 -= v10 / (12 * ts * ts);
+        }
+        {
+            (int256 v01, int256 v11) = PanopticPool(pool).calculatePortfolioValue(
+                account,
+                tick - 1 * int24(ts),
+                positionIdList
+            );
+            delta0 += (16 * v01) / (12 * ts * ts);
+            delta1 += (16 * v11) / (12 * ts * ts);
+        }
+        {
+            (int256 v02, int256 v12) = PanopticPool(pool).calculatePortfolioValue(
+                account,
+                tick,
+                positionIdList
+            );
+            delta0 -= (30 * v02) / (12 * ts * ts);
+            delta1 -= (30 * v12) / (12 * ts * ts);
+        }
+        {
+            (int256 v03, int256 v13) = PanopticPool(pool).calculatePortfolioValue(
+                account,
+                tick + 1 * int24(ts),
+                positionIdList
+            );
+            delta0 += (16 * v03) / (12 * ts * ts);
+            delta1 += (16 * v13) / (12 * ts * ts);
+        }
+        {
+            (int256 v04, int256 v14) = PanopticPool(pool).calculatePortfolioValue(
+                account,
+                tick + 2 * int24(ts),
+                positionIdList
+            );
+            delta0 -= v04 / (12 * ts * ts);
+            delta1 -= v14 / (12 * ts * ts);
+        }
+    }
+
+    /*//////////////////////////////////////////////////////////////
                         PORTFOLIO CALCULATIONS
     //////////////////////////////////////////////////////////////*/
 
@@ -364,6 +485,64 @@ contract PanopticHelper {
 
         // convert (using atTick) and return the total collateral balance and required balance in terms of tokenType
         return PanopticMath.convertCollateralData(tokenData0, tokenData1, tokenType, atTick);
+    }
+
+    /// @notice Calculate NAV of user's option portfolio at a given tick.
+    /// @param pool The PanopticPool instance to check collateral on
+    /// @param account Address of the user that owns the positions
+    /// @param atTick The tick to calculate the value at
+    /// @param positionIdList A list of all positions the user holds on that pool
+    /// @return value0 The amount of token0 owned by portfolio
+    /// @return value1 The amount of token1 owned by portfolio
+    function getPortfolioValue(
+        PanopticPool pool,
+        address account,
+        int24 atTick,
+        TokenId[] calldata positionIdList
+    ) public view returns (int256 value0, int256 value1) {
+        // Compute premia for all options (includes short+long premium)
+        (, , uint256[2][] memory positionBalanceArray) = pool.calculateAccumulatedFeesBatch(
+            account,
+            false,
+            positionIdList
+        );
+
+        for (uint256 k = 0; k < positionIdList.length; ) {
+            TokenId tokenId = positionIdList[k];
+            uint128 positionSize = LeftRightUnsigned.wrap(positionBalanceArray[k][1]).rightSlot();
+            uint256 numLegs = tokenId.countLegs();
+            for (uint256 leg = 0; leg < numLegs; ) {
+                LiquidityChunk liquidityChunk = PanopticMath.getLiquidityChunk(
+                    tokenId,
+                    leg,
+                    positionSize
+                );
+
+                (uint256 amount0, uint256 amount1) = Math.getAmountsForLiquidity(
+                    atTick,
+                    liquidityChunk
+                );
+
+                if (tokenId.isLong(leg) == 0) {
+                    unchecked {
+                        value0 += int256(amount0);
+                        value1 += int256(amount1);
+                    }
+                } else {
+                    unchecked {
+                        value0 -= int256(amount0);
+                        value1 -= int256(amount1);
+                    }
+                }
+
+                unchecked {
+                    ++leg;
+                }
+            }
+            unchecked {
+                ++k;
+            }
+        }
     }
 
     /// @notice return the buying power requirement of the account in terms of token0 and token1 at the current price

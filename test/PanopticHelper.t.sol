@@ -1434,6 +1434,57 @@ contract PanopticHelperTest is PositionUtils {
         // assertEq(requiredToken1, tokenData1.leftSlot(), "required token1");
     }
 
+    /// forge-config: default.fuzz.runs = 500
+    function test_Success_delta_gamma_1Leg(uint256 x) public {
+        _initPool(x);
+
+        (, currentTick, , , , , ) = pool.slot0();
+
+        int24 ts = pool.tickSpacing();
+        int24 width = 20;
+        int24 strike = (currentTick / ts) * ts;
+        uint256 optionRatio = 1;
+
+        // create an atm put
+        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            optionRatio,
+            0,
+            0,
+            1,
+            0,
+            strike,
+            width
+        );
+        tokenId.validate();
+
+        vm.startPrank(Alice);
+
+        uint128 positionSize = uint128(boundLog(x, 32, 48));
+
+        TokenId[] memory posIdList = new TokenId[](1);
+
+        posIdList[0] = tokenId;
+
+        vm.assume(ph.isMintValid(tokenId, positionSize) == true);
+
+        // mint otm put
+        pp.mintOptions(
+            posIdList,
+            positionSize,
+            0,
+            Constants.MIN_V3POOL_TICK,
+            Constants.MAX_V3POOL_TICK
+        );
+
+        (int256 delta0, int256 delta1) = ph.delta(address(pp), Alice, currentTick, posIdList);
+        console2.log("delta0", delta0);
+        console2.log("delta1", delta1);
+
+        console2.log("positionSize", positionSize);
+        assertTrue(false);
+    }
+
     function test_Success_checkCollateral_OTMandITMShortCall(
         uint256 x,
         uint256[2] memory widthSeeds,
