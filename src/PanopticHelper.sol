@@ -42,6 +42,37 @@ contract PanopticHelper {
         SFPM = _SFPM;
     }
 
+    /// @notice Returns the total number of contracts owned by `account` and the pool utilization at mint for a specified `tokenId.
+    /// @param pool The PanopticPool instance corresponding to the pool specified in `TokenId`
+    /// @param account The address of the account on which to retrieve `balance` and `poolUtilization`
+    /// @return balance Number of contracts of `tokenId` owned by the user
+    /// @return poolUtilization0 The utilization of token0 in the Panoptic pool at mint
+    /// @return poolUtilization1 The utilization of token1 in the Panoptic pool at mint
+    function optionPositionInfo(
+        PanopticPool pool,
+        address account,
+        TokenId tokenId
+    ) external view returns (uint128, uint64, uint64) {
+        TokenId[] memory tokenIdList = new TokenId[](1);
+        tokenIdList[0] = tokenId;
+
+        (, , uint256[2][] memory positionBalanceArray) = pool.calculateAccumulatedFeesBatch(
+            account,
+            false,
+            tokenIdList
+        );
+
+        LeftRightUnsigned balanceAndUtilization = LeftRightUnsigned.wrap(
+            positionBalanceArray[0][1]
+        );
+
+        return (
+            balanceAndUtilization.rightSlot(),
+            uint64(balanceAndUtilization.leftSlot()),
+            uint64(balanceAndUtilization.leftSlot() >> 64)
+        );
+    }
+
     /// @notice Compute the total amount of collateral needed to cover the existing list of active positions in positionIdList.
     /// @param pool The PanopticPool instance to check collateral on
     /// @param account Address of the user that owns the positions
@@ -253,10 +284,10 @@ contract PanopticHelper {
 
     /// @notice An external function that validates a tokenId.
     /// @param self the tokenId to be tested
-    function validateTokenId(TokenId self) external pure returns (bool) {
+    function validateTokenId(TokenId self) external pure {
         self.validate();
         for (uint256 leg; leg < self.countLegs(); ++leg) {
-            (int24 tickLower, int24 tickUpper) = self.asTicks(leg);
+            self.asTicks(leg);
         }
     }
 
