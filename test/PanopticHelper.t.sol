@@ -32,10 +32,6 @@ import {Pointer} from "@types/Pointer.sol";
 contract SemiFungiblePositionManagerHarness is SemiFungiblePositionManager {
     constructor(IUniswapV3Factory _factory) SemiFungiblePositionManager(_factory) {}
 
-    function poolContext(uint64 poolId) public view returns (PoolAddressAndLock memory) {
-        return s_poolContext[poolId];
-    }
-
     function addrToPoolId(address pool) public view returns (uint256) {
         return s_AddrToPoolIdData[pool];
     }
@@ -393,7 +389,7 @@ contract PanopticHelperTest is PositionUtils {
     }
 
     // bounds the input value between 2**min and 2**(max+1)-1
-    function boundLog(uint256 value, uint8 min, uint8 max) internal returns (uint256) {
+    function boundLog(uint256 value, uint8 min, uint8 max) internal pure returns (uint256) {
         uint256 range = uint256(max) - uint256(min) + 1;
         uint256 m0 = min + (value % range);
         value = uint256(keccak256(abi.encode(value)));
@@ -518,10 +514,10 @@ contract PanopticHelperTest is PositionUtils {
     function test_Success_boundLog_sameLimits(uint256 x) public {
         for (uint8 i; i < 255; ++i) {
             x = uint256(keccak256(abi.encode(x)));
-            uint256 b = boundLog(x, i, i);
+            uint256 _b = boundLog(x, i, i);
 
-            assertTrue(b >= 2 ** i);
-            assertTrue(b <= (2 ** (i + 1) - 1));
+            assertTrue(_b >= 2 ** i);
+            assertTrue(_b <= (2 ** (i + 1) - 1));
         }
         x = uint256(keccak256(abi.encode(x)));
         uint256 b = boundLog(x, 255, 255);
@@ -534,10 +530,10 @@ contract PanopticHelperTest is PositionUtils {
     function test_Success_boundLog_low(uint256 x) public {
         for (uint8 i; i < 255; ++i) {
             x = uint256(keccak256(abi.encode(x)));
-            uint256 b = boundLog(x, 0, i);
+            uint256 _b = boundLog(x, 0, i);
 
-            assertTrue(b >= 2 ** 0);
-            assertTrue(b <= (2 ** (i + 1) - 1));
+            assertTrue(_b >= 2 ** 0);
+            assertTrue(_b <= (2 ** (i + 1) - 1));
         }
         x = uint256(keccak256(abi.encode(x)));
         uint256 b = boundLog(x, 0, 255);
@@ -550,10 +546,10 @@ contract PanopticHelperTest is PositionUtils {
     function test_Success_boundLog_high(uint256 x) public {
         for (uint8 i; i < 255; ++i) {
             x = uint256(keccak256(abi.encode(x)));
-            uint256 b = boundLog(x, i, 255);
+            uint256 _b = boundLog(x, i, 255);
 
-            assertTrue(b >= 2 ** i);
-            assertTrue(b <= type(uint256).max);
+            assertTrue(_b >= 2 ** i);
+            assertTrue(_b <= type(uint256).max);
         }
         x = uint256(keccak256(abi.encode(x)));
         uint256 b = boundLog(x, 255, 255);
@@ -1263,11 +1259,26 @@ contract PanopticHelperTest is PositionUtils {
                 Constants.MIN_V3POOL_TICK
             );
 
-            (int128 premium0, int128 premium1, uint256[2][] memory posBalanceArray) = pp
-                .calculateAccumulatedFeesBatch(Alice, false, posIdList);
+            (
+                LeftRightUnsigned shortPremium,
+                LeftRightUnsigned longPremium,
+                uint256[2][] memory posBalanceArray
+            ) = pp.calculateAccumulatedFeesBatch(Alice, false, posIdList);
 
-            tokenData0 = ct0.getAccountMarginDetails(Alice, atTick, posBalanceArray, premium0);
-            tokenData1 = ct1.getAccountMarginDetails(Alice, atTick, posBalanceArray, premium1);
+            tokenData0 = ct0.getAccountMarginDetails(
+                Alice,
+                atTick,
+                posBalanceArray,
+                shortPremium.rightSlot(),
+                longPremium.rightSlot()
+            );
+            tokenData1 = ct1.getAccountMarginDetails(
+                Alice,
+                atTick,
+                posBalanceArray,
+                shortPremium.leftSlot(),
+                longPremium.leftSlot()
+            );
 
             (calculatedCollateralBalance, calculatedRequiredCollateral) = PanopticMath
                 .convertCollateralData(tokenData0, tokenData1, returnTokenType ? 1 : 0, atTick);

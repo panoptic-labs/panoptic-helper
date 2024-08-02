@@ -30,10 +30,6 @@ import {Pointer} from "@types/Pointer.sol";
 contract SemiFungiblePositionManagerHarness is SemiFungiblePositionManager {
     constructor(IUniswapV3Factory _factory) SemiFungiblePositionManager(_factory) {}
 
-    function poolContext(uint64 poolId) public view returns (PoolAddressAndLock memory) {
-        return s_poolContext[poolId];
-    }
-
     function addrToPoolId(address pool) public view returns (uint256) {
         return s_AddrToPoolIdData[pool];
     }
@@ -233,7 +229,7 @@ contract UniswapHelperTest is PositionUtils {
     }
 
     // bounds the input value between 2**min and 2**(max+1)-1
-    function boundLog(uint256 value, uint8 min, uint8 max) internal returns (uint256) {
+    function boundLog(uint256 value, uint8 min, uint8 max) internal pure returns (uint256) {
         uint256 range = uint256(max) - uint256(min) + 1;
         uint256 m0 = min + (value % range);
         value = uint256(keccak256(abi.encode(value)));
@@ -279,10 +275,10 @@ contract UniswapHelperTest is PositionUtils {
     function test_Success_boundLog_sameLimits(uint256 x) public {
         for (uint8 i; i < 255; ++i) {
             x = uint256(keccak256(abi.encode(x)));
-            uint256 b = boundLog(x, i, i);
+            uint256 _b = boundLog(x, i, i);
 
-            assertTrue(b >= 2 ** i);
-            assertTrue(b <= (2 ** (i + 1) - 1));
+            assertTrue(_b >= 2 ** i);
+            assertTrue(_b <= (2 ** (i + 1) - 1));
         }
         x = uint256(keccak256(abi.encode(x)));
         uint256 b = boundLog(x, 255, 255);
@@ -295,10 +291,10 @@ contract UniswapHelperTest is PositionUtils {
     function test_Success_boundLog_low(uint256 x) public {
         for (uint8 i; i < 255; ++i) {
             x = uint256(keccak256(abi.encode(x)));
-            uint256 b = boundLog(x, 0, i);
+            uint256 _b = boundLog(x, 0, i);
 
-            assertTrue(b >= 2 ** 0);
-            assertTrue(b <= (2 ** (i + 1) - 1));
+            assertTrue(_b >= 2 ** 0);
+            assertTrue(_b <= (2 ** (i + 1) - 1));
         }
         x = uint256(keccak256(abi.encode(x)));
         uint256 b = boundLog(x, 0, 255);
@@ -311,10 +307,10 @@ contract UniswapHelperTest is PositionUtils {
     function test_Success_boundLog_high(uint256 x) public {
         for (uint8 i; i < 255; ++i) {
             x = uint256(keccak256(abi.encode(x)));
-            uint256 b = boundLog(x, i, 255);
+            uint256 _b = boundLog(x, i, 255);
 
-            assertTrue(b >= 2 ** i);
-            assertTrue(b <= type(uint256).max);
+            assertTrue(_b >= 2 ** i);
+            assertTrue(_b <= type(uint256).max);
         }
         x = uint256(keccak256(abi.encode(x)));
         uint256 b = boundLog(x, 255, 255);
@@ -329,11 +325,11 @@ contract UniswapHelperTest is PositionUtils {
         console2.log(uh.plotPoolLiquidity(address(pool)));
     }
 
-    function test_PnL() public {
+    function test_PnL() public view {
         console2.log(uh.plotPnL(4));
     }
 
-    function test_getSVG() public {
+    function test_getSVG() public view {
         int256[] memory tickData = new int256[](8);
         tickData[0] = 10;
         tickData[1] = 15;
