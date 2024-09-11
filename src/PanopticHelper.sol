@@ -442,10 +442,10 @@ contract PanopticHelper {
         (, , uint256[2][] memory positionBalanceArray) = PanopticPool(pool)
             .calculateAccumulatedFeesBatch(account, false, positionIdList);
 
-        for (uint256 i; i < positionIdList.length;) {
+        for (uint256 i; i < positionIdList.length; ) {
             TokenId tokenId = positionIdList[i];
             uint128 positionSize = LeftRightUnsigned.wrap(positionBalanceArray[i][1]).rightSlot();
-            for (uint256 legIndex; legIndex < tokenId.countLegs();) {
+            for (uint256 legIndex; legIndex < tokenId.countLegs(); ) {
                 uint256 amount0;
                 uint256 amount1;
 
@@ -478,12 +478,12 @@ contract PanopticHelper {
                 }
 
                 unchecked {
-                   ++legIndex;
+                    ++legIndex;
                 }
             }
 
             unchecked {
-               ++i;
+                ++i;
             }
         }
     }
