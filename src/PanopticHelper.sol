@@ -411,14 +411,14 @@ contract PanopticHelper {
     /// @return buyingPowerRequirement0 The buying power requirement of the account in terms of token0 at the current price
     /// @return buyingPowerRequirement1 The buying power requirement of the account in terms of token1 at the current price
     function buyingPowerRequirement(
-        address pool,
+        PanopticPool pool,
         address account,
         TokenId[] calldata positionIdList
     ) public view returns (int256 buyingPowerRequirement0, int256 buyingPowerRequirement1) {
-        (uint160 sqrtPriceX96, int24 tick, , , , , ) = PanopticPool(pool).univ3pool().slot0();
+        (uint160 sqrtPriceX96, int24 tick, , , , , ) = pool.univ3pool().slot0();
 
         (uint256 balanceCross, uint256 requiredCross) = checkCollateral(
-            PanopticPool(pool),
+            pool,
             account,
             tick,
             0,
@@ -435,11 +435,11 @@ contract PanopticHelper {
     /// @return coveredRequirement0 The covered requirement of the account in terms of token0 at the current price
     /// @return coveredRequirement1 The covered requirement of the account in terms of token1 at the current price
     function coveredRequirement(
-        address pool,
+        PanopticPool pool,
         address account,
         TokenId[] calldata positionIdList
     ) public view returns (int256 coveredRequirement0, int256 coveredRequirement1) {
-        (, , uint256[2][] memory positionBalanceArray) = PanopticPool(pool)
+        (, , uint256[2][] memory positionBalanceArray) = pool
             .calculateAccumulatedFeesBatch(account, false, positionIdList);
 
         for (uint256 i; i < positionIdList.length; ) {
@@ -494,14 +494,14 @@ contract PanopticHelper {
     /// @return buyingPower0 The buying power of the account in terms of token0 at the current price
     /// @return buyingPower0 The buying power of the account in terms of token1 at the current price
     function buyingPower(
-        address pool,
+        PanopticPool pool,
         address account,
         TokenId[] calldata positionIdList
     ) public view returns (int256 buyingPower0, int256 buyingPower1) {
-        (uint160 sqrtPriceX96, int24 tick, , , , , ) = PanopticPool(pool).univ3pool().slot0();
+        (uint160 sqrtPriceX96, int24 tick, , , , , ) = pool.univ3pool().slot0();
 
         (uint256 balanceCross, uint256 requiredCross) = checkCollateral(
-            PanopticPool(pool),
+            pool,
             account,
             tick,
             0,
@@ -518,13 +518,13 @@ contract PanopticHelper {
     /// @param positionIdList List of positions. Written as [tokenId1, tokenId2, ...]
     /// @return utilization The buying power utilization (= required/balance) of the account as a X10000 number
     function buyingPowerUtilization(
-        address pool,
+        PanopticPool pool,
         address account,
         TokenId[] calldata positionIdList
     ) public view returns (uint256 utilization) {
-        (, int24 tick, , , , , ) = PanopticPool(pool).univ3pool().slot0();
+        (, int24 tick, , , , , ) = pool.univ3pool().slot0();
         (uint256 balanceCross, uint256 requiredCross) = checkCollateral(
-            PanopticPool(pool),
+            pool,
             account,
             tick,
             0,
@@ -541,25 +541,23 @@ contract PanopticHelper {
     /// @return memory A two-dimensional array, consisting of one 3-item array per position, which contains:
     ///                [position balance, threshold for margin call in token0, threshold for margin call in token1]
     function buyingPowerRequirements(
-        address pool,
+        PanopticPool pool,
         address account,
         TokenId[] calldata positionIdList
     ) public view returns (uint256[3][] memory) {
-        (, int24 tick, , , , , ) = PanopticPool(pool).univ3pool().slot0();
+        (, int24 tick, , , , , ) = pool.univ3pool().slot0();
 
-        (int128 premium0, int128 premium1, uint256[2][] memory positionBalanceArray) = PanopticPool(
-            pool
-        ).calculateAccumulatedFeesBatch(account, false, positionIdList);
+        (int128 premium0, int128 premium1, uint256[2][] memory positionBalanceArray) = pool.calculateAccumulatedFeesBatch(account, false, positionIdList);
 
         uint256[3][] memory buyingPowerPerPosition = new uint256[3][](positionIdList.length);
 
         for (uint256 i; i < positionIdList.length; ++i) {
             uint256[2][] memory positionBalance = new uint256[2][](1);
             positionBalance[0] = positionBalanceArray[i];
-            LeftRightUnsigned tokenData0 = PanopticPool(pool)
+            LeftRightUnsigned tokenData0 = pool
                 .collateralToken0()
                 .getAccountMarginDetails(account, tick, positionBalance, 0);
-            LeftRightUnsigned tokenData1 = PanopticPool(pool)
+            LeftRightUnsigned tokenData1 = pool
                 .collateralToken1()
                 .getAccountMarginDetails(account, tick, positionBalance, 0);
             buyingPowerPerPosition[i][0] = positionBalance[0][0];
@@ -608,7 +606,7 @@ contract PanopticHelper {
             positionBalance[0][1] = uint256(positionSize) + uint256(utilizations << 128);
         }
         {
-            (, int24 tick, , , , , ) = PanopticPool(pool).univ3pool().slot0();
+            (, int24 tick, , , , , ) = pool.univ3pool().slot0();
 
             // compute single position BPR using new pool utilizations
             LeftRightUnsigned tokenData0 = pool.collateralToken0().getAccountMarginDetails(
@@ -724,13 +722,13 @@ contract PanopticHelper {
     /// @param positionIdList list of position IDs to consider
     /// @return netEquity the net assets of `account` on `pool`
     function netEquity(
-        address pool,
+        PanopticPool pool,
         address account,
         int24 tick,
         TokenId[] calldata positionIdList
     ) internal view returns (int256) {
         (uint256 balanceCross, uint256 requiredCross) = checkCollateral(
-            PanopticPool(pool),
+            pool,
             account,
             tick,
             0,
@@ -769,17 +767,17 @@ contract PanopticHelper {
 
     /// @notice Returns an estimate of the downside liquidation price for a given account on a given pool.
     /// @dev returns MIN_TICK if the LP is more than 100000 ticks below the current tick.
-    /// @param pool address of the pool
+    /// @param pool the PanopticPool to estimate on
     /// @param account address of the account
     /// @param positionIdList list of position IDs to consider
     /// @return liquidationTick the downward liquidation price of `account` on `pool`, if any
     function findLiquidationPriceDown(
-        address pool,
+        PanopticPool pool,
         address account,
         TokenId[] calldata positionIdList
     ) public view returns (int24 liquidationTick) {
         // initialize right and left bounds from current tick
-        (, int24 currentTick, , , , , ) = PanopticPool(pool).univ3pool().slot0();
+        (, int24 currentTick, , , , , ) = pool.univ3pool().slot0();
         int24 x0 = currentTick - 10000;
         int24 x1 = currentTick;
         int24 tol = 100000;
@@ -817,17 +815,17 @@ contract PanopticHelper {
 
     /// @notice Returns an estimate of the upside liquidation price for a given account on a given pool.
     /// @dev returns MAX_TICK if the LP is more than 100000 ticks above current tick.
-    /// @param pool address of the pool
+    /// @param pool the PanopticPool to estimate on
     /// @param account address of the account
     /// @param positionIdList list of position IDs to consider
     /// @return liquidationTick the upward liquidation price of `account` on `pool`, if any
     function findLiquidationPriceUp(
-        address pool,
+        PanopticPool pool,
         address account,
         TokenId[] calldata positionIdList
     ) public view returns (int24 liquidationTick) {
         // initialize right and left bounds from current tick
-        (, int24 currentTick, , , , , ) = PanopticPool(pool).univ3pool().slot0();
+        (, int24 currentTick, , , , , ) = pool.univ3pool().slot0();
         int24 x0 = currentTick;
         int24 x1 = currentTick + 10000;
         int24 tol = 100000;
