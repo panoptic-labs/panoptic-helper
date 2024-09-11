@@ -24,6 +24,8 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 contract PanopticHelper {
     SemiFungiblePositionManager internal immutable SFPM;
 
+    uint256 immutable Q96 = 1 << 96;
+
     struct Leg {
         uint64 poolId;
         address UniswapV3Pool;
@@ -325,7 +327,7 @@ contract PanopticHelper {
             } else {
                 amount1 = positionSize * uint128(tokenId.optionRatio(legIndex));
 
-                amount0 = Math.mulDivRoundingUp(amount1, 2 ** 96, geometricMeanPriceX96);
+                amount0 = Math.mulDivRoundingUp(amount1, Q96, geometricMeanPriceX96);
             }
             if ((amount0 > type(uint120).max) || (amount1 > type(uint120).max)) {
                 return false;
@@ -403,44 +405,11 @@ contract PanopticHelper {
                         PORTFOLIO CALCULATIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Compute the total amount of collateral needed to cover the existing list of active positions in positionIdList.
-    /// @param pool The PanopticPool instance to check collateral on
+    /// @param pool The PanopticPool instance to return buying power requirement within
     /// @param account Address of the user that owns the positions
-    /// @param atTick At what price is the collateral requirement evaluated at
-    /// @param tokenType whether to return the values in term of token0 or token1
     /// @param positionIdList List of positions. Written as [tokenId1, tokenId2, ...]
-    /// @return collateralBalance the total combined balance of token0 and token1 for a user in terms of tokenType
-    /// @return requiredCollateral The combined collateral requirement for a user in terms of tokenType
-    function checkCollateral(
-        PanopticPool pool,
-        address account,
-        int24 atTick,
-        uint256 tokenType,
-        TokenId[] calldata positionIdList
-    ) public view returns (uint256, uint256) {
-        // Compute premia for all options (includes short+long premium)
-        (int128 premium0, int128 premium1, uint256[2][] memory positionBalanceArray) = pool
-            .calculateAccumulatedFeesBatch(account, false, positionIdList);
-
-        // Query the current and required collateral amounts for the two tokens
-        LeftRightUnsigned tokenData0 = pool.collateralToken0().getAccountMarginDetails(
-            account,
-            atTick,
-            positionBalanceArray,
-            premium0
-        );
-        LeftRightUnsigned tokenData1 = pool.collateralToken1().getAccountMarginDetails(
-            account,
-            atTick,
-            positionBalanceArray,
-            premium1
-        );
-
-        // convert (using atTick) and return the total collateral balance and required balance in terms of tokenType
-        return PanopticMath.convertCollateralData(tokenData0, tokenData1, tokenType, atTick);
-    }
-
-    /// @notice return the buying power requirement of the account in terms of token0 and token1 at the current price
+    /// @return buyingPowerRequirement0 The buying power requirement of the account in terms of token0 at the current price
+    /// @return buyingPowerRequirement1 The buying power requirement of the account in terms of token1 at the current price
     function buyingPowerRequirement(
         address pool,
         address account,
@@ -460,8 +429,11 @@ contract PanopticHelper {
         buyingPowerRequirement1 = PanopticMath.convert0to1(buyingPowerRequirement0, sqrtPriceX96);
     }
 
-    /// TODO:
-    /// @notice return the covered amount requirement of the account in terms of token0 and token1 at the current price
+    /// @param pool The PanopticPool instance to return covered requirement within
+    /// @param account Address of the user that owns the positions
+    /// @param positionIdList List of positions. Written as [tokenId1, tokenId2, ...]
+    /// @return coveredRequirement0 The covered requirement of the account in terms of token0 at the current price
+    /// @return coveredRequirement1 The covered requirement of the account in terms of token1 at the current price
     function coveredRequirement(
         address pool,
         address account,
@@ -470,10 +442,10 @@ contract PanopticHelper {
         (, , uint256[2][] memory positionBalanceArray) = PanopticPool(pool)
             .calculateAccumulatedFeesBatch(account, false, positionIdList);
 
-        for (uint256 i; i < positionIdList.length; ++i) {
+        for (uint256 i; i < positionIdList.length;) {
             TokenId tokenId = positionIdList[i];
             uint128 positionSize = LeftRightUnsigned.wrap(positionBalanceArray[i][1]).rightSlot();
-            for (uint256 legIndex; legIndex < tokenId.countLegs(); ++legIndex) {
+            for (uint256 legIndex; legIndex < tokenId.countLegs();) {
                 uint256 amount0;
                 uint256 amount1;
 
@@ -484,17 +456,15 @@ contract PanopticHelper {
                 uint256 geometricMeanPriceX96 = Math.mulDiv(
                     Math.getSqrtRatioAtTick(tickLower),
                     Math.getSqrtRatioAtTick(tickUpper),
-                    2 ** 96
+                    Q96
                 );
 
                 if (tokenId.asset(legIndex) == 0) {
                     amount0 = positionSize * uint128(tokenId.optionRatio(legIndex));
-
-                    amount1 = Math.mulDiv(amount0, geometricMeanPriceX96, 2 ** 96);
+                    amount1 = Math.mulDiv(amount0, geometricMeanPriceX96, Q96);
                 } else {
                     amount1 = positionSize * uint128(tokenId.optionRatio(legIndex));
-
-                    amount0 = Math.mulDiv(amount1, 2 ** 96, geometricMeanPriceX96);
+                    amount0 = Math.mulDiv(amount1, Q96, geometricMeanPriceX96);
                 }
 
                 if (tokenId.tokenType(legIndex) == tokenId.isLong(legIndex)) {
@@ -506,11 +476,23 @@ contract PanopticHelper {
                     coveredRequirement0 -= int256(amount0);
                     coveredRequirement1 += int256(amount1);
                 }
+
+                unchecked {
+                   ++legIndex;
+                }
+            }
+
+            unchecked {
+               ++i;
             }
         }
     }
 
-    /// @notice return the buying power of the account
+    /// @param pool The PanopticPool instance to return buying power within
+    /// @param account Address of the user that owns the positions
+    /// @param positionIdList List of positions. Written as [tokenId1, tokenId2, ...]
+    /// @return buyingPower0 The buying power of the account in terms of token0 at the current price
+    /// @return buyingPower0 The buying power of the account in terms of token1 at the current price
     function buyingPower(
         address pool,
         address account,
@@ -530,7 +512,11 @@ contract PanopticHelper {
         buyingPower1 = PanopticMath.convert0to1(buyingPower0, sqrtPriceX96);
     }
 
-    /// @notice return the buying power utilization = required/balance as a X10000 number
+    /// @notice Compute the buying power utilisation of positions in an account on a PanopticPool.
+    /// @param pool The PanopticPool instance to return buying power within
+    /// @param account Address of the user that owns the positions
+    /// @param positionIdList List of positions. Written as [tokenId1, tokenId2, ...]
+    /// @return utilization The buying power utilization (= required/balance) of the account as a X10000 number
     function buyingPowerUtilization(
         address pool,
         address account,
@@ -548,7 +534,12 @@ contract PanopticHelper {
         utilization = (requiredCross * 10000) / balanceCross;
     }
 
-    /// @notice compute the buying power requirement of all positions in an account
+    /// @notice Compute the buying power requirement of positions in an account on a PanopticPool.
+    /// @param pool The PanopticPool instance to return buying power within
+    /// @param account Address of the user that owns the positions
+    /// @param positionIdList List of positions. Written as [tokenId1, tokenId2, ...]
+    /// @return memory A two-dimensional array, consisting of one 3-item array per position, which contains:
+    ///                [position balance, threshold for margin call in token0, threshold for margin call in token1]
     function buyingPowerRequirements(
         address pool,
         address account,
@@ -579,7 +570,13 @@ contract PanopticHelper {
         return buyingPowerPerPosition;
     }
 
-    /// @notice compute the buying power requirement of a new tokenId, taking into account the increase in pool utilization
+    /// @notice Compute the buying power requirement for a position an account may take (or may already have) on a PanopticPool.
+    /// @param pool The PanopticPool instance the position would be within
+    /// @param account Address of the user that would take the position
+    /// @param tokenId A TokenId describing the position
+    /// @param positionSize The size of the position
+    /// @return The threshold for margin call in token0
+    /// @return The threshold for margin call in token1
     function positionBuyingPowerRequirement(
         PanopticPool pool,
         address account,
@@ -630,7 +627,10 @@ contract PanopticHelper {
         }
     }
 
-    /// @notice checks whether the mint is value
+    /// @notice Checks whether a prospective position to mint is valid.
+    /// @param tokenId A TokenId describing the position to mint
+    /// @param positionSize The size of the position
+    /// @return True if position is validly mintable; false if not.
     function isMintValid(TokenId tokenId, uint128 positionSize) external pure returns (bool) {
         uint256 amount0;
         uint256 amount1;
@@ -650,7 +650,7 @@ contract PanopticHelper {
 
                 if (liquidity > type(uint128).max) return false;
             } else {
-                uint256 liquidity = Math.mulDiv(amount1, 2 ** 96, highPriceX96 - lowPriceX96);
+                uint256 liquidity = Math.mulDiv(amount1, Q96, highPriceX96 - lowPriceX96);
                 if (liquidity > type(uint128).max) return false;
             }
             LiquidityChunk liquidityChunk = PanopticMath.getLiquidityChunk(
@@ -683,11 +683,16 @@ contract PanopticHelper {
         return true;
     }
 
-    /// @notice get actual amounts moved
+    /// @notice Get amount of token0 and token1 that would move within a liquidity chunk if a position was minted.
+    /// @param tokenId A TokenId describing the position to mint
+    /// @param positionSize The size of the position
+    /// @param atTick The tick between token0 and token1 on the underlying Uniswap pool
+    /// @return netFlow0 How many token0s would move if the position was minted
+    /// @return netFlow1 How many token1s would move if the position was minted
     function getTokenFlow(
         TokenId tokenId,
         uint128 positionSize,
-        int24 currentTick
+        int24 atTick
     ) internal pure returns (int256 netFlow0, int256 netFlow1) {
         for (uint256 leg; leg < tokenId.countLegs(); ++leg) {
             LiquidityChunk liquidityChunk = PanopticMath.getLiquidityChunk(
@@ -697,7 +702,7 @@ contract PanopticHelper {
             );
 
             (uint256 amount0, uint256 amount1) = Math.getAmountsForLiquidity(
-                currentTick,
+                atTick,
                 liquidityChunk
             );
 
@@ -1575,7 +1580,7 @@ contract PanopticHelper {
     }
 
     /// @notice creates a ZEEHBS w/ call and put ZEBRA spreads.
-    /// @dev example: createPutZEBRASpread(uniPoolAddress, 4, -50, 50, 0, 2, 0).
+    /// @dev example: createZEEHBS(uniPoolAddress, 4, -50, 50, 0, 2, 0).
     /// @param univ3pool address of the pool
     /// @param width width of the spread
     /// @param longStrike strike of the long legs
