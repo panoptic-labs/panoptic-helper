@@ -43,7 +43,6 @@ contract PanopticHelper {
         SFPM = _SFPM;
     }
 
-
     /// @notice Returns the total number of contracts owned by `account` and the pool utilization at mint for a specified `tokenId.
     /// @param pool The PanopticPool instance corresponding to the pool specified in `TokenId`
     /// @param account The address of the account on which to retrieve `balance` and `poolUtilization`
