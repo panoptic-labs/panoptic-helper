@@ -43,7 +43,81 @@ contract PanopticHelper {
         SFPM = _SFPM;
     }
 
-    /// @notice optimizes the risk partneting of all legs within a tokenId
+
+    /// @notice Returns the total number of contracts owned by `account` and the pool utilization at mint for a specified `tokenId.
+    /// @param pool The PanopticPool instance corresponding to the pool specified in `TokenId`
+    /// @param account The address of the account on which to retrieve `balance` and `poolUtilization`
+    /// @return balance Number of contracts of `tokenId` owned by the user
+    /// @return poolUtilization0 The utilization of token0 in the Panoptic pool at mint
+    /// @return poolUtilization1 The utilization of token1 in the Panoptic pool at mint
+    function optionPositionInfo(
+        PanopticPool pool,
+        address account,
+        TokenId tokenId
+    ) external view returns (uint128, uint64, uint64) {
+        TokenId[] memory tokenIdList = new TokenId[](1);
+        tokenIdList[0] = tokenId;
+
+        (, , uint256[2][] memory positionBalanceArray) = pool.calculateAccumulatedFeesBatch(
+            account,
+            false,
+            tokenIdList
+        );
+
+        LeftRightUnsigned balanceAndUtilization = LeftRightUnsigned.wrap(
+            positionBalanceArray[0][1]
+        );
+
+        return (
+            balanceAndUtilization.rightSlot(),
+            uint64(balanceAndUtilization.leftSlot()),
+            uint64(balanceAndUtilization.leftSlot() >> 64)
+        );
+    }
+
+    /// @notice Compute the total amount of collateral needed to cover the existing list of active positions in positionIdList.
+    /// @param pool The PanopticPool instance to check collateral on
+    /// @param account Address of the user that owns the positions
+    /// @param atTick At what price is the collateral requirement evaluated at
+    /// @param tokenType whether to return the values in term of token0 or token1
+    /// @param positionIdList List of positions. Written as [tokenId1, tokenId2, ...]
+    /// @return collateralBalance the total combined balance of token0 and token1 for a user in terms of tokenType
+    /// @return requiredCollateral The combined collateral requirement for a user in terms of tokenType
+    function checkCollateral(
+        PanopticPool pool,
+        address account,
+        int24 atTick,
+        uint256 tokenType,
+        TokenId[] calldata positionIdList
+    ) public view returns (uint256, uint256) {
+        // Compute premia for all options (includes short+long premium)
+        (
+            LeftRightUnsigned shortPremium,
+            LeftRightUnsigned longPremium,
+            uint256[2][] memory positionBalanceArray
+        ) = pool.calculateAccumulatedFeesBatch(account, false, positionIdList);
+
+        // Query the current and required collateral amounts for the two tokens
+        LeftRightUnsigned tokenData0 = pool.collateralToken0().getAccountMarginDetails(
+            account,
+            atTick,
+            positionBalanceArray,
+            shortPremium.rightSlot(),
+            longPremium.rightSlot()
+        );
+        LeftRightUnsigned tokenData1 = pool.collateralToken1().getAccountMarginDetails(
+            account,
+            atTick,
+            positionBalanceArray,
+            shortPremium.leftSlot(),
+            longPremium.leftSlot()
+        );
+
+        // convert (using atTick) and return the total collateral balance and required balance in terms of tokenType
+        return PanopticMath.convertCollateralData(tokenData0, tokenData1, tokenType, atTick);
+    }
+
+    /// @notice Optimize the risk partnering of all legs within a tokenId.
     /// @param pool The PanopticPool instance to optimize the tokenId for
     /// @param atTick The price at which the collateral requirement is evaluated
     /// @param tokenId the input tokenId
@@ -192,12 +266,14 @@ contract PanopticHelper {
                     address(0xdead),
                     atTick,
                     positionBalance,
+                    0,
                     0
                 );
                 LeftRightUnsigned tokenData1 = pool.collateralToken1().getAccountMarginDetails(
                     address(0xdead),
                     atTick,
                     positionBalance,
+                    0,
                     0
                 );
                 (, uint256 required0) = PanopticMath.convertCollateralData(
@@ -217,10 +293,10 @@ contract PanopticHelper {
 
     /// @notice An external function that validates a tokenId.
     /// @param self the tokenId to be tested
-    function validateTokenId(TokenId self) external pure returns (bool) {
+    function validateTokenId(TokenId self) external pure {
         self.validate();
         for (uint256 leg; leg < self.countLegs(); ++leg) {
-            (int24 tickLower, int24 tickUpper) = self.asTicks(leg);
+            self.asTicks(leg);
         }
     }
 
@@ -273,22 +349,21 @@ contract PanopticHelper {
     /// @param univ3pool The Uniswap pool to get the median observation from
     /// @param cardinality The number of `periods` to in the median price array, should be odd.
     /// @param period The number of observations to average to compute one entry in the median price array
-    /// @return The median of `cardinality` observations spaced by `period` in the Uniswap pool
+    /// @return medianTick The median of `cardinality` observations spaced by `period` in the Uniswap pool
     function computeMedianObservedPrice(
         IUniswapV3Pool univ3pool,
         uint256 cardinality,
         uint256 period
-    ) external view returns (int24) {
+    ) external view returns (int24 medianTick) {
         (, , uint16 observationIndex, uint16 observationCardinality, , , ) = univ3pool.slot0();
 
-        return
-            PanopticMath.computeMedianObservedPrice(
-                univ3pool,
-                observationIndex,
-                observationCardinality,
-                cardinality,
-                period
-            );
+        (medianTick, ) = PanopticMath.computeMedianObservedPrice(
+            univ3pool,
+            observationIndex,
+            observationCardinality,
+            cardinality,
+            period
+        );
     }
 
     /// @notice Takes a packed structure representing a sorted 8-slot queue of ticks and returns the median of those values.
