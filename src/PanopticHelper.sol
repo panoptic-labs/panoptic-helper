@@ -115,7 +115,7 @@ contract PanopticHelper {
         // convert (using atTick) and return the total collateral balance and required balance in terms of tokenType
         return PanopticMath.convertCollateralData(tokenData0, tokenData1, tokenType, atTick);
     }
-    
+
     /// @notice Optimize the risk partnering of all legs within a tokenId.
     /// @param pool The PanopticPool instance to optimize the tokenId for
     /// @param atTick The price at which the collateral requirement is evaluated
