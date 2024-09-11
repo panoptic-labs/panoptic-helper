@@ -405,6 +405,7 @@ contract PanopticHelper {
                         PORTFOLIO CALCULATIONS
     //////////////////////////////////////////////////////////////*/
 
+    /// @notice Compute the buying power requirement of positions in an account on a PanopticPool.
     /// @param pool The PanopticPool instance to return buying power requirement within
     /// @param account Address of the user that owns the positions
     /// @param positionIdList List of positions. Written as [tokenId1, tokenId2, ...]
@@ -429,6 +430,7 @@ contract PanopticHelper {
         buyingPowerRequirement1 = PanopticMath.convert0to1(buyingPowerRequirement0, sqrtPriceX96);
     }
 
+    /// @notice Compute the covered requirement of positions in an account on a PanopticPool.
     /// @param pool The PanopticPool instance to return covered requirement within
     /// @param account Address of the user that owns the positions
     /// @param positionIdList List of positions. Written as [tokenId1, tokenId2, ...]
@@ -491,6 +493,7 @@ contract PanopticHelper {
         }
     }
 
+    /// @notice Compute the buying power of positions in an account on a PanopticPool.
     /// @param pool The PanopticPool instance to return buying power within
     /// @param account Address of the user that owns the positions
     /// @param positionIdList List of positions. Written as [tokenId1, tokenId2, ...]
