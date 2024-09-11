@@ -439,8 +439,11 @@ contract PanopticHelper {
         address account,
         TokenId[] calldata positionIdList
     ) public view returns (int256 coveredRequirement0, int256 coveredRequirement1) {
-        (, , uint256[2][] memory positionBalanceArray) = pool
-            .calculateAccumulatedFeesBatch(account, false, positionIdList);
+        (, , uint256[2][] memory positionBalanceArray) = pool.calculateAccumulatedFeesBatch(
+            account,
+            false,
+            positionIdList
+        );
 
         for (uint256 i; i < positionIdList.length; ) {
             TokenId tokenId = positionIdList[i];
@@ -547,19 +550,26 @@ contract PanopticHelper {
     ) public view returns (uint256[3][] memory) {
         (, int24 tick, , , , , ) = pool.univ3pool().slot0();
 
-        (int128 premium0, int128 premium1, uint256[2][] memory positionBalanceArray) = pool.calculateAccumulatedFeesBatch(account, false, positionIdList);
+        (int128 premium0, int128 premium1, uint256[2][] memory positionBalanceArray) = pool
+            .calculateAccumulatedFeesBatch(account, false, positionIdList);
 
         uint256[3][] memory buyingPowerPerPosition = new uint256[3][](positionIdList.length);
 
         for (uint256 i; i < positionIdList.length; ++i) {
             uint256[2][] memory positionBalance = new uint256[2][](1);
             positionBalance[0] = positionBalanceArray[i];
-            LeftRightUnsigned tokenData0 = pool
-                .collateralToken0()
-                .getAccountMarginDetails(account, tick, positionBalance, 0);
-            LeftRightUnsigned tokenData1 = pool
-                .collateralToken1()
-                .getAccountMarginDetails(account, tick, positionBalance, 0);
+            LeftRightUnsigned tokenData0 = pool.collateralToken0().getAccountMarginDetails(
+                account,
+                tick,
+                positionBalance,
+                0
+            );
+            LeftRightUnsigned tokenData1 = pool.collateralToken1().getAccountMarginDetails(
+                account,
+                tick,
+                positionBalance,
+                0
+            );
             buyingPowerPerPosition[i][0] = positionBalance[0][0];
             buyingPowerPerPosition[i][1] = tokenData0.leftSlot();
             buyingPowerPerPosition[i][2] = tokenData1.leftSlot();
