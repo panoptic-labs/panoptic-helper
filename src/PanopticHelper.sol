@@ -42,6 +42,64 @@ contract PanopticHelper {
         SFPM = _SFPM;
     }
 
+    /// @notice Calculate NAV of user's option portfolio at a given tick.
+    /// @param pool The PanopticPool instance to check collateral on
+    /// @param account Address of the user that owns the positions
+    /// @param atTick The tick to calculate the value at
+    /// @param positionIdList A list of all positions the user holds on that pool
+    /// @return value0 The amount of token0 owned by portfolio
+    /// @return value1 The amount of token1 owned by portfolio
+    function getPortfolioValue(
+        PanopticPool pool,
+        address account,
+        int24 atTick,
+        TokenId[] calldata positionIdList
+    ) external view returns (int256 value0, int256 value1) {
+        // Compute premia for all options (includes short+long premium)
+        (, , uint256[2][] memory positionBalanceArray) = pool.calculateAccumulatedFeesBatch(
+            account,
+            false,
+            positionIdList
+        );
+
+        for (uint256 k = 0; k < positionIdList.length; ) {
+            TokenId tokenId = positionIdList[k];
+            uint128 positionSize = LeftRightUnsigned.wrap(positionBalanceArray[k][1]).rightSlot();
+            uint256 numLegs = tokenId.countLegs();
+            for (uint256 leg = 0; leg < numLegs; ) {
+                LiquidityChunk liquidityChunk = PanopticMath.getLiquidityChunk(
+                    tokenId,
+                    leg,
+                    positionSize
+                );
+
+                (uint256 amount0, uint256 amount1) = Math.getAmountsForLiquidity(
+                    atTick,
+                    liquidityChunk
+                );
+
+                if (tokenId.isLong(leg) == 0) {
+                    unchecked {
+                        value0 += int256(amount0);
+                        value1 += int256(amount1);
+                    }
+                } else {
+                    unchecked {
+                        value0 -= int256(amount0);
+                        value1 -= int256(amount1);
+                    }
+                }
+
+                unchecked {
+                    ++leg;
+                }
+            }
+            unchecked {
+                ++k;
+            }
+        }
+    }
+
     /// @notice Returns the total number of contracts owned by `account` and the pool utilization at mint for a specified `tokenId.
     /// @param pool The PanopticPool instance corresponding to the pool specified in `TokenId`
     /// @param account The address of the account on which to retrieve `balance` and `poolUtilization`
