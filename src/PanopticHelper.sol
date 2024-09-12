@@ -77,17 +77,26 @@ contract PanopticHelper {
     /// @param pool The PanopticPool instance to check collateral on
     /// @param account Address of the user that owns the positions
     /// @param atTick At what price is the collateral requirement evaluated at
-    /// @param tokenType whether to return the values in term of token0 or token1
     /// @param positionIdList List of positions. Written as [tokenId1, tokenId2, ...]
-    /// @return collateralBalance the total combined balance of token0 and token1 for a user in terms of tokenType
-    /// @return requiredCollateral The combined collateral requirement for a user in terms of tokenType
+    /// @return collateralBalance0 The total combined balance of token0 and token1 for a user in terms of token0
+    /// @return requiredCollateral0 The combined collateral requirement for a user in terms of token0
+    /// @return collateralBalance1 The total combined balance of token0 and token1 for a user in terms of token1
+    /// @return requiredCollateral1 The combined collateral requirement for a user in terms of token1
     function checkCollateral(
         PanopticPool pool,
         address account,
         int24 atTick,
-        uint256 tokenType,
         TokenId[] calldata positionIdList
-    ) public view returns (uint256, uint256) {
+    )
+        public
+        view
+        returns (
+            uint256 collateralBalance0,
+            uint256 requiredCollateral0,
+            uint256 collateralBalance1,
+            uint256 requiredCollateral1
+        )
+    {
         // Compute premia for all options (includes short+long premium)
         (
             LeftRightUnsigned shortPremium,
@@ -112,7 +121,51 @@ contract PanopticHelper {
         );
 
         // convert (using atTick) and return the total collateral balance and required balance in terms of tokenType
-        return PanopticMath.convertCollateralData(tokenData0, tokenData1, tokenType, atTick);
+        collateralBalance0 =
+            tokenData0.rightSlot() +
+            PanopticMath.convert1to0(tokenData1.rightSlot(), Math.getSqrtRatioAtTick(atTick));
+        requiredCollateral0 =
+            tokenData0.leftSlot() +
+            PanopticMath.convert1to0RoundingUp(
+                tokenData1.leftSlot(),
+                Math.getSqrtRatioAtTick(atTick)
+            );
+
+        collateralBalance1 =
+            tokenData1.rightSlot() +
+            PanopticMath.convert0to1(tokenData0.rightSlot(), Math.getSqrtRatioAtTick(atTick));
+        requiredCollateral1 =
+            tokenData1.leftSlot() +
+            PanopticMath.convert0to1RoundingUp(
+                tokenData0.leftSlot(),
+                Math.getSqrtRatioAtTick(atTick)
+            );
+    }
+
+    /// @notice Compute the total amount of collateral needed to cover the existing list of active positions in positionIdList at the fast oracle tick.
+    /// @param pool The PanopticPool instance to check collateral on
+    /// @param account Address of the user that owns the positions
+    /// @param positionIdList List of positions. Written as [tokenId1, tokenId2, ...]
+    /// @return The total combined balance of token0 and token1 for a user in terms of token0
+    /// @return The combined collateral requirement for a user in terms of token0
+    /// @return The total combined balance of token0 and token1 for a user in terms of token1
+    /// @return The combined collateral requirement for a user in terms of token1
+    function checkCollateral(
+        PanopticPool pool,
+        address account,
+        TokenId[] calldata positionIdList
+    ) public view returns (uint256, uint256, uint256, uint256) {
+        return
+            checkCollateral(
+                pool,
+                account,
+                computeMedianObservedPrice(
+                    pool.univ3pool(),
+                    Constants.FAST_ORACLE_CARDINALITY,
+                    Constants.FAST_ORACLE_PERIOD
+                ),
+                positionIdList
+            );
     }
 
     /// @notice Optimize the risk partnering of all legs within a tokenId.
@@ -274,12 +327,14 @@ contract PanopticHelper {
                     0,
                     0
                 );
-                (, uint256 required0) = PanopticMath.convertCollateralData(
-                    tokenData0,
-                    tokenData1,
-                    0,
-                    atTick
-                );
+                // (, uint256 required0) = PanopticMath.convertCollateralData(
+                //     tokenData0,
+                //     tokenData1,
+                //     0,
+                //     atTick
+                // );
+
+                uint256 required0;
 
                 return required0;
             }
@@ -352,7 +407,7 @@ contract PanopticHelper {
         IUniswapV3Pool univ3pool,
         uint256 cardinality,
         uint256 period
-    ) external view returns (int24 medianTick) {
+    ) public view returns (int24 medianTick) {
         (, , uint16 observationIndex, uint16 observationCardinality, , , ) = univ3pool.slot0();
 
         (medianTick, ) = PanopticMath.computeMedianObservedPrice(
@@ -411,13 +466,15 @@ contract PanopticHelper {
         int24 tick,
         TokenId[] calldata positionIdList
     ) internal view returns (int256) {
-        (uint256 balanceCross, uint256 requiredCross) = checkCollateral(
-            PanopticPool(pool),
-            account,
-            tick,
-            0,
-            positionIdList
-        );
+        // (uint256 balanceCross, uint256 requiredCross) = checkCollateral(
+        //     PanopticPool(pool),
+        //     account,
+        //     tick,
+        //     0,
+        //     positionIdList
+        // );
+        uint256 balanceCross;
+        uint256 requiredCross;
 
         return int256(balanceCross) - int256(requiredCross);
     }

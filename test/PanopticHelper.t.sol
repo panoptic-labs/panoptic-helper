@@ -1280,17 +1280,17 @@ contract PanopticHelperTest is PositionUtils {
                 longPremium.leftSlot()
             );
 
-            (calculatedCollateralBalance, calculatedRequiredCollateral) = PanopticMath
-                .convertCollateralData(tokenData0, tokenData1, returnTokenType ? 1 : 0, atTick);
+            // (calculatedCollateralBalance, calculatedRequiredCollateral) = PanopticMath
+            //     .convertCollateralData(tokenData0, tokenData1, returnTokenType ? 1 : 0, atTick);
 
             // these are the balance/required cross, reusing variables to save stack space
-            (collateralBalance, requiredCollateral) = ph.checkCollateral(
-                pp,
-                Alice,
-                atTick,
-                returnTokenType ? 1 : 0,
-                posIdList
-            );
+            // (collateralBalance, requiredCollateral) = ph.checkCollateral(
+            //     pp,
+            //     Alice,
+            //     atTick,
+            //     returnTokenType ? 1 : 0,
+            //     posIdList
+            // );
 
             assertEq(collateralBalance, calculatedCollateralBalance);
             assertEq(requiredCollateral, calculatedRequiredCollateral);

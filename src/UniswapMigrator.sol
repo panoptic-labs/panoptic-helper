@@ -6,7 +6,7 @@ import {CollateralTracker} from "@contracts/CollateralTracker.sol";
 import {INonfungiblePositionManager} from "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import {IERC20Partial} from "@tokens/interfaces/IERC20Partial.sol";
 /// Libraries
-import {PeripheryErrors} from "@periphery/PeripheryErrors.sol";
+import {PeripheryErrors} from "./PeripheryErrors.sol";
 
 /// @title Facilitates the migration from Uniswap LPing to PLPing.
 /// @author Axicon Labs Limited

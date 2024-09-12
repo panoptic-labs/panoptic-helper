@@ -2,7 +2,7 @@
 pragma solidity ^0.8.0;
 
 import "forge-std/Test.sol";
-import {UniswapMigrator} from "@periphery/UniswapMigrator.sol";
+import {UniswapMigrator} from "../src/UniswapMigrator.sol";
 import {PanopticPool} from "@contracts/PanopticPool.sol";
 import {PanopticMath} from "@contracts/libraries/PanopticMath.sol";
 import {PanopticFactory} from "@contracts/PanopticFactory.sol";
@@ -10,7 +10,7 @@ import {CollateralTracker} from "@contracts/CollateralTracker.sol";
 import {SemiFungiblePositionManager} from "@contracts/SemiFungiblePositionManager.sol";
 import {Pointer} from "@types/Pointer.sol";
 import {IERC20Partial} from "@tokens/interfaces/IERC20Partial.sol";
-import {PeripheryErrors} from "@periphery/PeripheryErrors.sol";
+import {PeripheryErrors} from "../src/PeripheryErrors.sol";
 import {IUniswapV3Pool} from "v3-core/interfaces/IUniswapV3Pool.sol";
 import {IUniswapV3Factory} from "v3-core/interfaces/IUniswapV3Factory.sol";
 import {INonfungiblePositionManager} from "v3-periphery/interfaces/INonfungiblePositionManager.sol";
