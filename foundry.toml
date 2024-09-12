@@ -1,12 +1,12 @@
 [profile.default]
 src = 'src'
-test = 'test'
+test = 'testt'
 out = 'out'
 libs = ['lib']
 no_match_path = "src/*"
 evm_version = 'cancun'
 optimizer = true
-optimizer_runs = 999_999
+optimizer_runs = 0
 viaIR = false
 gas_limit = 9223372036854775807
 eth_rpc_url = "https://eth.public-rpc.com"
