@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.18;
-import "forge-std/Test.sol";
+//import "forge-std/Test.sol";
 
 // Interfaces
 import {IUniswapV3Pool} from "univ3-core/interfaces/IUniswapV3Pool.sol";
@@ -62,8 +62,6 @@ contract UniswapHelper {
             tickData[i + 1] = scaledTick + dt * tickSpacing;
             liquidityNets[i + 1] = liquidityNets[i] + liquidityNet;
 
-            //console2.log(tickData[i + 1]);
-            //console2.log(liquidityNets[i+1]);
             ++i;
             ++dt;
         }
@@ -784,7 +782,7 @@ contract UniswapHelper {
         (int256[] memory tickData, int256[] memory liquidityData) = getTickNets(univ3pool);
 
         // recard liquidityData into token0
-        liquidityData = recastLiquidity(tickData, liquidityData, int24(currentTick), decimals0);
+        //liquidityData = recastLiquidity(tickData, liquidityData, int24(currentTick), decimals0);
 
         string memory title;
 
