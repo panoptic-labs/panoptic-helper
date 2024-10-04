@@ -1279,11 +1279,11 @@ contract PanopticHelperTest is PositionUtils {
 
         (, currentTick, , , , , ) = pool.slot0();
 
-        (int128 premium0, int128 premium1, uint256[2][] memory posBalanceArray) = pp
+        (LeftRightUnsigned shortPremium, LeftRightUnsigned longPremium, uint256[2][] memory posBalanceArray) = pp
             .calculateAccumulatedFeesBatch(Alice, false, posIdList);
 
-        tokenData0 = ct0.getAccountMarginDetails(Alice, currentTick, posBalanceArray, premium0);
-        tokenData1 = ct1.getAccountMarginDetails(Alice, currentTick, posBalanceArray, premium1);
+        tokenData0 = ct0.getAccountMarginDetails(Alice, currentTick, posBalanceArray, shortPremium.rightSlot(), longPremium.rightSlot());
+        tokenData1 = ct1.getAccountMarginDetails(Alice, currentTick, posBalanceArray, shortPremium.leftSlot(), longPremium.leftSlot());
 
         assertEq(requiredToken0, tokenData0.leftSlot(), "required token0");
         assertEq(requiredToken1, tokenData1.leftSlot(), "required token1");
@@ -1372,7 +1372,7 @@ contract PanopticHelperTest is PositionUtils {
 
         vm.assume(ph.isMintValid(tokenId, positionSize) == true);
 
-        (int256 c0, int256 c1) = ph.coveredRequirement(address(pp), Alice, posIdList);
+        (int256 c0, int256 c1) = ph.coveredRequirement(pp, Alice, posIdList);
         console2.log("c0", c0);
         console2.log("c1", c1);
 
@@ -1429,19 +1429,19 @@ contract PanopticHelperTest is PositionUtils {
         (, currentTick, , , , , ) = pool.slot0();
 
         (int256 buyingPowerRequirement0, int256 buyingPowerRequirement1) = ph
-            .buyingPowerRequirement(address(pp), Alice, posIdList);
+            .buyingPowerRequirement(pp, Alice, posIdList);
 
         console2.log("buyingPowerRequirement0", buyingPowerRequirement0);
         console2.log("buyingPowerRequirement1", buyingPowerRequirement1);
 
-        (int256 buyingPower0, int256 buyingPower1) = ph.buyingPower(address(pp), Alice, posIdList);
+        (int256 buyingPower0, int256 buyingPower1) = ph.buyingPower(pp, Alice, posIdList);
         console2.log("buyingPower0", buyingPower0);
         console2.log("buyingPower1", buyingPower1);
 
-        uint256 utilization = ph.buyingPowerUtilization(address(pp), Alice, posIdList);
+        uint256 utilization = ph.buyingPowerUtilization(pp, Alice, posIdList);
         console2.log("utilization", utilization);
 
-        uint256[3][] memory BPRs = ph.buyingPowerRequirements(address(pp), Alice, posIdList);
+        uint256[3][] memory BPRs = ph.buyingPowerRequirements(pp, Alice, posIdList);
 
         console2.log("foos", BPRs[0][0], BPRs[0][1], BPRs[0][2]);
 

@@ -498,7 +498,7 @@ contract PanopticHelper {
     /// @param account Address of the user that owns the positions
     /// @param positionIdList List of positions. Written as [tokenId1, tokenId2, ...]
     /// @return buyingPower0 The buying power of the account in terms of token0 at the current price
-    /// @return buyingPower0 The buying power of the account in terms of token1 at the current price
+    /// @return buyingPower1 The buying power of the account in terms of token1 at the current price
     function buyingPower(
         PanopticPool pool,
         address account,
@@ -553,7 +553,7 @@ contract PanopticHelper {
     ) public view returns (uint256[3][] memory) {
         (, int24 tick, , , , , ) = pool.univ3pool().slot0();
 
-        (int128 premium0, int128 premium1, uint256[2][] memory positionBalanceArray) = pool
+        (LeftRightUnsigned shortPremium, LeftRightUnsigned longPremium, uint256[2][] memory positionBalanceArray) = pool
             .calculateAccumulatedFeesBatch(account, false, positionIdList);
 
         uint256[3][] memory buyingPowerPerPosition = new uint256[3][](positionIdList.length);
@@ -565,13 +565,15 @@ contract PanopticHelper {
                 account,
                 tick,
                 positionBalance,
-                0
+                shortPremium.rightSlot(),
+                longPremium.rightSlot()
             );
             LeftRightUnsigned tokenData1 = pool.collateralToken1().getAccountMarginDetails(
                 account,
                 tick,
                 positionBalance,
-                0
+                shortPremium.leftSlot(),
+                longPremium.leftSlot()
             );
             buyingPowerPerPosition[i][0] = positionBalance[0][0];
             buyingPowerPerPosition[i][1] = tokenData0.leftSlot();
@@ -610,7 +612,7 @@ contract PanopticHelper {
                 (int256(poolAssets1) + int256(insideAMM1) + net1);
             utilizations =
                 uint128(uint256(newPoolUtilization0)) +
-                uint128(uint256(newPoolUtilization1) << 64);
+                uint128(uint256(newPoolUtilization1) << 16);
         }
 
         uint256[2][] memory positionBalance = new uint256[2][](1);
@@ -626,12 +628,14 @@ contract PanopticHelper {
                 account,
                 tick,
                 positionBalance,
+                0,
                 0
             );
             LeftRightUnsigned tokenData1 = pool.collateralToken1().getAccountMarginDetails(
                 account,
                 tick,
                 positionBalance,
+                0,
                 0
             );
             return (tokenData0.leftSlot(), tokenData1.leftSlot());
