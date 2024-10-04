@@ -1,0 +1,2258 @@
+{
+	"compiler": {
+		"version": "0.8.27+commit.40a35a09"
+	},
+	"language": "Solidity",
+	"output": {
+		"abi": [
+			{
+				"inputs": [
+					{
+						"internalType": "contract SemiFungiblePositionManager",
+						"name": "_SFPM",
+						"type": "address"
+					}
+				],
+				"stateMutability": "payable",
+				"type": "constructor"
+			},
+			{
+				"inputs": [],
+				"name": "InvalidTick",
+				"type": "error"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "uint256",
+						"name": "parameterType",
+						"type": "uint256"
+					}
+				],
+				"name": "InvalidTokenIdParameter",
+				"type": "error"
+			},
+			{
+				"inputs": [],
+				"name": "TicksNotInitializable",
+				"type": "error"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "contract PanopticPool",
+						"name": "pool",
+						"type": "address"
+					},
+					{
+						"internalType": "address",
+						"name": "account",
+						"type": "address"
+					},
+					{
+						"internalType": "int24",
+						"name": "atTick",
+						"type": "int24"
+					},
+					{
+						"internalType": "uint256",
+						"name": "tokenType",
+						"type": "uint256"
+					},
+					{
+						"internalType": "TokenId[]",
+						"name": "positionIdList",
+						"type": "uint256[]"
+					}
+				],
+				"name": "checkCollateral",
+				"outputs": [
+					{
+						"internalType": "uint256",
+						"name": "",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "",
+						"type": "uint256"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "uint256",
+						"name": "period",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "medianData",
+						"type": "uint256"
+					},
+					{
+						"internalType": "contract IUniswapV3Pool",
+						"name": "univ3pool",
+						"type": "address"
+					}
+				],
+				"name": "computeInternalMedian",
+				"outputs": [
+					{
+						"internalType": "int24",
+						"name": "",
+						"type": "int24"
+					},
+					{
+						"internalType": "uint256",
+						"name": "",
+						"type": "uint256"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "contract IUniswapV3Pool",
+						"name": "univ3pool",
+						"type": "address"
+					},
+					{
+						"internalType": "uint256",
+						"name": "cardinality",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "period",
+						"type": "uint256"
+					}
+				],
+				"name": "computeMedianObservedPrice",
+				"outputs": [
+					{
+						"internalType": "int24",
+						"name": "medianTick",
+						"type": "int24"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "univ3pool",
+						"type": "address"
+					},
+					{
+						"internalType": "int24",
+						"name": "width",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "longStrike",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "shortStrike",
+						"type": "int24"
+					},
+					{
+						"internalType": "uint256",
+						"name": "asset",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "ratio",
+						"type": "uint256"
+					}
+				],
+				"name": "createBATS",
+				"outputs": [
+					{
+						"internalType": "TokenId",
+						"name": "tokenId",
+						"type": "uint256"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "univ3pool",
+						"type": "address"
+					},
+					{
+						"internalType": "int24",
+						"name": "width",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "longCallStrike",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "straddleStrike",
+						"type": "int24"
+					},
+					{
+						"internalType": "uint256",
+						"name": "asset",
+						"type": "uint256"
+					}
+				],
+				"name": "createBigLizard",
+				"outputs": [
+					{
+						"internalType": "TokenId",
+						"name": "tokenId",
+						"type": "uint256"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "univ3pool",
+						"type": "address"
+					},
+					{
+						"internalType": "int24",
+						"name": "widthLong",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "widthShort",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "strike",
+						"type": "int24"
+					},
+					{
+						"internalType": "uint256",
+						"name": "asset",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "optionRatio",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "start",
+						"type": "uint256"
+					}
+				],
+				"name": "createCallCalendarSpread",
+				"outputs": [
+					{
+						"internalType": "TokenId",
+						"name": "tokenId",
+						"type": "uint256"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "univ3pool",
+						"type": "address"
+					},
+					{
+						"internalType": "int24",
+						"name": "widthLong",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "widthShort",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "strikeLong",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "strikeShort",
+						"type": "int24"
+					},
+					{
+						"internalType": "uint256",
+						"name": "asset",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "optionRatio",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "start",
+						"type": "uint256"
+					}
+				],
+				"name": "createCallDiagonalSpread",
+				"outputs": [
+					{
+						"internalType": "TokenId",
+						"name": "tokenId",
+						"type": "uint256"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "univ3pool",
+						"type": "address"
+					},
+					{
+						"internalType": "int24",
+						"name": "width",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "longStrike",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "shortStrike",
+						"type": "int24"
+					},
+					{
+						"internalType": "uint256",
+						"name": "asset",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "ratio",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "start",
+						"type": "uint256"
+					}
+				],
+				"name": "createCallRatioSpread",
+				"outputs": [
+					{
+						"internalType": "TokenId",
+						"name": "tokenId",
+						"type": "uint256"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "univ3pool",
+						"type": "address"
+					},
+					{
+						"internalType": "int24",
+						"name": "width",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "strikeLong",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "strikeShort",
+						"type": "int24"
+					},
+					{
+						"internalType": "uint256",
+						"name": "asset",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "optionRatio",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "start",
+						"type": "uint256"
+					}
+				],
+				"name": "createCallSpread",
+				"outputs": [
+					{
+						"internalType": "TokenId",
+						"name": "tokenId",
+						"type": "uint256"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "univ3pool",
+						"type": "address"
+					},
+					{
+						"internalType": "int24",
+						"name": "width",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "longStrike",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "shortStrike",
+						"type": "int24"
+					},
+					{
+						"internalType": "uint256",
+						"name": "asset",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "ratio",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "start",
+						"type": "uint256"
+					}
+				],
+				"name": "createCallZEBRASpread",
+				"outputs": [
+					{
+						"internalType": "TokenId",
+						"name": "tokenId",
+						"type": "uint256"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "univ3pool",
+						"type": "address"
+					},
+					{
+						"internalType": "int24",
+						"name": "width",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "strike",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "wingWidth",
+						"type": "int24"
+					},
+					{
+						"internalType": "uint256",
+						"name": "asset",
+						"type": "uint256"
+					}
+				],
+				"name": "createIronButterfly",
+				"outputs": [
+					{
+						"internalType": "TokenId",
+						"name": "tokenId",
+						"type": "uint256"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "univ3pool",
+						"type": "address"
+					},
+					{
+						"internalType": "int24",
+						"name": "width",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "callStrike",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "putStrike",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "wingWidth",
+						"type": "int24"
+					},
+					{
+						"internalType": "uint256",
+						"name": "asset",
+						"type": "uint256"
+					}
+				],
+				"name": "createIronCondor",
+				"outputs": [
+					{
+						"internalType": "TokenId",
+						"name": "tokenId",
+						"type": "uint256"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "univ3pool",
+						"type": "address"
+					},
+					{
+						"internalType": "int24",
+						"name": "width",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "longCallStrike",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "shortCallStrike",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "shortPutStrike",
+						"type": "int24"
+					},
+					{
+						"internalType": "uint256",
+						"name": "asset",
+						"type": "uint256"
+					}
+				],
+				"name": "createJadeLizard",
+				"outputs": [
+					{
+						"internalType": "TokenId",
+						"name": "tokenId",
+						"type": "uint256"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "univ3pool",
+						"type": "address"
+					},
+					{
+						"internalType": "int24",
+						"name": "widthLong",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "widthShort",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "strike",
+						"type": "int24"
+					},
+					{
+						"internalType": "uint256",
+						"name": "asset",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "optionRatio",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "start",
+						"type": "uint256"
+					}
+				],
+				"name": "createPutCalendarSpread",
+				"outputs": [
+					{
+						"internalType": "TokenId",
+						"name": "tokenId",
+						"type": "uint256"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "univ3pool",
+						"type": "address"
+					},
+					{
+						"internalType": "int24",
+						"name": "widthLong",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "widthShort",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "strikeLong",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "strikeShort",
+						"type": "int24"
+					},
+					{
+						"internalType": "uint256",
+						"name": "asset",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "optionRatio",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "start",
+						"type": "uint256"
+					}
+				],
+				"name": "createPutDiagonalSpread",
+				"outputs": [
+					{
+						"internalType": "TokenId",
+						"name": "tokenId",
+						"type": "uint256"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "univ3pool",
+						"type": "address"
+					},
+					{
+						"internalType": "int24",
+						"name": "width",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "longStrike",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "shortStrike",
+						"type": "int24"
+					},
+					{
+						"internalType": "uint256",
+						"name": "asset",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "ratio",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "start",
+						"type": "uint256"
+					}
+				],
+				"name": "createPutRatioSpread",
+				"outputs": [
+					{
+						"internalType": "TokenId",
+						"name": "tokenId",
+						"type": "uint256"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "univ3pool",
+						"type": "address"
+					},
+					{
+						"internalType": "int24",
+						"name": "width",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "strikeLong",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "strikeShort",
+						"type": "int24"
+					},
+					{
+						"internalType": "uint256",
+						"name": "asset",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "optionRatio",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "start",
+						"type": "uint256"
+					}
+				],
+				"name": "createPutSpread",
+				"outputs": [
+					{
+						"internalType": "TokenId",
+						"name": "tokenId",
+						"type": "uint256"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "univ3pool",
+						"type": "address"
+					},
+					{
+						"internalType": "int24",
+						"name": "width",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "longStrike",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "shortStrike",
+						"type": "int24"
+					},
+					{
+						"internalType": "uint256",
+						"name": "asset",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "ratio",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "start",
+						"type": "uint256"
+					}
+				],
+				"name": "createPutZEBRASpread",
+				"outputs": [
+					{
+						"internalType": "TokenId",
+						"name": "tokenId",
+						"type": "uint256"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "univ3pool",
+						"type": "address"
+					},
+					{
+						"internalType": "int24",
+						"name": "width",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "strike",
+						"type": "int24"
+					},
+					{
+						"internalType": "uint256",
+						"name": "asset",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "isLong",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "optionRatio",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "start",
+						"type": "uint256"
+					}
+				],
+				"name": "createStraddle",
+				"outputs": [
+					{
+						"internalType": "TokenId",
+						"name": "tokenId",
+						"type": "uint256"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "univ3pool",
+						"type": "address"
+					},
+					{
+						"internalType": "int24",
+						"name": "width",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "callStrike",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "putStrike",
+						"type": "int24"
+					},
+					{
+						"internalType": "uint256",
+						"name": "asset",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "isLong",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "optionRatio",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "start",
+						"type": "uint256"
+					}
+				],
+				"name": "createStrangle",
+				"outputs": [
+					{
+						"internalType": "TokenId",
+						"name": "tokenId",
+						"type": "uint256"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "univ3pool",
+						"type": "address"
+					},
+					{
+						"internalType": "int24",
+						"name": "width",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "longPutStrike",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "shortPutStrike",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "shortCallStrike",
+						"type": "int24"
+					},
+					{
+						"internalType": "uint256",
+						"name": "asset",
+						"type": "uint256"
+					}
+				],
+				"name": "createSuperBear",
+				"outputs": [
+					{
+						"internalType": "TokenId",
+						"name": "tokenId",
+						"type": "uint256"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "univ3pool",
+						"type": "address"
+					},
+					{
+						"internalType": "int24",
+						"name": "width",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "longCallStrike",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "shortCallStrike",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "shortPutStrike",
+						"type": "int24"
+					},
+					{
+						"internalType": "uint256",
+						"name": "asset",
+						"type": "uint256"
+					}
+				],
+				"name": "createSuperBull",
+				"outputs": [
+					{
+						"internalType": "TokenId",
+						"name": "tokenId",
+						"type": "uint256"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "univ3pool",
+						"type": "address"
+					},
+					{
+						"internalType": "int24",
+						"name": "width",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "longStrike",
+						"type": "int24"
+					},
+					{
+						"internalType": "int24",
+						"name": "shortStrike",
+						"type": "int24"
+					},
+					{
+						"internalType": "uint256",
+						"name": "asset",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "ratio",
+						"type": "uint256"
+					}
+				],
+				"name": "createZEEHBS",
+				"outputs": [
+					{
+						"internalType": "TokenId",
+						"name": "tokenId",
+						"type": "uint256"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "pool",
+						"type": "address"
+					},
+					{
+						"internalType": "address",
+						"name": "account",
+						"type": "address"
+					},
+					{
+						"internalType": "TokenId[]",
+						"name": "positionIdList",
+						"type": "uint256[]"
+					}
+				],
+				"name": "findLiquidationPriceDown",
+				"outputs": [
+					{
+						"internalType": "int24",
+						"name": "liquidationTick",
+						"type": "int24"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "pool",
+						"type": "address"
+					},
+					{
+						"internalType": "address",
+						"name": "account",
+						"type": "address"
+					},
+					{
+						"internalType": "TokenId[]",
+						"name": "positionIdList",
+						"type": "uint256[]"
+					}
+				],
+				"name": "findLiquidationPriceUp",
+				"outputs": [
+					{
+						"internalType": "int24",
+						"name": "liquidationTick",
+						"type": "int24"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "contract PanopticPool",
+						"name": "pool",
+						"type": "address"
+					},
+					{
+						"internalType": "TokenId",
+						"name": "tokenId",
+						"type": "uint256"
+					},
+					{
+						"internalType": "int24",
+						"name": "atTick",
+						"type": "int24"
+					}
+				],
+				"name": "getRequiredBase",
+				"outputs": [
+					{
+						"internalType": "uint256",
+						"name": "",
+						"type": "uint256"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "contract PanopticPool",
+						"name": "pool",
+						"type": "address"
+					},
+					{
+						"internalType": "int24",
+						"name": "atTick",
+						"type": "int24"
+					},
+					{
+						"internalType": "TokenId",
+						"name": "tokenId",
+						"type": "uint256"
+					}
+				],
+				"name": "optimizeRiskPartners",
+				"outputs": [
+					{
+						"internalType": "TokenId",
+						"name": "",
+						"type": "uint256"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "contract PanopticPool",
+						"name": "pool",
+						"type": "address"
+					},
+					{
+						"internalType": "address",
+						"name": "account",
+						"type": "address"
+					},
+					{
+						"internalType": "TokenId",
+						"name": "tokenId",
+						"type": "uint256"
+					}
+				],
+				"name": "optionPositionInfo",
+				"outputs": [
+					{
+						"internalType": "uint128",
+						"name": "",
+						"type": "uint128"
+					},
+					{
+						"internalType": "uint64",
+						"name": "",
+						"type": "uint64"
+					},
+					{
+						"internalType": "uint64",
+						"name": "",
+						"type": "uint64"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "contract IUniswapV3Pool",
+						"name": "univ3pool",
+						"type": "address"
+					},
+					{
+						"internalType": "uint32",
+						"name": "twapWindow",
+						"type": "uint32"
+					}
+				],
+				"name": "twapFilter",
+				"outputs": [
+					{
+						"internalType": "int24",
+						"name": "",
+						"type": "int24"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "TokenId",
+						"name": "tokenId",
+						"type": "uint256"
+					}
+				],
+				"name": "unwrapTokenId",
+				"outputs": [
+					{
+						"components": [
+							{
+								"internalType": "uint64",
+								"name": "poolId",
+								"type": "uint64"
+							},
+							{
+								"internalType": "address",
+								"name": "UniswapV3Pool",
+								"type": "address"
+							},
+							{
+								"internalType": "uint256",
+								"name": "asset",
+								"type": "uint256"
+							},
+							{
+								"internalType": "uint256",
+								"name": "optionRatio",
+								"type": "uint256"
+							},
+							{
+								"internalType": "uint256",
+								"name": "tokenType",
+								"type": "uint256"
+							},
+							{
+								"internalType": "uint256",
+								"name": "isLong",
+								"type": "uint256"
+							},
+							{
+								"internalType": "uint256",
+								"name": "riskPartner",
+								"type": "uint256"
+							},
+							{
+								"internalType": "int24",
+								"name": "strike",
+								"type": "int24"
+							},
+							{
+								"internalType": "int24",
+								"name": "width",
+								"type": "int24"
+							}
+						],
+						"internalType": "struct PanopticHelper.Leg[]",
+						"name": "",
+						"type": "tuple[]"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "TokenId",
+						"name": "self",
+						"type": "uint256"
+					}
+				],
+				"name": "validateTokenId",
+				"outputs": [],
+				"stateMutability": "pure",
+				"type": "function"
+			}
+		],
+		"devdoc": {
+			"author": "Axicon Labs Limited",
+			"errors": {
+				"InvalidTokenIdParameter(uint256)": [
+					{
+						"params": {
+							"parameterType": "poolId=0, ratio=1, tokenType=2, risk_partner=3, strike=4, width=5, two identical strike/width/tokenType chunks=6"
+						}
+					}
+				]
+			},
+			"kind": "dev",
+			"methods": {
+				"checkCollateral(address,address,int24,uint256,uint256[])": {
+					"params": {
+						"account": "Address of the user that owns the positions",
+						"atTick": "At what price is the collateral requirement evaluated at",
+						"pool": "The PanopticPool instance to check collateral on",
+						"positionIdList": "List of positions. Written as [tokenId1, tokenId2, ...]",
+						"tokenType": "whether to return the values in term of token0 or token1"
+					},
+					"returns": {
+						"_0": "collateralBalance the total combined balance of token0 and token1 for a user in terms of tokenType",
+						"_1": "requiredCollateral The combined collateral requirement for a user in terms of tokenType"
+					}
+				},
+				"computeInternalMedian(uint256,uint256,address)": {
+					"details": "Also inserts the latest Uniswap observation into the buffer, resorts, and returns if the last entry is at least `period` seconds old.",
+					"params": {
+						"medianData": "The packed structure representing the sorted 8-slot queue of ticks",
+						"period": "The minimum time in seconds that must have passed since the last observation was inserted into the buffer",
+						"univ3pool": "The Uniswap pool to retrieve observations from"
+					},
+					"returns": {
+						"_0": "The median of the provided 8-slot queue of ticks in `medianData`",
+						"_1": "The updated 8-slot queue of ticks with the latest observation inserted if the last entry is at least `period` seconds old (returns 0 otherwise)"
+					}
+				},
+				"computeMedianObservedPrice(address,uint256,uint256)": {
+					"details": "Used when we need a manipulation-resistant TWAP price.Uniswap observations snapshot the closing price of the last block before the first interaction of a given block.The maximum frequency of observations is 1 per block, but there is no guarantee that the pool will be observed at every block.Each period has a minimum length of blocktime * period, but may be longer if the Uniswap pool is relatively inactive.The final price used in the array (of length `cardinality`) is the average of all observations comprising `period` (which is itself a number of observations).Thus, the minimum total time window is `cardinality` * `period` * `blocktime`.",
+					"params": {
+						"cardinality": "The number of `periods` to in the median price array, should be odd.",
+						"period": "The number of observations to average to compute one entry in the median price array",
+						"univ3pool": "The Uniswap pool to get the median observation from"
+					},
+					"returns": {
+						"medianTick": "The median of `cardinality` observations spaced by `period` in the Uniswap pool"
+					}
+				},
+				"constructor": {
+					"details": "the SFPM is used to get the pool ID for a given address",
+					"params": {
+						"_SFPM": "address of the SemiFungiblePositionManager"
+					}
+				},
+				"createBATS(address,int24,int24,int24,uint256,uint256)": {
+					"details": "example: createBATS(uniPoolAddress, 4, -50, 50, 0, 2).",
+					"params": {
+						"asset": "asset of the strategy",
+						"longStrike": "strike of the long legs",
+						"ratio": "ratio of the short legs to the long legs",
+						"shortStrike": "strike of the short legs",
+						"univ3pool": "address of the pool",
+						"width": "width of the spread"
+					},
+					"returns": {
+						"tokenId": "the position id with the strategy configured"
+					}
+				},
+				"createBigLizard(address,int24,int24,int24,uint256)": {
+					"details": "example: createBigLizard(uniPoolAddress, 4, 100, 50, 0).",
+					"params": {
+						"asset": "asset of the strategy",
+						"longCallStrike": "strike of the long call",
+						"straddleStrike": "strike of the short straddle",
+						"univ3pool": "address of the pool",
+						"width": "width of the spread"
+					},
+					"returns": {
+						"tokenId": "the position id with the strategy configured"
+					}
+				},
+				"createCallCalendarSpread(address,int24,int24,int24,uint256,uint256,uint256)": {
+					"details": "example: createCallCalendarSpread(uniPoolAddress, 4, 8, 0, 0, 1, 0).",
+					"params": {
+						"asset": "asset of the spread",
+						"optionRatio": "relative size of the spread",
+						"start": "leg index where the (2 legs) of the spread begin (usually 0)",
+						"strike": "strike of the long and short legs",
+						"univ3pool": "address of the pool",
+						"widthLong": "width of the long leg",
+						"widthShort": "width of the short leg"
+					},
+					"returns": {
+						"tokenId": "the position id with the strategy configured"
+					}
+				},
+				"createCallDiagonalSpread(address,int24,int24,int24,int24,uint256,uint256,uint256)": {
+					"details": "example: createCallDiagonalSpread(uniPoolAddress, 4, 8, -50, 50, 0, 1, 0).",
+					"params": {
+						"asset": "asset of the spread",
+						"optionRatio": "relative size of the spread",
+						"start": "leg index where the (2 legs) of the spread begin (usually 0)",
+						"strikeLong": "strike of the long leg",
+						"strikeShort": "strike of the short leg",
+						"univ3pool": "address of the pool",
+						"widthLong": "width of the long leg",
+						"widthShort": "width of the short leg"
+					},
+					"returns": {
+						"tokenId": "the position id with the strategy configured"
+					}
+				},
+				"createCallRatioSpread(address,int24,int24,int24,uint256,uint256,uint256)": {
+					"details": "example: createCallRatioSpread(uniPoolAddress, 4, -50, 50, 0, 2, 0).",
+					"params": {
+						"asset": "asset of the strategy",
+						"longStrike": "strike of the long call",
+						"ratio": "ratio of the short calls to the long call",
+						"shortStrike": "strike of the short calls",
+						"start": "leg index where the (2 legs) of the spread begin (usually 0)",
+						"univ3pool": "address of the pool",
+						"width": "width of the spread"
+					},
+					"returns": {
+						"tokenId": "the position id with the strategy configured"
+					}
+				},
+				"createCallSpread(address,int24,int24,int24,uint256,uint256,uint256)": {
+					"details": "example: createCallSpread(uniPoolAddress, 4, -50, 50, 0, 1, 0).",
+					"params": {
+						"asset": "asset of the spread",
+						"optionRatio": "relative size of the spread",
+						"start": "leg index where the (2 legs) of the spread begin (usually 0)",
+						"strikeLong": "strike of the long leg",
+						"strikeShort": "strike of the short leg",
+						"univ3pool": "address of the pool",
+						"width": "width of the spread"
+					},
+					"returns": {
+						"tokenId": "the position id with the strategy configured"
+					}
+				},
+				"createCallZEBRASpread(address,int24,int24,int24,uint256,uint256,uint256)": {
+					"details": "example: createCallZEBRASpread(uniPoolAddress, 4, -50, 50, 0, 2, 0).",
+					"params": {
+						"asset": "asset of the strategy",
+						"longStrike": "strike of the long calls",
+						"ratio": "ratio of the short call to the long calls",
+						"shortStrike": "strike of the short call",
+						"start": "leg index where the (2 legs) of the spread begin (usually 0)",
+						"univ3pool": "address of the pool",
+						"width": "width of the spread"
+					},
+					"returns": {
+						"tokenId": "the position id with the strategy configured"
+					}
+				},
+				"createIronButterfly(address,int24,int24,int24,uint256)": {
+					"details": "example: createIronButterfly(uniPoolAddress, 4, 0, 50, 0).",
+					"params": {
+						"asset": "asset of the strategy",
+						"strike": "strike of the long and short legs",
+						"univ3pool": "address of the pool",
+						"width": "width of the spread",
+						"wingWidth": "width of the wings"
+					},
+					"returns": {
+						"tokenId": "the position id with the strategy configured"
+					}
+				},
+				"createIronCondor(address,int24,int24,int24,int24,uint256)": {
+					"details": "example: createIronCondor(uniPoolAddress, 4, 50, -50, 50, 0).",
+					"params": {
+						"asset": "asset of the strategy",
+						"callStrike": "strike of the call spread",
+						"putStrike": "strike of the put spread",
+						"univ3pool": "address of the pool",
+						"width": "width of the spread",
+						"wingWidth": "width of the wings"
+					},
+					"returns": {
+						"tokenId": "the position id with the strategy configured"
+					}
+				},
+				"createJadeLizard(address,int24,int24,int24,int24,uint256)": {
+					"details": "example: createJadeLizard(uniPoolAddress, 4, 100, 50, -50, 0).",
+					"params": {
+						"asset": "asset of the strategy",
+						"longCallStrike": "strike of the long call",
+						"shortCallStrike": "strike of the short call",
+						"shortPutStrike": "strike of the short put",
+						"univ3pool": "address of the pool",
+						"width": "width of the spread"
+					},
+					"returns": {
+						"tokenId": "the position id with the strategy configured"
+					}
+				},
+				"createPutCalendarSpread(address,int24,int24,int24,uint256,uint256,uint256)": {
+					"details": "example: createPutCalendarSpread(uniPoolAddress, 4, 8, 0, 0, 1, 0).",
+					"params": {
+						"asset": "asset of the spread",
+						"optionRatio": "relative size of the spread",
+						"start": "leg index where the (2 legs) of the spread begin (usually 0)",
+						"strike": "strike of the long and short legs",
+						"univ3pool": "address of the pool",
+						"widthLong": "width of the long leg",
+						"widthShort": "width of the short leg"
+					},
+					"returns": {
+						"tokenId": "the position id with the strategy configured"
+					}
+				},
+				"createPutDiagonalSpread(address,int24,int24,int24,int24,uint256,uint256,uint256)": {
+					"details": "example: createPutDiagonalSpread(uniPoolAddress, 4, 8, -50, 50, 0, 1, 0).",
+					"params": {
+						"asset": "asset of the spread",
+						"optionRatio": "relative size of the spread",
+						"start": "leg index where the (2 legs) of the spread begin (usually 0)",
+						"strikeLong": "strike of the long leg",
+						"strikeShort": "strike of the short leg",
+						"univ3pool": "address of the pool",
+						"widthLong": "width of the long leg",
+						"widthShort": "width of the short leg"
+					},
+					"returns": {
+						"tokenId": "the position id with the strategy configured"
+					}
+				},
+				"createPutRatioSpread(address,int24,int24,int24,uint256,uint256,uint256)": {
+					"details": "example: createPutRatioSpread(uniPoolAddress, 4, -50, 50, 0, 2, 0).",
+					"params": {
+						"asset": "asset of the strategy",
+						"longStrike": "strike of the long put",
+						"ratio": "ratio of the short puts to the long put",
+						"shortStrike": "strike of the short puts",
+						"start": "leg index where the (2 legs) of the spread begin (usually 0)",
+						"univ3pool": "address of the pool",
+						"width": "width of the spread"
+					},
+					"returns": {
+						"tokenId": "the position id with the strategy configured"
+					}
+				},
+				"createPutSpread(address,int24,int24,int24,uint256,uint256,uint256)": {
+					"details": "example: createPutSpread(uniPoolAddress, 4, -50, 50, 0, 1, 0).",
+					"params": {
+						"asset": "asset of the spread",
+						"optionRatio": "relative size of the spread",
+						"start": "leg index where the (2 legs) of the spread begin (usually 0)",
+						"strikeLong": "strike of the long leg",
+						"strikeShort": "strike of the short leg",
+						"univ3pool": "address of the pool",
+						"width": "width of the spread"
+					},
+					"returns": {
+						"tokenId": "the position id with the strategy configured"
+					}
+				},
+				"createPutZEBRASpread(address,int24,int24,int24,uint256,uint256,uint256)": {
+					"details": "example: createPutZEBRASpread(uniPoolAddress, 4, -50, 50, 0, 2, 0).",
+					"params": {
+						"asset": "asset of the strategy",
+						"longStrike": "strike of the long puts",
+						"ratio": "ratio of the short put to the long puts",
+						"shortStrike": "strike of the short put",
+						"start": "leg index where the (2 legs) of the spread begin (usually 0)",
+						"univ3pool": "address of the pool",
+						"width": "width of the spread"
+					},
+					"returns": {
+						"tokenId": "the position id with the strategy configured"
+					}
+				},
+				"createStraddle(address,int24,int24,uint256,uint256,uint256,uint256)": {
+					"details": "createStraddle(uniPoolAddress, 4, 0, 0, 1, 1, 0).",
+					"params": {
+						"asset": "asset of the strangle",
+						"isLong": "is the strangle long or short",
+						"optionRatio": "relative size of the strangle",
+						"start": "leg index where the (2 legs) of the straddle begin (usually 0)",
+						"strike": "strike of the call and put",
+						"univ3pool": "address of the pool",
+						"width": "width of the strangle"
+					},
+					"returns": {
+						"tokenId": "the position id with the strategy configured"
+					}
+				},
+				"createStrangle(address,int24,int24,int24,uint256,uint256,uint256,uint256)": {
+					"details": "example: createStrangle(uniPoolAddress, 4, 50, -50, 0, 1, 1, 0).",
+					"params": {
+						"asset": "asset of the strangle",
+						"callStrike": "strike of the call",
+						"isLong": "is the strangle long or short",
+						"optionRatio": "relative size of the strangle",
+						"putStrike": "strike of the put",
+						"start": "leg index where the (2 legs) of the strangle begin (usually 0)",
+						"univ3pool": "address of the pool",
+						"width": "width of the strangle"
+					},
+					"returns": {
+						"tokenId": "the position id with the strategy configured"
+					}
+				},
+				"createSuperBear(address,int24,int24,int24,int24,uint256)": {
+					"details": "example: createSuperBear(uniPoolAddress, 4, 50, -50, -50, 0).",
+					"params": {
+						"asset": "asset of the strategy",
+						"longPutStrike": "strike of the long put",
+						"shortCallStrike": "strike of the short call",
+						"shortPutStrike": "strike of the short put",
+						"univ3pool": "address of the pool",
+						"width": "width of the spread"
+					},
+					"returns": {
+						"tokenId": "the position id with the strategy configured"
+					}
+				},
+				"createSuperBull(address,int24,int24,int24,int24,uint256)": {
+					"details": "example: createSuperBull(uniPoolAddress, 4, -50, 50, 50, 0).",
+					"params": {
+						"asset": "asset of the strategy",
+						"longCallStrike": "strike of the long call",
+						"shortCallStrike": "strike of the short call",
+						"shortPutStrike": "strike of the short put",
+						"univ3pool": "address of the pool",
+						"width": "width of the spread"
+					},
+					"returns": {
+						"tokenId": "the position id with the strategy configured"
+					}
+				},
+				"createZEEHBS(address,int24,int24,int24,uint256,uint256)": {
+					"details": "example: createPutZEBRASpread(uniPoolAddress, 4, -50, 50, 0, 2, 0).",
+					"params": {
+						"asset": "asset of the strategy",
+						"longStrike": "strike of the long legs",
+						"ratio": "ratio of the short legs to the long legs",
+						"shortStrike": "strike of the short legs",
+						"univ3pool": "address of the pool",
+						"width": "width of the spread"
+					},
+					"returns": {
+						"tokenId": "the position id with the strategy configured"
+					}
+				},
+				"findLiquidationPriceDown(address,address,uint256[])": {
+					"details": "returns MIN_TICK if the LP is more than 100000 ticks below the current tick.",
+					"params": {
+						"account": "address of the account",
+						"pool": "address of the pool",
+						"positionIdList": "list of position IDs to consider"
+					},
+					"returns": {
+						"liquidationTick": "the downward liquidation price of `account` on `pool`, if any"
+					}
+				},
+				"findLiquidationPriceUp(address,address,uint256[])": {
+					"details": "returns MAX_TICK if the LP is more than 100000 ticks above current tick.",
+					"params": {
+						"account": "address of the account",
+						"pool": "address of the pool",
+						"positionIdList": "list of position IDs to consider"
+					},
+					"returns": {
+						"liquidationTick": "the upward liquidation price of `account` on `pool`, if any"
+					}
+				},
+				"getRequiredBase(address,uint256,int24)": {
+					"params": {
+						"atTick": "The price at which the collateral requirement is evaluated",
+						"pool": "The PanopticPool instance to optimize the tokenId for",
+						"tokenId": "the input tokenId"
+					},
+					"returns": {
+						"_0": "the required collateral for that position in terms of token0"
+					}
+				},
+				"optimizeRiskPartners(address,int24,uint256)": {
+					"params": {
+						"atTick": "The price at which the collateral requirement is evaluated",
+						"pool": "The PanopticPool instance to optimize the tokenId for",
+						"tokenId": "the input tokenId"
+					},
+					"returns": {
+						"_0": "the optimized tokenId"
+					}
+				},
+				"optionPositionInfo(address,address,uint256)": {
+					"params": {
+						"account": "The address of the account on which to retrieve `balance` and `poolUtilization`",
+						"pool": "The PanopticPool instance corresponding to the pool specified in `TokenId`"
+					},
+					"returns": {
+						"_0": "balance Number of contracts of `tokenId` owned by the user",
+						"_1": "poolUtilization0 The utilization of token0 in the Panoptic pool at mint",
+						"_2": "poolUtilization1 The utilization of token1 in the Panoptic pool at mint"
+					}
+				},
+				"twapFilter(address,uint32)": {
+					"details": "Note that our definition of TWAP differs from a typical mean of prices over a time window.We instead observe the average price over a series of time intervals, and define the TWAP as the median of those averages.",
+					"params": {
+						"twapWindow": "The time window to compute the TWAP over.",
+						"univ3pool": "The Uniswap pool from which to compute the TWAP."
+					},
+					"returns": {
+						"_0": "The final calculated TWAP tick."
+					}
+				},
+				"unwrapTokenId(uint256)": {
+					"params": {
+						"tokenId": "the input tokenId"
+					},
+					"returns": {
+						"_0": "legs an array of leg structs"
+					}
+				},
+				"validateTokenId(uint256)": {
+					"params": {
+						"self": "the tokenId to be tested"
+					}
+				}
+			},
+			"title": "Utility contract for token ID construction and advanced queries.",
+			"version": 1
+		},
+		"userdoc": {
+			"errors": {
+				"InvalidTick()": [
+					{
+						"notice": "Tick is not between `MIN_TICK` and `MAX_TICK`"
+					}
+				],
+				"InvalidTokenIdParameter(uint256)": [
+					{
+						"notice": "Invalid TokenId parameter detected"
+					}
+				],
+				"TicksNotInitializable()": [
+					{
+						"notice": "The tick range given by the strike price and width is invalid because the upper and lower ticks are not multiples of `tickSpacing`"
+					}
+				]
+			},
+			"kind": "user",
+			"methods": {
+				"checkCollateral(address,address,int24,uint256,uint256[])": {
+					"notice": "Compute the total amount of collateral needed to cover the existing list of active positions in positionIdList."
+				},
+				"computeInternalMedian(uint256,uint256,address)": {
+					"notice": "Takes a packed structure representing a sorted 8-slot queue of ticks and returns the median of those values."
+				},
+				"computeMedianObservedPrice(address,uint256,uint256)": {
+					"notice": "Returns the median of the last `cardinality` average prices over `period` observations from `univ3pool`."
+				},
+				"constructor": {
+					"notice": "Construct the PanopticHelper contract"
+				},
+				"createBATS(address,int24,int24,int24,uint256,uint256)": {
+					"notice": "creates a BATS (AKA double ratio spread) w/ call and put ratio spreads."
+				},
+				"createBigLizard(address,int24,int24,int24,uint256)": {
+					"notice": "creates a big lizard w/ long call and short asymmetric (traditional) straddle."
+				},
+				"createCallCalendarSpread(address,int24,int24,int24,uint256,uint256,uint256)": {
+					"notice": "creates a calendar spread with 1 long leg and 1 short leg."
+				},
+				"createCallDiagonalSpread(address,int24,int24,int24,int24,uint256,uint256,uint256)": {
+					"notice": "creates a diagonal spread with 1 long leg and 1 short leg.abi."
+				},
+				"createCallRatioSpread(address,int24,int24,int24,uint256,uint256,uint256)": {
+					"notice": "creates a ratio spread w/ long call and multiple short calls."
+				},
+				"createCallSpread(address,int24,int24,int24,uint256,uint256,uint256)": {
+					"notice": "creates a call spread with 1 long leg and 1 short leg."
+				},
+				"createCallZEBRASpread(address,int24,int24,int24,uint256,uint256,uint256)": {
+					"notice": "creates a ZEBRA spread w/ short call and multiple long calls."
+				},
+				"createIronButterfly(address,int24,int24,int24,uint256)": {
+					"notice": "creates a butterfly w/ long call spread and short put spread."
+				},
+				"createIronCondor(address,int24,int24,int24,int24,uint256)": {
+					"notice": "creates iron condor w/ call and put spread."
+				},
+				"createJadeLizard(address,int24,int24,int24,int24,uint256)": {
+					"notice": "creates a jade lizard w/ long call and short asymmetric (traditional) strangle."
+				},
+				"createPutCalendarSpread(address,int24,int24,int24,uint256,uint256,uint256)": {
+					"notice": "creates a calendar spread with 1 long leg and 1 short leg."
+				},
+				"createPutDiagonalSpread(address,int24,int24,int24,int24,uint256,uint256,uint256)": {
+					"notice": "creates a diagonal spread with 1 long leg and 1 short leg."
+				},
+				"createPutRatioSpread(address,int24,int24,int24,uint256,uint256,uint256)": {
+					"notice": "creates a ratio spread w/ long put and multiple short puts."
+				},
+				"createPutSpread(address,int24,int24,int24,uint256,uint256,uint256)": {
+					"notice": "creates a put spread with 1 long leg and 1 short leg."
+				},
+				"createPutZEBRASpread(address,int24,int24,int24,uint256,uint256,uint256)": {
+					"notice": "creates a ZEBRA spread w/ short put and multiple long puts."
+				},
+				"createStraddle(address,int24,int24,uint256,uint256,uint256,uint256)": {
+					"notice": "creates \"Classic\" straddle using a call and a put, with asymmetric upward risk."
+				},
+				"createStrangle(address,int24,int24,int24,uint256,uint256,uint256,uint256)": {
+					"notice": "creates \"Classic\" strangle using a call and a put, with asymmetric upward risk."
+				},
+				"createSuperBear(address,int24,int24,int24,int24,uint256)": {
+					"notice": "creates a super bear w/ long put spread and short call."
+				},
+				"createSuperBull(address,int24,int24,int24,int24,uint256)": {
+					"notice": "creates a super bull w/ long call spread and short put."
+				},
+				"createZEEHBS(address,int24,int24,int24,uint256,uint256)": {
+					"notice": "creates a ZEEHBS w/ call and put ZEBRA spreads."
+				},
+				"findLiquidationPriceDown(address,address,uint256[])": {
+					"notice": "Returns an estimate of the downside liquidation price for a given account on a given pool."
+				},
+				"findLiquidationPriceUp(address,address,uint256[])": {
+					"notice": "Returns an estimate of the upside liquidation price for a given account on a given pool."
+				},
+				"getRequiredBase(address,uint256,int24)": {
+					"notice": "An external function that returns the collateral needed for a single tokenId at the provided tick."
+				},
+				"optimizeRiskPartners(address,int24,uint256)": {
+					"notice": "Optimize the risk partnering of all legs within a tokenId."
+				},
+				"optionPositionInfo(address,address,uint256)": {
+					"notice": "Returns the total number of contracts owned by `account` and the pool utilization at mint for a specified `tokenId."
+				},
+				"twapFilter(address,uint32)": {
+					"notice": "Computes the twap of a Uniswap V3 pool using data from its oracle."
+				},
+				"unwrapTokenId(uint256)": {
+					"notice": "Unwraps the contents of the tokenId into its legs."
+				},
+				"validateTokenId(uint256)": {
+					"notice": "An external function that validates a tokenId."
+				}
+			},
+			"version": 1
+		}
+	},
+	"settings": {
+		"compilationTarget": {
+			"src/PanopticHelper.sol": "PanopticHelper"
+		},
+		"evmVersion": "cancun",
+		"libraries": {},
+		"metadata": {
+			"bytecodeHash": "ipfs"
+		},
+		"optimizer": {
+			"enabled": true,
+			"runs": 200
+		},
+		"remappings": [
+			":@base/=lib/panoptic-v1-core/contracts/base/",
+			":@contracts/=lib/panoptic-v1-core/contracts/",
+			":@libraries/=lib/panoptic-v1-core/contracts/libraries/",
+			":@openzeppelin/=lib/panoptic-v1-core/lib/openzeppelin-contracts/",
+			":@scripts/=lib/panoptic-v1-core/contracts/script/",
+			":@tokens/=lib/panoptic-v1-core/contracts/tokens/",
+			":@types/=lib/panoptic-v1-core/contracts/types/",
+			":@uniswap/=lib/panoptic-v1-core/lib/",
+			":forge-std/=lib/panoptic-v1-core/lib/forge-std/src/",
+			":solmate/=lib/panoptic-v1-core/lib/solmate/src/",
+			":univ3-core/=lib/panoptic-v1-core/lib/v3-core/contracts/",
+			":univ3-periphery/=lib/v3-periphery/contracts/"
+		]
+	},
+	"sources": {
+		"lib/panoptic-v1-core/contracts/CollateralTracker.sol": {
+			"keccak256": "0xd36fc9e91b4e2f3dcbdc1a8efe3913efa416c9b7353f6e833d3608defe47b9a9",
+			"license": "BUSL-1.1",
+			"urls": [
+				"bzz-raw://4282207bc9fc07cc655f2e8a0b6aaaa35857f1d6eae1f3a609f4aac5536cadca",
+				"dweb:/ipfs/Qmd6ZezTQ3R6rUc69mQaf7AVfn7PPALR3MWpmDc2wUWZex"
+			]
+		},
+		"lib/panoptic-v1-core/contracts/PanopticPool.sol": {
+			"keccak256": "0xed92f160efada986ed1199be31a0e17402aca23b967a70404c110199dd24b1fc",
+			"license": "BUSL-1.1",
+			"urls": [
+				"bzz-raw://8ddbcc0dcd605711f420f72e80657943a079d71e0faddbc3466168dcb672d4bb",
+				"dweb:/ipfs/QmY25G1F9SQkZ5FzLrPaBQmFHDfc1pmcgJrHayWdJEoh6g"
+			]
+		},
+		"lib/panoptic-v1-core/contracts/SemiFungiblePositionManager.sol": {
+			"keccak256": "0xa7c26f4df15186c29db5bebdf51e858482445663e856edfae58363aee172c1ae",
+			"license": "BUSL-1.1",
+			"urls": [
+				"bzz-raw://e2cacaa251ffa30e780d9b98531753345ce2e39e5d218e854a75c76c25bbde8e",
+				"dweb:/ipfs/QmeK8zj7W8a8f4kesHWikU6jXHg9KrAaMNvYPhxJ6mx7wQ"
+			]
+		},
+		"lib/panoptic-v1-core/contracts/base/Multicall.sol": {
+			"keccak256": "0xd8b9ebae5941efa07be0e3ec9d1dd0bc11dfc50f6e1cbf0ad0ebab61374fd19d",
+			"license": "GPL-2.0-or-later",
+			"urls": [
+				"bzz-raw://4f441c49179dda23251c56afaeddb3b5f4a2053c0fa8c4c514018da023cc4a73",
+				"dweb:/ipfs/QmWveweueChZA3ZBrdinVKfXJumRy3qsrYCEzrdaSyYcSU"
+			]
+		},
+		"lib/panoptic-v1-core/contracts/libraries/CallbackLib.sol": {
+			"keccak256": "0xd1216c9b036acccdbef30a01a3c15e39ae546b407391262209b7fd3fe7925ea6",
+			"license": "GPL-2.0-or-later",
+			"urls": [
+				"bzz-raw://c2c5c0e0a121ac205e9d5907b65198c49aacdb660ebc7ac38b5b84caefad6ffb",
+				"dweb:/ipfs/QmePqV5UANo44bEHpsbvs9g8Pb5GFKVCP3Wv9zr7aerVRi"
+			]
+		},
+		"lib/panoptic-v1-core/contracts/libraries/Constants.sol": {
+			"keccak256": "0xcb1aa710870f0f7236ed727f0efea8bb21cb3d18165def9ce56b32ba671cd0ca",
+			"license": "GPL-2.0-or-later",
+			"urls": [
+				"bzz-raw://8cf78adcd536f7083872bc699cdcf5917b74fedcbad64d85a9e930c3b4ceebd3",
+				"dweb:/ipfs/QmQeCdrmiS4qcWMwvbxSuL4n1LjXNonbmfbHbYpuHn6An2"
+			]
+		},
+		"lib/panoptic-v1-core/contracts/libraries/Errors.sol": {
+			"keccak256": "0x74316b311cc4a73c82d0b1eb377dba4e2ec091c87236686dd61b6ec39eefbd4d",
+			"license": "GPL-2.0-or-later",
+			"urls": [
+				"bzz-raw://db10f1017f9ea9bf9c3bb95511f823962a020cdc28af7d6d98a04e9ddd36e3fa",
+				"dweb:/ipfs/QmXTpWbpSgBppFLQmk8oPf6vtLUUEgjM6gpapqACCPy7Gq"
+			]
+		},
+		"lib/panoptic-v1-core/contracts/libraries/FeesCalc.sol": {
+			"keccak256": "0xa2a439b1335d66e79e8d150ea80d93b99db57bd47014ea99977f1e65dd2e529a",
+			"license": "BUSL-1.1",
+			"urls": [
+				"bzz-raw://b3046520ae707a6b83e2298d0e34f71ccb3376c9c5299da87e4044626d7fa019",
+				"dweb:/ipfs/QmU8X2TBmc7fRYws9i19475d7jRQPitC7Hygi6vcZ8HydE"
+			]
+		},
+		"lib/panoptic-v1-core/contracts/libraries/InteractionHelper.sol": {
+			"keccak256": "0x94ea4c028d7abd5e5a63881504200c18e3ae6b7a79da9a0ddabdb1685dad7319",
+			"license": "BUSL-1.1",
+			"urls": [
+				"bzz-raw://fb96fde32889214a27abdf70bfb0706f293bc97b5056b47115e6b8f72753f4b3",
+				"dweb:/ipfs/QmToeoTPHms39qk5TSUHeT37fGcfrX7YDKNMdJcSRyW49Y"
+			]
+		},
+		"lib/panoptic-v1-core/contracts/libraries/Math.sol": {
+			"keccak256": "0x8f03a426f266f3147bf1eb1762679e24b5f4a15c55f5086e970c25ec679cf610",
+			"license": "GPL-2.0-or-later",
+			"urls": [
+				"bzz-raw://d52de6cb464a9ea8234ad09cf0f963e7615508e632b7a93ccdbeb22f1e0b869b",
+				"dweb:/ipfs/QmZTJVRhSjeT2axmLvEuFEyRXuW4V5pkme67QXzRdbss5d"
+			]
+		},
+		"lib/panoptic-v1-core/contracts/libraries/PanopticMath.sol": {
+			"keccak256": "0xb1efe4f72d4f859e75120d7c9e05cad33c53f2a1d4503eb6ba0dca3bd23e3aa1",
+			"license": "BUSL-1.1",
+			"urls": [
+				"bzz-raw://72f836296a0593f9a728678c6764d229c8fd440d01bf90f8ae9818009b2b3339",
+				"dweb:/ipfs/QmeMQgwKy9MRkxrFwV2jNLaTrxQ3Vtv9KgzzbuaBop9epU"
+			]
+		},
+		"lib/panoptic-v1-core/contracts/libraries/SafeTransferLib.sol": {
+			"keccak256": "0xecdca41cfbc2753042466a7c058e6e077342b3c7cd10983af0f6fe55ce407de1",
+			"license": "GPL-2.0-or-later",
+			"urls": [
+				"bzz-raw://cf4d238c8e9f42c128a6d96f53c753630e170a0be963f3a6cffb8305dac6b113",
+				"dweb:/ipfs/QmbLCkHH4n9LicKMQPX4KeS5PFSdwB89BnuA881c9sV1KT"
+			]
+		},
+		"lib/panoptic-v1-core/contracts/tokens/ERC1155Minimal.sol": {
+			"keccak256": "0x8739d8f88cdef7ac034f14336a478f238171351a77d25a03a8baa2a7eed09763",
+			"license": "GPL-2.0-or-later",
+			"urls": [
+				"bzz-raw://1376ff5564ff14378443531b0b96c855a757e528ef06df70749592e5bca8ab9e",
+				"dweb:/ipfs/QmP7yUvxJeQXdq3EY3pPXV2EuyaKjqSZdfZU3N15rFmzwJ"
+			]
+		},
+		"lib/panoptic-v1-core/contracts/tokens/ERC20Minimal.sol": {
+			"keccak256": "0xcf0d457b5fc0790d6eac58acc1c810f59b87ee8194824be317f8de80d9b9656c",
+			"license": "GPL-2.0-or-later",
+			"urls": [
+				"bzz-raw://ef86aaa05698417fbb579846e61e0c3db157804384e4c2f6f531197a0e73eeb7",
+				"dweb:/ipfs/QmYurtLufAsWjXDnd2W9ut5ckL7sbV4vbCMZs3bH7zcRXT"
+			]
+		},
+		"lib/panoptic-v1-core/contracts/tokens/interfaces/IERC20Partial.sol": {
+			"keccak256": "0x4c26c822da84386cf7d02732bc43fdad88bfe0895570fd01d7fb28d079d6d2a4",
+			"license": "GPL-2.0-or-later",
+			"urls": [
+				"bzz-raw://621ecc44bab3213e4595f384e0e0c5d81351d43b8914508ac2bad5c39acb10b7",
+				"dweb:/ipfs/QmSZcxE5XKPdes6pxSPSgvDLE6vjPjhgqEeTkAzfauuwiq"
+			]
+		},
+		"lib/panoptic-v1-core/contracts/types/LeftRight.sol": {
+			"keccak256": "0x68d3efa148a3ccd33e20ac31641c64a82282a1c7572684147bff394c72f52b13",
+			"license": "GPL-2.0-or-later",
+			"urls": [
+				"bzz-raw://835f58937fc6040053f2d66552d8c7ed255d305c7f65d9842ac7a8e745c388ba",
+				"dweb:/ipfs/QmYcMaWsRENotGBqEBpVBJrEo4TrMzcVzeYrVh2e1bNKbh"
+			]
+		},
+		"lib/panoptic-v1-core/contracts/types/LiquidityChunk.sol": {
+			"keccak256": "0xd98b4092652daba82b29d301e261fe7a18a53da9ee23f42eaa44c72b638b31f7",
+			"license": "GPL-2.0-or-later",
+			"urls": [
+				"bzz-raw://e3fa6cb1c2b22587595df6c3b03fa6b379b82257d469f0ed72ec3bf291f196cc",
+				"dweb:/ipfs/QmUbmGKK3VE8YwNE8LG6BDwe72uP4U7xg6n85a1JrdWDyj"
+			]
+		},
+		"lib/panoptic-v1-core/contracts/types/TokenId.sol": {
+			"keccak256": "0x7238cfe75d29bad566d495baec88e3b605d5b169264887633333282dca447869",
+			"license": "GPL-2.0-or-later",
+			"urls": [
+				"bzz-raw://2a843e3522370e6c50266dcd6043a8a9b8dd3b303009b8eaa064019adef7a25d",
+				"dweb:/ipfs/QmRC9PCm3akmZA6pU1bniBNeSa1GoT7YAXUeqq1FWDoBqJ"
+			]
+		},
+		"lib/panoptic-v1-core/lib/openzeppelin-contracts/contracts/token/ERC1155/IERC1155Receiver.sol": {
+			"keccak256": "0xeb373f1fdc7b755c6a750123a9b9e3a8a02c1470042fd6505d875000a80bde0b",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://0e28648f994abf1d6bc345644a361cc0b7efa544f8bc0c8ec26011fed85a91ec",
+				"dweb:/ipfs/QmVVE7AiRjKaQYYji7TkjmTeVzGpNmms5eoxqTCfvvpj6D"
+			]
+		},
+		"lib/panoptic-v1-core/lib/openzeppelin-contracts/contracts/token/ERC1155/utils/ERC1155Holder.sol": {
+			"keccak256": "0x2e024ca51ce5abe16c0d34e6992a1104f356e2244eb4ccbec970435e8b3405e3",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://a74009db3c6fc8db851ba69ddb6795b5c1ef1120c5a00fd1a8dc3a717dd9d519",
+				"dweb:/ipfs/QmZMk8Yh2X3gPS51ckUVLEXjZUhMSEeGApnA53WtjvLb9h"
+			]
+		},
+		"lib/panoptic-v1-core/lib/openzeppelin-contracts/contracts/token/ERC1155/utils/ERC1155Receiver.sol": {
+			"keccak256": "0x3dd5e1a66a56f30302108a1da97d677a42b1daa60e503696b2bcbbf3e4c95bcb",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://0808de0ae4918c664643c885ca7fa6503e8ef2bd75609dfc85152c0128a3422d",
+				"dweb:/ipfs/QmNrhFC1XgBKuuxfahFeiwi1MCdu3FLNpHj2uStgmf4iJj"
+			]
+		},
+		"lib/panoptic-v1-core/lib/openzeppelin-contracts/contracts/token/ERC20/ERC20.sol": {
+			"keccak256": "0x4ffc0547c02ad22925310c585c0f166f8759e2648a09e9b489100c42f15dd98d",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://15f52f51413a9de1ff191e2f6367c62178e1df7806d7880fe857a98b0b66253d",
+				"dweb:/ipfs/QmaQG1fwfgUt5E9nu2cccFiV47B2V78MM1tCy1qB7n4MsH"
+			]
+		},
+		"lib/panoptic-v1-core/lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol": {
+			"keccak256": "0x9750c6b834f7b43000631af5cc30001c5f547b3ceb3635488f140f60e897ea6b",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://5a7d5b1ef5d8d5889ad2ed89d8619c09383b80b72ab226e0fe7bde1636481e34",
+				"dweb:/ipfs/QmebXWgtEfumQGBdVeM6c71McLixYXQP5Bk6kKXuoY4Bmr"
+			]
+		},
+		"lib/panoptic-v1-core/lib/openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol": {
+			"keccak256": "0x8de418a5503946cabe331f35fe242d3201a73f67f77aaeb7110acb1f30423aca",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://5a376d3dda2cb70536c0a45c208b29b34ac560c4cb4f513a42079f96ba47d2dd",
+				"dweb:/ipfs/QmZQg6gn1sUpM8wHzwNvSnihumUCAhxD119MpXeKp8B9s8"
+			]
+		},
+		"lib/panoptic-v1-core/lib/openzeppelin-contracts/contracts/utils/Base64.sol": {
+			"keccak256": "0x5f3461639fe20794cfb4db4a6d8477388a15b2e70a018043084b7c4bedfa8136",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://77e5309e2cc4cdc3395214edb0ff43ff5a5f7373f5a425383e540f6fab530f96",
+				"dweb:/ipfs/QmTV8DZ9knJDa3b5NPBFQqjvTzodyZVjRUg5mx5A99JPLJ"
+			]
+		},
+		"lib/panoptic-v1-core/lib/openzeppelin-contracts/contracts/utils/Context.sol": {
+			"keccak256": "0xe2e337e6dde9ef6b680e07338c493ebea1b5fd09b43424112868e9cc1706bca7",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://6df0ddf21ce9f58271bdfaa85cde98b200ef242a05a3f85c2bc10a8294800a92",
+				"dweb:/ipfs/QmRK2Y5Yc6BK7tGKkgsgn3aJEQGi5aakeSPZvS65PV8Xp3"
+			]
+		},
+		"lib/panoptic-v1-core/lib/openzeppelin-contracts/contracts/utils/Strings.sol": {
+			"keccak256": "0xa4d1d62251f8574deb032a35fc948386a9b4de74b812d4f545a1ac120486b48a",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://8c969013129ba9e651a20735ef659fef6d8a1139ea3607bd4b26ddea2d645634",
+				"dweb:/ipfs/QmVhVa6LGuzAcB8qgDtVHRkucn4ihj5UZr8xBLcJkP6ucb"
+			]
+		},
+		"lib/panoptic-v1-core/lib/openzeppelin-contracts/contracts/utils/introspection/ERC165.sol": {
+			"keccak256": "0xd10975de010d89fd1c78dc5e8a9a7e7f496198085c151648f20cba166b32582b",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://fb0048dee081f6fffa5f74afc3fb328483c2a30504e94a0ddd2a5114d731ec4d",
+				"dweb:/ipfs/QmZptt1nmYoA5SgjwnSgWqgUSDgm4q52Yos3xhnMv3MV43"
+			]
+		},
+		"lib/panoptic-v1-core/lib/openzeppelin-contracts/contracts/utils/introspection/IERC165.sol": {
+			"keccak256": "0x447a5f3ddc18419d41ff92b3773fb86471b1db25773e07f877f548918a185bf1",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://be161e54f24e5c6fae81a12db1a8ae87bc5ae1b0ddc805d82a1440a68455088f",
+				"dweb:/ipfs/QmP7C3CHdY9urF4dEMb9wmsp1wMxHF6nhA2yQE5SKiPAdy"
+			]
+		},
+		"lib/panoptic-v1-core/lib/openzeppelin-contracts/contracts/utils/math/Math.sol": {
+			"keccak256": "0xa1e8e83cd0087785df04ac79fb395d9f3684caeaf973d9e2c71caef723a3a5d6",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://33bbf48cc069be677705037ba7520c22b1b622c23b33e1a71495f2d36549d40b",
+				"dweb:/ipfs/Qmct36zWXv3j7LZB83uwbg7TXwnZSN1fqHNDZ93GG98bGz"
+			]
+		},
+		"lib/panoptic-v1-core/lib/solmate/src/utils/TransientReentrancyGuard.sol": {
+			"keccak256": "0x206d6b13e4f16cb3f642083e15d9d89d4b94887563575733d6c6d9b770cafbcf",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://a9a692f7d581693cc0cc1f8d025147f99cf1481496e3e123e75bd18017b95951",
+				"dweb:/ipfs/QmbhdLWiBoP1ojBTHZxc2bYbUc4hUk3yVDsNBdaCFF5VV9"
+			]
+		},
+		"lib/panoptic-v1-core/lib/v3-core/contracts/interfaces/IUniswapV3Factory.sol": {
+			"keccak256": "0xcc3d0c93fc9ac0febbe09f941b465b57f750bcf3b48432da0b97dc289cfdc489",
+			"license": "GPL-2.0-or-later",
+			"urls": [
+				"bzz-raw://b9379ad954680c44a0bc523b314ae4c4da735f9fe1d02aa56ea5bdba6f1136f2",
+				"dweb:/ipfs/QmZXdgQNXKAckrXWz9R3mc47F1fvDvr28a2ewJrwNAw71B"
+			]
+		},
+		"lib/panoptic-v1-core/lib/v3-core/contracts/interfaces/IUniswapV3Pool.sol": {
+			"keccak256": "0x4e64844c56061cd90e0a80de73534a9166704c43eed579eb83f90bc2780ce968",
+			"license": "GPL-2.0-or-later",
+			"urls": [
+				"bzz-raw://cba4fab5cebdddf644b901994a7f0f52b98885d4c56012f4dc51d52c2bf9de0e",
+				"dweb:/ipfs/QmVyyrRmqXrAiapewWunRVgiPVFJHpH2hKiE1py1svMSNV"
+			]
+		},
+		"lib/panoptic-v1-core/lib/v3-core/contracts/interfaces/pool/IUniswapV3PoolActions.sol": {
+			"keccak256": "0x9453dd0e7442188667d01d9b65de3f1e14e9511ff3e303179a15f6fc267f7634",
+			"license": "GPL-2.0-or-later",
+			"urls": [
+				"bzz-raw://982f4328f956c3e60e67501e759eb292ac487f76460c774c50e9ae4fcc92aae5",
+				"dweb:/ipfs/QmRnzEDsaqtd9PJEVcgQi7p5aV5pMSvRUoGZJAdwFUJxgZ"
+			]
+		},
+		"lib/panoptic-v1-core/lib/v3-core/contracts/interfaces/pool/IUniswapV3PoolDerivedState.sol": {
+			"keccak256": "0xe603ac5b17ecdee73ba2b27efdf386c257a19c14206e87eee77e2017b742d9e5",
+			"license": "GPL-2.0-or-later",
+			"urls": [
+				"bzz-raw://8febc9bdb399a4d94bb89f5377732652e2400e4a8dee808201ade6848f9004e7",
+				"dweb:/ipfs/QmaKDqYYFU4d2W2iN77aDHptfbFmYZRrMYXHeGpJmM8C1c"
+			]
+		},
+		"lib/panoptic-v1-core/lib/v3-core/contracts/interfaces/pool/IUniswapV3PoolErrors.sol": {
+			"keccak256": "0xf80abf13fb1fafc127ba4e792f240dd8ea7c8c893978cdfd8439c27fae9a037b",
+			"license": "GPL-2.0-or-later",
+			"urls": [
+				"bzz-raw://b04fc72a656bbf3631e9c2e67b9870a2d9d235185e833fe050e9606e6816a9aa",
+				"dweb:/ipfs/QmUcz4bkEkJ9pwzFu1C3n97hBQ3st9U6qTAqCdyFwddKco"
+			]
+		},
+		"lib/panoptic-v1-core/lib/v3-core/contracts/interfaces/pool/IUniswapV3PoolEvents.sol": {
+			"keccak256": "0x8071514d0fe5d17d6fbd31c191cdfb703031c24e0ece3621d88ab10e871375cd",
+			"license": "GPL-2.0-or-later",
+			"urls": [
+				"bzz-raw://d0b571930cc7488b1d546a7e9cea7c52d8b3c4e207da657ed0e0db7343b8cd03",
+				"dweb:/ipfs/QmaGK6vVwB95QSTR1XMYvrh7ivYAYZxi3fD7v6VMA4jZ39"
+			]
+		},
+		"lib/panoptic-v1-core/lib/v3-core/contracts/interfaces/pool/IUniswapV3PoolImmutables.sol": {
+			"keccak256": "0xf6e5d2cd1139c4c276bdbc8e1d2b256e456c866a91f1b868da265c6d2685c3f7",
+			"license": "GPL-2.0-or-later",
+			"urls": [
+				"bzz-raw://b99c8c9ae8e27ee6559e5866bea82cbc9ffc8247f8d15b7422a4deb287d4d047",
+				"dweb:/ipfs/QmfL8gaqt3ffAnm6nVj5ksuNpLygXuL3xq5VBqrkwC2JJ3"
+			]
+		},
+		"lib/panoptic-v1-core/lib/v3-core/contracts/interfaces/pool/IUniswapV3PoolOwnerActions.sol": {
+			"keccak256": "0x759b78a2918af9e99e246dc3af084f654e48ef32bb4e4cb8a966aa3dcaece235",
+			"license": "GPL-2.0-or-later",
+			"urls": [
+				"bzz-raw://64144fb96e1c7fdba87305acadb98a198d26a3d46c097cb3a666e567f6f29735",
+				"dweb:/ipfs/QmUnWVwN9FKB9uV5Pr8YfLpWZnYM2DENnRMaadZ492JS9u"
+			]
+		},
+		"lib/panoptic-v1-core/lib/v3-core/contracts/interfaces/pool/IUniswapV3PoolState.sol": {
+			"keccak256": "0x44fa2ce1182f6c2f6bead3d1737804bf7e112252ae86e0f2e92f9b8249603f43",
+			"license": "GPL-2.0-or-later",
+			"urls": [
+				"bzz-raw://54154e8665b98d65f5dc91b256551852cb47882180b501b260657122d207c0ea",
+				"dweb:/ipfs/QmcfemK1A2PXYrWB5SBFGERpMCderbFRb8BtTzQDj1sUBp"
+			]
+		},
+		"src/PanopticHelper.sol": {
+			"keccak256": "0x27c9dda24a2d6d2f38e209057dcf95f5cba32e4cb4979b7d22f867b3cf397874",
+			"license": "BUSL-1.1",
+			"urls": [
+				"bzz-raw://e975af0d105cd1611e4e8a41728ecd3ca2505c0ed892c97c17d0cab8c02956cf",
+				"dweb:/ipfs/Qmc5CcxufoiMppQntxcQcLFSL5QjzuNLrmXudwSmVa7tX8"
+			]
+		}
+	},
+	"version": 1
+}
