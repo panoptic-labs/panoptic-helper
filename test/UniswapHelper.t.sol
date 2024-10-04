@@ -322,7 +322,7 @@ contract UniswapHelperTest is PositionUtils {
     function test_getTickData() public {
         _initPool(1);
 
-        console2.log(uh.plotPoolLiquidity(address(pool)));
+        console2.log(uh.plotPoolLiquidity(address(0x2F62f2B4c5fcd7570a709DeC05D68EA19c82A9ec)));
     }
 
     function test_PnL() public view {
