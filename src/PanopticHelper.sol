@@ -553,8 +553,11 @@ contract PanopticHelper {
     ) public view returns (uint256[3][] memory) {
         (, int24 tick, , , , , ) = pool.univ3pool().slot0();
 
-        (LeftRightUnsigned shortPremium, LeftRightUnsigned longPremium, uint256[2][] memory positionBalanceArray) = pool
-            .calculateAccumulatedFeesBatch(account, false, positionIdList);
+        (
+            LeftRightUnsigned shortPremium,
+            LeftRightUnsigned longPremium,
+            uint256[2][] memory positionBalanceArray
+        ) = pool.calculateAccumulatedFeesBatch(account, false, positionIdList);
 
         uint256[3][] memory buyingPowerPerPosition = new uint256[3][](positionIdList.length);
 

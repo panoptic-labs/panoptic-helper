@@ -1279,11 +1279,26 @@ contract PanopticHelperTest is PositionUtils {
 
         (, currentTick, , , , , ) = pool.slot0();
 
-        (LeftRightUnsigned shortPremium, LeftRightUnsigned longPremium, uint256[2][] memory posBalanceArray) = pp
-            .calculateAccumulatedFeesBatch(Alice, false, posIdList);
+        (
+            LeftRightUnsigned shortPremium,
+            LeftRightUnsigned longPremium,
+            uint256[2][] memory posBalanceArray
+        ) = pp.calculateAccumulatedFeesBatch(Alice, false, posIdList);
 
-        tokenData0 = ct0.getAccountMarginDetails(Alice, currentTick, posBalanceArray, shortPremium.rightSlot(), longPremium.rightSlot());
-        tokenData1 = ct1.getAccountMarginDetails(Alice, currentTick, posBalanceArray, shortPremium.leftSlot(), longPremium.leftSlot());
+        tokenData0 = ct0.getAccountMarginDetails(
+            Alice,
+            currentTick,
+            posBalanceArray,
+            shortPremium.rightSlot(),
+            longPremium.rightSlot()
+        );
+        tokenData1 = ct1.getAccountMarginDetails(
+            Alice,
+            currentTick,
+            posBalanceArray,
+            shortPremium.leftSlot(),
+            longPremium.leftSlot()
+        );
 
         assertEq(requiredToken0, tokenData0.leftSlot(), "required token0");
         assertEq(requiredToken1, tokenData1.leftSlot(), "required token1");
