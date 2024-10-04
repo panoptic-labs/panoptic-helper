@@ -72,6 +72,49 @@ contract PanopticHelper {
         );
     }
 
+    
+    /// @notice Fetch data about chunks in a positionIdList.
+    /// @param pool The PanopticPool instance corresponding to the pool specified in `TokenId`
+    /// @param account The address of the account to retrieve liquidity data for
+    /// @param positionIdList List of TokenIds to evaluate
+    /// @return chunkData A memory array of [positionIdList.length][4][2] containing netLiquidity and removedLiquidity for each leg
+    function getChunkData(
+        PanopticPool pool,
+        address account,
+        TokenId[] memory positionIdList
+    ) external view returns (uint256[][][] memory) {
+        uint256[][][] memory chunkData = new uint256[][][](positionIdList.length);
+
+        for (uint256 i; i < positionIdList.length;) {
+            uint256[][] memory ithPositionLiquidities = new uint256[][](4);
+
+            for (uint256 j; j < positionIdList[i].countLegs();) {
+                LeftRightUnsigned liquidityData = SFPM.getAccountLiquidity(
+                    address(SFPM.getUniswapV3PoolFromId(positionIdList[i].poolId())),
+                    account,
+                    positionIdList[i].tokenType(j),
+                    positionIdList[i].strike(j) - (positionIdList[i].width(j) / 2),
+                    positionIdList[i].strike(j) + (positionIdList[i].width(j) / 2)
+                );
+
+                uint256[] memory liquidityDataArr = new uint256[](2);
+                // net liquidity:
+                liquidityDataArr[0] = liquidityData.rightSlot();
+                // removed liquidity:
+                liquidityDataArr[1] = liquidityData.leftSlot();
+                ithPositionLiquidities[j] = liquidityDataArr;
+
+                unchecked { ++j; }
+            }
+
+            chunkData[i] = ithPositionLiquidities;
+            unchecked { ++i; }
+        }
+
+        return chunkData;
+    }
+
+
     /// @notice Compute the total amount of collateral needed to cover the existing list of active positions in positionIdList.
     /// @param pool The PanopticPool instance to check collateral on
     /// @param account Address of the user that owns the positions
@@ -242,6 +285,69 @@ contract PanopticHelper {
         }
     }
 
+    // TODO: below is a WIP which is why it has things like hardcoded vars - just trying things out
+    /// @notice Determine new TokenId with adjusted position size.
+    /// @notice account The address of the account to evaluate
+    /// @notice tokenId The TokenId to reduce the size of
+    /// @return newTokenId The new TokenId with adjusted position size
+    /// @return newPositionSize The updated size of the new position
+    // function reducedSize(
+    //     PanopticPool pool,
+    //     address account,
+    //     TokenId tokenId,
+    //     // TODO i think you can get this from the SFPM on the user's behalf - EDIT yes comes from calculateAccumulatedFeesBatch
+    //     uint128 oldPositionSize
+    // ) external view returns (TokenId newTokenId, uint128 newPositionSize) {
+    function reducedSize() external view returns (TokenId newTokenId, uint128 newPositionSize) {
+        // uni pool: 0xe549883274Bf392B8bD499F5e709D116A8B84BeD
+        address account = 0x275e8F09F090CF9B8e77008643e33d477fBb05E6;
+        TokenId tokenId = TokenId.wrap(304236343532294555810893407614143);
+        uint128 oldPositionSize = 1;
+        // Unwrap the tokenId to get details about its legs
+        Leg[] memory legs = unwrapTokenId(tokenId);
+        newPositionSize = type(uint128).max;
+
+        // Iterate over each leg and determine the liquidity constraints
+        for (uint256 i = 0; i < tokenId.countLegs(); i++) {
+            LeftRightUnsigned liquidityData = SFPM.getAccountLiquidity(
+                legs[i].UniswapV3Pool,
+                account,
+                legs[i].tokenType,
+                legs[i].strike - (legs[i].width / 2),
+                legs[i].strike + (legs[i].width / 2)
+            ); 
+            uint256 netLiquidity = liquidityData.rightSlot();
+
+            // Check if the current leg has enough liquidity to burn
+            if (oldPositionSize * legs[i].optionRatio > netLiquidity) {
+                // If there's not enough liquidity, adjust the available size to keep utilization at 90%
+                uint128 availableSize = uint128((netLiquidity * 90) / 100); // Utilization at 90%
+                if (availableSize < newPositionSize) {
+                    newPositionSize = availableSize;
+                }
+            }
+        }
+
+        // newTokenId = TokenId.wrap(0); 
+        // for (uint256 i = 0; i < legs.length; i++) {
+        //     // TODO this comes from somewhere
+        //     uint256 newOptionRatio = (legs[i].optionRatio * newPositionSize) / legs[i].asset;
+
+        //     // Reconstruct the new TokenId with the same properties but updated optionRatio
+        //     newTokenId.addLeg(
+        //         i,
+        //         newOptionRatio,
+        //         legs[i].asset,
+        //         legs[i].isLong,
+        //         legs[i].tokenType,
+        //         legs[i].riskPartner,
+        //         legs[i].strike,
+        //         legs[i].width
+        //     );
+        // }
+    }
+ 
+
     /// @notice An external function that returns the collateral needed for a single tokenId at the provided tick.
     /// @param pool The PanopticPool instance to optimize the tokenId for
     /// @param atTick The price at which the collateral requirement is evaluated
@@ -336,56 +442,57 @@ contract PanopticHelper {
                           ORACLE CALCULATIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Returns the median of the last `cardinality` average prices over `period` observations from `univ3pool`.
-    /// @dev Used when we need a manipulation-resistant TWAP price.
-    /// @dev Uniswap observations snapshot the closing price of the last block before the first interaction of a given block.
-    /// @dev The maximum frequency of observations is 1 per block, but there is no guarantee that the pool will be observed at every block.
-    /// @dev Each period has a minimum length of blocktime * period, but may be longer if the Uniswap pool is relatively inactive.
-    /// @dev The final price used in the array (of length `cardinality`) is the average of all observations comprising `period` (which is itself a number of observations).
-    /// @dev Thus, the minimum total time window is `cardinality` * `period` * `blocktime`.
-    /// @param univ3pool The Uniswap pool to get the median observation from
-    /// @param cardinality The number of `periods` to in the median price array, should be odd.
-    /// @param period The number of observations to average to compute one entry in the median price array
-    /// @return medianTick The median of `cardinality` observations spaced by `period` in the Uniswap pool
-    function computeMedianObservedPrice(
-        IUniswapV3Pool univ3pool,
-        uint256 cardinality,
-        uint256 period
-    ) external view returns (int24 medianTick) {
-        (, , uint16 observationIndex, uint16 observationCardinality, , , ) = univ3pool.slot0();
+    // TODO: Commenting these out for now as i believe we are bumping up against size limit
+    // /// @notice Returns the median of the last `cardinality` average prices over `period` observations from `univ3pool`.
+    // /// @dev Used when we need a manipulation-resistant TWAP price.
+    // /// @dev Uniswap observations snapshot the closing price of the last block before the first interaction of a given block.
+    // /// @dev The maximum frequency of observations is 1 per block, but there is no guarantee that the pool will be observed at every block.
+    // /// @dev Each period has a minimum length of blocktime * period, but may be longer if the Uniswap pool is relatively inactive.
+    // /// @dev The final price used in the array (of length `cardinality`) is the average of all observations comprising `period` (which is itself a number of observations).
+    // /// @dev Thus, the minimum total time window is `cardinality` * `period` * `blocktime`.
+    // /// @param univ3pool The Uniswap pool to get the median observation from
+    // /// @param cardinality The number of `periods` to in the median price array, should be odd.
+    // /// @param period The number of observations to average to compute one entry in the median price array
+    // /// @return medianTick The median of `cardinality` observations spaced by `period` in the Uniswap pool
+    // function computeMedianObservedPrice(
+    //     IUniswapV3Pool univ3pool,
+    //     uint256 cardinality,
+    //     uint256 period
+    // ) external view returns (int24 medianTick) {
+    //     (, , uint16 observationIndex, uint16 observationCardinality, , , ) = univ3pool.slot0();
 
-        (medianTick, ) = PanopticMath.computeMedianObservedPrice(
-            univ3pool,
-            observationIndex,
-            observationCardinality,
-            cardinality,
-            period
-        );
-    }
+    //     (medianTick, ) = PanopticMath.computeMedianObservedPrice(
+    //         univ3pool,
+    //         observationIndex,
+    //         observationCardinality,
+    //         cardinality,
+    //         period
+    //     );
+    // }
 
-    /// @notice Takes a packed structure representing a sorted 8-slot queue of ticks and returns the median of those values.
-    /// @dev Also inserts the latest Uniswap observation into the buffer, resorts, and returns if the last entry is at least `period` seconds old.
-    /// @param period The minimum time in seconds that must have passed since the last observation was inserted into the buffer
-    /// @param medianData The packed structure representing the sorted 8-slot queue of ticks
-    /// @param univ3pool The Uniswap pool to retrieve observations from
-    /// @return The median of the provided 8-slot queue of ticks in `medianData`
-    /// @return The updated 8-slot queue of ticks with the latest observation inserted if the last entry is at least `period` seconds old (returns 0 otherwise)
-    function computeInternalMedian(
-        uint256 period,
-        uint256 medianData,
-        IUniswapV3Pool univ3pool
-    ) external view returns (int24, uint256) {
-        (, , uint16 observationIndex, uint16 observationCardinality, , , ) = univ3pool.slot0();
+    // /// @notice Takes a packed structure representing a sorted 8-slot queue of ticks and returns the median of those values.
+    // /// @dev Also inserts the latest Uniswap observation into the buffer, resorts, and returns if the last entry is at least `period` seconds old.
+    // /// @param period The minimum time in seconds that must have passed since the last observation was inserted into the buffer
+    // /// @param medianData The packed structure representing the sorted 8-slot queue of ticks
+    // /// @param univ3pool The Uniswap pool to retrieve observations from
+    // /// @return The median of the provided 8-slot queue of ticks in `medianData`
+    // /// @return The updated 8-slot queue of ticks with the latest observation inserted if the last entry is at least `period` seconds old (returns 0 otherwise)
+    // function computeInternalMedian(
+    //     uint256 period,
+    //     uint256 medianData,
+    //     IUniswapV3Pool univ3pool
+    // ) external view returns (int24, uint256) {
+    //     (, , uint16 observationIndex, uint16 observationCardinality, , , ) = univ3pool.slot0();
 
-        return
-            PanopticMath.computeInternalMedian(
-                observationIndex,
-                observationCardinality,
-                period,
-                medianData,
-                univ3pool
-            );
-    }
+    //     return
+    //         PanopticMath.computeInternalMedian(
+    //             observationIndex,
+    //             observationCardinality,
+    //             period,
+    //             medianData,
+    //             univ3pool
+    //         );
+    // }
 
     /// @notice Computes the twap of a Uniswap V3 pool using data from its oracle.
     /// @dev Note that our definition of TWAP differs from a typical mean of prices over a time window.

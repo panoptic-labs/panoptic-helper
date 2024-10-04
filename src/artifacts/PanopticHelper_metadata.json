@@ -84,69 +84,6 @@
 			{
 				"inputs": [
 					{
-						"internalType": "uint256",
-						"name": "period",
-						"type": "uint256"
-					},
-					{
-						"internalType": "uint256",
-						"name": "medianData",
-						"type": "uint256"
-					},
-					{
-						"internalType": "contract IUniswapV3Pool",
-						"name": "univ3pool",
-						"type": "address"
-					}
-				],
-				"name": "computeInternalMedian",
-				"outputs": [
-					{
-						"internalType": "int24",
-						"name": "",
-						"type": "int24"
-					},
-					{
-						"internalType": "uint256",
-						"name": "",
-						"type": "uint256"
-					}
-				],
-				"stateMutability": "view",
-				"type": "function"
-			},
-			{
-				"inputs": [
-					{
-						"internalType": "contract IUniswapV3Pool",
-						"name": "univ3pool",
-						"type": "address"
-					},
-					{
-						"internalType": "uint256",
-						"name": "cardinality",
-						"type": "uint256"
-					},
-					{
-						"internalType": "uint256",
-						"name": "period",
-						"type": "uint256"
-					}
-				],
-				"name": "computeMedianObservedPrice",
-				"outputs": [
-					{
-						"internalType": "int24",
-						"name": "medianTick",
-						"type": "int24"
-					}
-				],
-				"stateMutability": "view",
-				"type": "function"
-			},
-			{
-				"inputs": [
-					{
 						"internalType": "address",
 						"name": "univ3pool",
 						"type": "address"
@@ -1155,6 +1092,35 @@
 						"type": "address"
 					},
 					{
+						"internalType": "address",
+						"name": "account",
+						"type": "address"
+					},
+					{
+						"internalType": "TokenId[]",
+						"name": "positionIdList",
+						"type": "uint256[]"
+					}
+				],
+				"name": "getChunkData",
+				"outputs": [
+					{
+						"internalType": "uint256[][][]",
+						"name": "",
+						"type": "uint256[][][]"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "contract PanopticPool",
+						"name": "pool",
+						"type": "address"
+					},
+					{
 						"internalType": "TokenId",
 						"name": "tokenId",
 						"type": "uint256"
@@ -1239,6 +1205,24 @@
 						"internalType": "uint64",
 						"name": "",
 						"type": "uint64"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [],
+				"name": "reducedSize",
+				"outputs": [
+					{
+						"internalType": "TokenId",
+						"name": "newTokenId",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint128",
+						"name": "newPositionSize",
+						"type": "uint128"
 					}
 				],
 				"stateMutability": "view",
@@ -1372,29 +1356,6 @@
 					"returns": {
 						"_0": "collateralBalance the total combined balance of token0 and token1 for a user in terms of tokenType",
 						"_1": "requiredCollateral The combined collateral requirement for a user in terms of tokenType"
-					}
-				},
-				"computeInternalMedian(uint256,uint256,address)": {
-					"details": "Also inserts the latest Uniswap observation into the buffer, resorts, and returns if the last entry is at least `period` seconds old.",
-					"params": {
-						"medianData": "The packed structure representing the sorted 8-slot queue of ticks",
-						"period": "The minimum time in seconds that must have passed since the last observation was inserted into the buffer",
-						"univ3pool": "The Uniswap pool to retrieve observations from"
-					},
-					"returns": {
-						"_0": "The median of the provided 8-slot queue of ticks in `medianData`",
-						"_1": "The updated 8-slot queue of ticks with the latest observation inserted if the last entry is at least `period` seconds old (returns 0 otherwise)"
-					}
-				},
-				"computeMedianObservedPrice(address,uint256,uint256)": {
-					"details": "Used when we need a manipulation-resistant TWAP price.Uniswap observations snapshot the closing price of the last block before the first interaction of a given block.The maximum frequency of observations is 1 per block, but there is no guarantee that the pool will be observed at every block.Each period has a minimum length of blocktime * period, but may be longer if the Uniswap pool is relatively inactive.The final price used in the array (of length `cardinality`) is the average of all observations comprising `period` (which is itself a number of observations).Thus, the minimum total time window is `cardinality` * `period` * `blocktime`.",
-					"params": {
-						"cardinality": "The number of `periods` to in the median price array, should be odd.",
-						"period": "The number of observations to average to compute one entry in the median price array",
-						"univ3pool": "The Uniswap pool to get the median observation from"
-					},
-					"returns": {
-						"medianTick": "The median of `cardinality` observations spaced by `period` in the Uniswap pool"
 					}
 				},
 				"constructor": {
@@ -1718,6 +1679,16 @@
 						"liquidationTick": "the upward liquidation price of `account` on `pool`, if any"
 					}
 				},
+				"getChunkData(address,address,uint256[])": {
+					"params": {
+						"account": "The address of the account to retrieve liquidity data for",
+						"pool": "The PanopticPool instance corresponding to the pool specified in `TokenId`",
+						"positionIdList": "List of TokenIds to evaluate"
+					},
+					"returns": {
+						"_0": "chunkData A memory array of [positionIdList.length][4][2] containing netLiquidity and removedLiquidity for each leg"
+					}
+				},
 				"getRequiredBase(address,uint256,int24)": {
 					"params": {
 						"atTick": "The price at which the collateral requirement is evaluated",
@@ -1747,6 +1718,12 @@
 						"_0": "balance Number of contracts of `tokenId` owned by the user",
 						"_1": "poolUtilization0 The utilization of token0 in the Panoptic pool at mint",
 						"_2": "poolUtilization1 The utilization of token1 in the Panoptic pool at mint"
+					}
+				},
+				"reducedSize()": {
+					"returns": {
+						"newPositionSize": "The updated size of the new position",
+						"newTokenId": "The new TokenId with adjusted position size"
 					}
 				},
 				"twapFilter(address,uint32)": {
@@ -1798,12 +1775,6 @@
 			"methods": {
 				"checkCollateral(address,address,int24,uint256,uint256[])": {
 					"notice": "Compute the total amount of collateral needed to cover the existing list of active positions in positionIdList."
-				},
-				"computeInternalMedian(uint256,uint256,address)": {
-					"notice": "Takes a packed structure representing a sorted 8-slot queue of ticks and returns the median of those values."
-				},
-				"computeMedianObservedPrice(address,uint256,uint256)": {
-					"notice": "Returns the median of the last `cardinality` average prices over `period` observations from `univ3pool`."
 				},
 				"constructor": {
 					"notice": "Construct the PanopticHelper contract"
@@ -1874,6 +1845,9 @@
 				"findLiquidationPriceUp(address,address,uint256[])": {
 					"notice": "Returns an estimate of the upside liquidation price for a given account on a given pool."
 				},
+				"getChunkData(address,address,uint256[])": {
+					"notice": "Fetch data about chunks in a positionIdList."
+				},
 				"getRequiredBase(address,uint256,int24)": {
 					"notice": "An external function that returns the collateral needed for a single tokenId at the provided tick."
 				},
@@ -1882,6 +1856,9 @@
 				},
 				"optionPositionInfo(address,address,uint256)": {
 					"notice": "Returns the total number of contracts owned by `account` and the pool utilization at mint for a specified `tokenId."
+				},
+				"reducedSize()": {
+					"notice": "Determine new TokenId with adjusted position size.account The address of the account to evaluatetokenId The TokenId to reduce the size of"
 				},
 				"twapFilter(address,uint32)": {
 					"notice": "Computes the twap of a Uniswap V3 pool using data from its oracle."
@@ -2246,11 +2223,11 @@
 			]
 		},
 		"src/PanopticHelper.sol": {
-			"keccak256": "0x27c9dda24a2d6d2f38e209057dcf95f5cba32e4cb4979b7d22f867b3cf397874",
+			"keccak256": "0xbf04dc22c96dcfe24eebad9c2aab5371941745fad695c18810ce94afab1e7f99",
 			"license": "BUSL-1.1",
 			"urls": [
-				"bzz-raw://e975af0d105cd1611e4e8a41728ecd3ca2505c0ed892c97c17d0cab8c02956cf",
-				"dweb:/ipfs/Qmc5CcxufoiMppQntxcQcLFSL5QjzuNLrmXudwSmVa7tX8"
+				"bzz-raw://cc21a6829c6833ffbc3ca75bfe6b705294f717f68d513553d094364a5a558d4a",
+				"dweb:/ipfs/QmQsgFtvZ9csnmtgUTvJMbedPmVa86SQd872nvWDDdi6gH"
 			]
 		}
 	},
