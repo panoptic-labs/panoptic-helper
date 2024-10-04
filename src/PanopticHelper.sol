@@ -420,12 +420,22 @@ contract PanopticHelper {
             pool,
             account,
             tick,
-            0,
             positionIdList
         );
 
-        buyingPowerRequirement0 = int256(requiredCross);
-        buyingPowerRequirement1 = PanopticMath.convert0to1(buyingPowerRequirement0, sqrtPriceX96);
+        if (tick < 0) {
+            buyingPowerRequirement0 = int256(requiredCross);
+            buyingPowerRequirement1 = PanopticMath.convert0to1(
+                buyingPowerRequirement0,
+                sqrtPriceX96
+            );
+        } else {
+            buyingPowerRequirement1 = int256(requiredCross);
+            buyingPowerRequirement0 = PanopticMath.convert1to0(
+                buyingPowerRequirement1,
+                sqrtPriceX96
+            );
+        }
     }
 
     /// @notice Compute the covered requirement of positions in an account on a PanopticPool.
@@ -508,12 +518,16 @@ contract PanopticHelper {
             pool,
             account,
             tick,
-            0,
             positionIdList
         );
 
-        buyingPower0 = int256(balanceCross) - int256(requiredCross);
-        buyingPower1 = PanopticMath.convert0to1(buyingPower0, sqrtPriceX96);
+        if (tick < 0) {
+            buyingPower0 = int256(balanceCross) - int256(requiredCross);
+            buyingPower1 = PanopticMath.convert0to1(buyingPower0, sqrtPriceX96);
+        } else {
+            buyingPower1 = int256(balanceCross) - int256(requiredCross);
+            buyingPower0 = PanopticMath.convert1to0(buyingPower1, sqrtPriceX96);
+        }
     }
 
     /// @notice Compute the buying power utilisation of positions in an account on a PanopticPool.
@@ -531,7 +545,6 @@ contract PanopticHelper {
             pool,
             account,
             tick,
-            0,
             positionIdList
         );
 
