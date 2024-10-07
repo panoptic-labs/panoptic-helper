@@ -9,10 +9,8 @@ import {PanopticMath} from "@libraries/PanopticMath.sol";
 import {TokenId, TokenIdLibrary} from "@types/TokenId.sol";
 
 
-/// @title Library to interact with TokenIds
-/// Is deployable in its own right, unlike the TokenIdLibrary above which is internal and gets
-/// compiled into contracts that use it
-library TokenIdHelper {
+/// @title Deployable contract to interact with TokenIds, that comes with extra utils for ease of use
+contract TokenIdHelper {
     /*//////////////////////////////////////////////////////////////
                     Expose the constants:
     //////////////////////////////////////////////////////////////*/
