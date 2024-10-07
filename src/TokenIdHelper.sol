@@ -8,7 +8,6 @@ import {PanopticMath} from "@libraries/PanopticMath.sol";
 // Types
 import {TokenId, TokenIdLibrary} from "@types/TokenId.sol";
 
-
 /// @title Deployable contract to interact with TokenIds, that comes with extra utils for ease of use
 contract TokenIdHelper {
     /*//////////////////////////////////////////////////////////////
