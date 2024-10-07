@@ -356,17 +356,22 @@ contract TokenIdHelper {
     /// @param newOptionRatio The number of contracts multiplier to add to the OptionRatio slot in `tokenId` for `legIndex`
     /// @param legIndex The leg index of the position (in {0,1,2,3})
     /// @return overwrittenTokenId `tokenId` with `newOptionRatio` written to the OptionRatio slot for `legIndex`
-    function overwriteOptionRatio(TokenId tokenId, uint256 newOptionRatio, uint256 legIndex) external pure returns (TokenId overwrittenTokenId) {
+    function overwriteOptionRatio(
+        TokenId tokenId,
+        uint256 newOptionRatio,
+        uint256 legIndex
+    ) external pure returns (TokenId overwrittenTokenId) {
         overwrittenTokenId = tokenId.clearLeg(legIndex);
-        return overwrittenTokenId.addLeg(
-            legIndex,
-            newOptionRatio,
-            tokenId.asset(legIndex),
-            tokenId.isLong(legIndex),
-            tokenId.tokenType(legIndex),
-            tokenId.riskPartner(legIndex),
-            tokenId.strike(legIndex),
-            tokenId.width(legIndex)
-        );
+        return
+            overwrittenTokenId.addLeg(
+                legIndex,
+                newOptionRatio,
+                tokenId.asset(legIndex),
+                tokenId.isLong(legIndex),
+                tokenId.tokenType(legIndex),
+                tokenId.riskPartner(legIndex),
+                tokenId.strike(legIndex),
+                tokenId.width(legIndex)
+            );
     }
 }
