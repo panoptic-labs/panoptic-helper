@@ -72,7 +72,7 @@ contract PanopticHelper {
         );
     }
 
-    
+
     /// @notice Fetch data about chunks in a positionIdList.
     /// @param pool The PanopticPool instance corresponding to the pool specified in `TokenId`
     /// @param account The address of the account to retrieve liquidity data for
@@ -315,8 +315,29 @@ contract PanopticHelper {
                 legs[i].tokenType,
                 legs[i].strike - (legs[i].width / 2),
                 legs[i].strike + (legs[i].width / 2)
-            ); 
+            );
             uint256 netLiquidity = liquidityData.rightSlot();
+
+            // check if current buying power usage is below 90%
+            /*
+            const userCollateral = panopticHelper.checkCollateral({
+              panopticPoolAddress: getAddress(ppa.panopticPool.id),
+              userAccount: getAddress(ppa.account.id),
+              positionIdList: positionIdList,
+            })
+            userTotalRequiredCollateralIn1 = userCollateral.userCollateralBalanceToken1
+            userTotalRequiredCollateralIn0 = userCollateral.userCollateralBalanceToken0
+            const userTotalRequiredCollateralQuoteToken = isAssetToken0
+              ? userTotalRequiredCollateralIn1
+              : userTotalRequiredCollateralIn0
+            const availableBuyingPowerQuoteToken =
+              userCollateralBalanceInQuoteToken - userTotalRequiredCollateralQuoteToken
+            const buyingPowerUsage = new Decimal(100).minus(
+                new Decimal(availableBuyingPowerQuoteToken.toString())
+                  .times(100)
+                  .div(new Decimal(userCollateralBalanceInQuoteToken.toString())),
+              )
+            */
 
             // Check if the current leg has enough liquidity to burn
             if (oldPositionSize * legs[i].optionRatio > netLiquidity) {
@@ -328,7 +349,7 @@ contract PanopticHelper {
             }
         }
 
-        // newTokenId = TokenId.wrap(0); 
+        // newTokenId = TokenId.wrap(0);
         // for (uint256 i = 0; i < legs.length; i++) {
         //     // TODO this comes from somewhere
         //     uint256 newOptionRatio = (legs[i].optionRatio * newPositionSize) / legs[i].asset;
@@ -346,7 +367,16 @@ contract PanopticHelper {
         //     );
         // }
     }
- 
+
+    function sizeThePosition(
+      PanopticPool pool,
+      address account,
+      TokenId[] positionIdList,
+      uint256 percentBPR
+    ) external view returns([uint128 positionSizes]) {
+
+    }
+
 
     /// @notice An external function that returns the collateral needed for a single tokenId at the provided tick.
     /// @param pool The PanopticPool instance to optimize the tokenId for
