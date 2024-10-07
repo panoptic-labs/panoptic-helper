@@ -265,7 +265,7 @@ contract TokenIdHelper {
     }
 
     /*//////////////////////////////////////////////////////////////
-                                HELPERS
+                Expose original helpers from the library:
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Flip all the `isLong` positions in the legs in the `tokenId` option position.
@@ -346,7 +346,7 @@ contract TokenIdHelper {
     }
 
     /*//////////////////////////////////////////////////////////////
-                      Utils for editing tokenIds:
+                    New utils for editing tokenIds:
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Overwrite the option ratio of a specific leg in a TokenId
