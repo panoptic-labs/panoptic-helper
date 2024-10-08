@@ -1341,6 +1341,10 @@ contract UniswapHelper {
         }
     }
 
+    /// @notice Retrieves all Uniswap V3 NFT positions for a given account.
+    /// @dev Retrieves the complete Position struct and tokenURI for each NFT so that position details can be displayed alongside SVGs.
+    /// @param account The address of the account to fetch positions for
+    /// @return positionsWithTokenURI An array of PositionWithTokenURI structs containing details of each position, including its tokenURI
     function getNfpmPositionsForAccount(
         address account
     ) public view returns (PositionWithTokenURI[] memory positionsWithTokenURI) {
