@@ -1341,11 +1341,9 @@ contract UniswapHelper {
         }
     }
 
-        function getNfpmPositionsForAccount(address account)
-        public
-        view
-        returns (PositionWithTokenURI[] memory positionsWithTokenURI)
-    {
+    function getNfpmPositionsForAccount(
+        address account
+    ) public view returns (PositionWithTokenURI[] memory positionsWithTokenURI) {
         uint256 balance = NFPM.balanceOf(account);
         positionsWithTokenURI = new PositionWithTokenURI[](balance);
 
@@ -1366,6 +1364,7 @@ contract UniswapHelper {
                     uint256 feeGrowthInside0LastX128,
                     uint256 feeGrowthInside1LastX128,
                     ,
+
                 ) = NFPM.positions(tokenId);
 
                 positionsWithTokenURI[i] = PositionWithTokenURI({
@@ -1387,20 +1386,9 @@ contract UniswapHelper {
 
             // Assign remaining fields
             {
-                (
-                    ,
-                    ,
-                    ,
-                    ,
-                    ,
-                    ,
-                    ,
-                    ,
-                    ,
-                    ,
-                    uint128 tokensOwed0,
-                    uint128 tokensOwed1
-                ) = NFPM.positions(tokenId);
+                (, , , , , , , , , , uint128 tokensOwed0, uint128 tokensOwed1) = NFPM.positions(
+                    tokenId
+                );
                 positionsWithTokenURI[i].tokensOwed0 = tokensOwed0;
                 positionsWithTokenURI[i].tokensOwed1 = tokensOwed1;
                 positionsWithTokenURI[i].tokenURI = NFPM.tokenURI(tokenId);
