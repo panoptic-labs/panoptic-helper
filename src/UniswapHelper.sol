@@ -15,6 +15,7 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 /// @title Utility contract for token ID construction and advanced queries.
 /// @author Axicon Labs Limited
 contract UniswapHelper {
+    /// @dev Same as the NonfungiblePositionManager.Position struct with an additional property for the position's tokenURI
     struct PositionWithTokenURI {
         uint96 nonce;
         address operator;
