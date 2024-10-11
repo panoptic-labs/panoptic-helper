@@ -353,7 +353,7 @@ contract TokenIdHelper {
                 TokenId.unwrap(tokenId) ^ (
                     // Get a uint with bits set to 1 for the bits of the `legIndex`th leg that would occupy the optionRatio
                     0x000000000000_000000000000_000000000000_0000000000FE_0000000000000000 <<
-                    (48 * legIndex);
+                    (48 * legIndex)
                 )
             );
         }
