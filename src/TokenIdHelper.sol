@@ -350,27 +350,25 @@ contract TokenIdHelper {
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Overwrite the option ratio of a specific leg in a TokenId
-    /// TODO: document any reverts due to bad newOptionRatios here
     /// @param tokenId The TokenId on which the caller wishes to overwrite an optionRatio
     /// @param newOptionRatio The number of contracts multiplier to add to the OptionRatio slot in `tokenId` for `legIndex`
-    /// @param legIndex The leg index of the position (in {0,1,2,3})
+    /// @param legIndex The index of the position's leg for which we wish to alter optionRatio (in {0,1,2,3})
     /// @return overwrittenTokenId `tokenId` with `newOptionRatio` written to the OptionRatio slot for `legIndex`
     function overwriteOptionRatio(
         TokenId tokenId,
         uint256 newOptionRatio,
         uint256 legIndex
     ) external pure returns (TokenId overwrittenTokenId) {
-        overwrittenTokenId = tokenId.clearLeg(legIndex);
-        return
-            overwrittenTokenId.addLeg(
-                legIndex,
-                newOptionRatio,
-                tokenId.asset(legIndex),
-                tokenId.isLong(legIndex),
-                tokenId.tokenType(legIndex),
-                tokenId.riskPartner(legIndex),
-                tokenId.strike(legIndex),
-                tokenId.width(legIndex)
-            );
+        overwrittenTokenId = tokenId ^ _optionRatioMaskForLeg(legIndex);
+        return overwrittenTokenId.addOptionRatio(overwrittenTokenId, newOptionRatio, legIndex);
+    }
+
+    /// @notice Helper for returning an OPTION_RATIO_MASK tailoured to the legIndex.
+    /// @param legIndex The index of the leg to make a mask for (in {0,1,2,3})
+    /// @return uint256 with 1s for all bits that would occupy the optionRatio of a leg within a tokenId at legIndex
+    function _optionRatioMaskForLeg(uint256 legIndex) internal pure returns(uint256) {
+        unchecked {
+          return 0x000000000000_000000000000_000000000000_0000000000FE_0000000000000000 << (48 * legIndex);
+        }
     }
 }
