@@ -366,9 +366,11 @@ contract TokenIdHelper {
     /// @notice Helper for returning an OPTION_RATIO_MASK tailoured to the legIndex.
     /// @param legIndex The index of the leg to make a mask for (in {0,1,2,3})
     /// @return uint256 with 1s for all bits that would occupy the optionRatio of a leg within a tokenId at legIndex
-    function _optionRatioMaskForLeg(uint256 legIndex) internal pure returns(uint256) {
+    function _optionRatioMaskForLeg(uint256 legIndex) internal pure returns (uint256) {
         unchecked {
-          return 0x000000000000_000000000000_000000000000_0000000000FE_0000000000000000 << (48 * legIndex);
+            return
+                0x000000000000_000000000000_000000000000_0000000000FE_0000000000000000 <<
+                (48 * legIndex);
         }
     }
 }
