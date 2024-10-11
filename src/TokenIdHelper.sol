@@ -297,21 +297,21 @@ contract TokenIdHelper {
         return tokenId.countLegs();
     }
 
-    /// @notice Clear a leg in an option position with index `i`.
+    /// @notice Clear a leg in an option position with index `legIndex`.
     /// @dev set bits of the leg to zero. Also sets the optionRatio and asset to zero of that leg.
     /// @dev NOTE: it's important that the caller fills in the leg details after.
     //  - optionRatio is zeroed
     //  - asset is zeroed
     //  - width is zeroed
-    // - strike is zeroed
+    //  - strike is zeroed
     //  - tokenType is zeroed
     //  - isLong is zeroed
     //  - riskPartner is zeroed
     /// @param tokenId The TokenId to clear the leg from
-    /// @param i The leg index to reset, in {0,1,2,3}
+    /// @param legIndex The leg index to reset, in {0,1,2,3}
     /// @return `tokenId` with the `i`th leg zeroed including optionRatio and asset
-    function clearLeg(TokenId tokenId, uint256 i) external pure returns (TokenId) {
-        return tokenId.clearLeg(i);
+    function clearLeg(TokenId tokenId, uint256 legIndex) external pure returns (TokenId) {
+        return tokenId.clearLeg(legIndex);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -348,20 +348,16 @@ contract TokenIdHelper {
         uint256 newOptionRatio,
         uint256 legIndex
     ) external pure returns (TokenId overwrittenTokenId) {
-        overwrittenTokenId = TokenId.wrap(
-            TokenId.unwrap(tokenId) ^ _optionRatioMaskForLeg(legIndex)
-        );
-        return overwrittenTokenId.addOptionRatio(newOptionRatio, legIndex);
-    }
-
-    /// @notice Helper for returning an OPTION_RATIO_MASK tailoured to the legIndex.
-    /// @param legIndex The index of the leg to make a mask for (in {0,1,2,3})
-    /// @return uint256 with 1s for all bits that would occupy the optionRatio of a leg within a tokenId at legIndex
-    function _optionRatioMaskForLeg(uint256 legIndex) internal pure returns (uint256) {
         unchecked {
-            return
-                0x000000000000_000000000000_000000000000_0000000000FE_0000000000000000 <<
-                (48 * legIndex);
+            overwrittenTokenId = TokenId.wrap(
+                TokenId.unwrap(tokenId) ^ (
+                    // Get a uint with bits set to 1 for the bits of the `legIndex`th leg that would occupy the optionRatio
+                    0x000000000000_000000000000_000000000000_0000000000FE_0000000000000000 <<
+                    (48 * legIndex);
+                )
+            );
         }
+
+        return overwrittenTokenId.addOptionRatio(newOptionRatio, legIndex);
     }
 }
