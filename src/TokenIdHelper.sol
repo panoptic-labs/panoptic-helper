@@ -348,8 +348,8 @@ contract TokenIdHelper {
         uint256 newOptionRatio,
         uint256 legIndex
     ) external pure returns (TokenId overwrittenTokenId) {
-        overwrittenTokenId = tokenId ^ _optionRatioMaskForLeg(legIndex);
-        return overwrittenTokenId.addOptionRatio(overwrittenTokenId, newOptionRatio, legIndex);
+        overwrittenTokenId = uint256(tokenId) ^ _optionRatioMaskForLeg(legIndex);
+        return overwrittenTokenId.addOptionRatio(newOptionRatio, legIndex);
     }
 
     /// @notice Helper for returning an OPTION_RATIO_MASK tailoured to the legIndex.
