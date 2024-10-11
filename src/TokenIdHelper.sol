@@ -11,38 +11,27 @@ import {TokenId, TokenIdLibrary} from "@types/TokenId.sol";
 /// @title Deployable contract to interact with TokenIds, that comes with extra utils for ease of use
 contract TokenIdHelper {
     /*//////////////////////////////////////////////////////////////
-                    Expose the constants:
+                        Expose the constants:
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Getter method for LONG_MASK constant.
-    /// @return The value of LONG_MASK.
-    function LONG_MASK() external pure returns (uint256) {
-        return 0x100_000000000100_000000000100_000000000100_0000000000000000;
-    }
+    /// @notice AND mask to extract all `isLong` bits for each leg from a TokenId.
+    uint256 public constant LONG_MASK =
+        0x100_000000000100_000000000100_000000000100_0000000000000000;
 
-    /// @notice Getter method for CLEAR_POOLID_MASK constant.
-    /// @return The value of CLEAR_POOLID_MASK.
-    function CLEAR_POOLID_MASK() external pure returns (uint256) {
-        return 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF_0000000000000000;
-    }
+    /// @notice AND mask to clear `poolId` from a TokenId.
+    uint256 public constant CLEAR_POOLID_MASK =
+        0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF_0000000000000000;
 
-    /// @notice Getter method for OPTION_RATIO_MASK constant.
-    /// @return The value of OPTION_RATIO_MASK.
-    function OPTION_RATIO_MASK() external pure returns (uint256) {
-        return 0x0000000000FE_0000000000FE_0000000000FE_0000000000FE_0000000000000000;
-    }
+    /// @notice AND mask to clear all bits except for the option ratios of the legs.
+    uint256 public constant OPTION_RATIO_MASK =
+        0x0000000000FE_0000000000FE_0000000000FE_0000000000FE_0000000000000000;
 
-    /// @notice Getter method for CHUNK_MASK constant.
-    /// @return The value of CHUNK_MASK.
-    function CHUNK_MASK() external pure returns (uint256) {
-        return 0xFFFFFFFFF200_FFFFFFFFF200_FFFFFFFFF200_FFFFFFFFF200_0000000000000000;
-    }
+    /// @notice AND mask to clear all bits except for the components of the chunk key (strike, width, tokenType) for each leg.
+    uint256 public constant CHUNK_MASK =
+        0xFFFFFFFFF200_FFFFFFFFF200_FFFFFFFFF200_FFFFFFFFF200_0000000000000000;
 
-    /// @notice Getter method for BITMASK_INT24 constant.
-    /// @return The value of BITMASK_INT24.
-    function BITMASK_INT24() external pure returns (int256) {
-        return 0xFFFFFF;
-    }
+    /// @notice AND mask to cut a sign-extended int256 back to an int24.
+    int256 public constant BITMASK_INT24 = 0xFFFFFF;
 
     /*//////////////////////////////////////////////////////////////
                       Expose the decoding methods:
@@ -121,7 +110,7 @@ contract TokenIdHelper {
     }
 
     /*//////////////////////////////////////////////////////////////
-                    Expose the encoding methods:
+                     Expose the encoding methods:
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Add the Uniswap V3 Pool pointed to by this option position (contains the entropy and tickSpacing).
