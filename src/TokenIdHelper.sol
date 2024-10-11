@@ -348,7 +348,9 @@ contract TokenIdHelper {
         uint256 newOptionRatio,
         uint256 legIndex
     ) external pure returns (TokenId overwrittenTokenId) {
-        overwrittenTokenId = uint256(tokenId) ^ _optionRatioMaskForLeg(legIndex);
+        overwrittenTokenId = TokenId.wrap(
+            TokenId.unwrap(tokenId) ^ _optionRatioMaskForLeg(legIndex)
+        );
         return overwrittenTokenId.addOptionRatio(newOptionRatio, legIndex);
     }
 
