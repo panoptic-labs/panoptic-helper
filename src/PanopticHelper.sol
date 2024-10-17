@@ -796,9 +796,6 @@ contract PanopticHelper {
             }
         }
 
-        //return (coveredSize, nakedSize);
-
-        /*
         uint256 availableCross;
         {
             (uint256 balanceCross, uint256 requiredCross) = checkCollateral(
@@ -807,43 +804,44 @@ contract PanopticHelper {
                 currentTick,
                 positionIdList
             );
-            console2.log('balanceCross, requiredCross', balanceCross, requiredCross);
+            console2.log("balanceCross, requiredCross", balanceCross, requiredCross);
 
             availableCross = balanceCross - (4 * requiredCross) / 3;
 
-            console2.log('availableCross', availableCross);
+            console2.log("availableCross", availableCross);
         }
         int256 deltaBX64;
         int256 deltaRX64;
         {
-            (uint128 required0, uint128 required1) = positionBuyingPowerRequirement(pool, account, newTokenId, type(uint64).max);
+            (uint128 required0, uint128 required1) = positionBuyingPowerRequirement(
+                pool,
+                account,
+                newTokenId,
+                type(uint64).max
+            );
 
-            console2.log('required0, required1', required0, required1);
+            (int256 net0, int256 net1) = inTheMoneyAmounts(newTokenId, 2 ** 64, currentTick);
+
+            net0 = net0 < 0 ? -int256(net0) : int256(0);
+            net0 = net1 < 0 ? -int256(net1) : int256(0);
+
+            console2.log("required0, required1", required0, required1);
             if (currentTick < 0) {
                 deltaRX64 = int256(required0 + PanopticMath.convert1to0(required1, sqrtPriceX96));
+                deltaBX64 = net0 + PanopticMath.convert1to0(net1, sqrtPriceX96);
             } else {
                 deltaRX64 = int256(required1 + PanopticMath.convert0to1(required0, sqrtPriceX96));
+                deltaBX64 = net1 + PanopticMath.convert0to1(net0, sqrtPriceX96);
             }
         }
 
-        {
-            (int256 covered0, int256 covered1) = getCoveredAmounts(newTokenId, type(uint64).max);
+        console2.log("deltaRX64", deltaRX64);
+        console2.log("deltaBX64", deltaBX64);
 
-            if (currentTick < 0) {
-                deltaBX64 = covered0 + PanopticMath.convert1to0(covered1, sqrtPriceX96);
-            } else {
-                deltaBX64 = covered1 + PanopticMath.convert0to1(covered0, sqrtPriceX96);
-            }
-        }
-        console2.log('deltaBX64', deltaBX64);
-        console2.log('deltaRX64', deltaRX64);
+        int256 delta = int256(availableCross * 2 ** 64) / ((4 * deltaRX64) / 3 - deltaBX64);
 
-        int256 delta = int256(availableCross * 2**64) / ((4*deltaRX64)/3 -deltaBX64); 
-
-        console2.log('delta', delta);
-        return (coveredSize, uint128(uint256(delta)));
-
-        */
+        console2.log("delta", delta);
+        nakedSize = uint128(998 * uint256(delta)) / 1000;
     }
 
     /// @notice Checks whether a prospective position to mint is valid.
