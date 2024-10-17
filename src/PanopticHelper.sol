@@ -458,45 +458,56 @@ contract PanopticHelper {
         for (uint256 i; i < positionIdList.length; ) {
             TokenId tokenId = positionIdList[i];
             uint128 positionSize = LeftRightUnsigned.wrap(positionBalanceArray[i][1]).rightSlot();
-            for (uint256 legIndex; legIndex < tokenId.countLegs(); ) {
-                uint256 amount0;
-                uint256 amount1;
 
-                (int24 tickLower, int24 tickUpper) = tokenId.asTicks(legIndex);
+            (int256 _covered0, int256 _covered1) = getCoveredAmounts(tokenId, positionSize);
 
-                // effective strike price of the option (avg. price over LP range)
-                // geometric mean of two numbers = √(x1 * x2) = √x1 * √x2
-                uint256 geometricMeanPriceX96 = Math.mulDiv(
-                    Math.getSqrtRatioAtTick(tickLower),
-                    Math.getSqrtRatioAtTick(tickUpper),
-                    Q96
-                );
-
-                if (tokenId.asset(legIndex) == 0) {
-                    amount0 = positionSize * uint128(tokenId.optionRatio(legIndex));
-                    amount1 = Math.mulDiv(amount0, geometricMeanPriceX96, Q96);
-                } else {
-                    amount1 = positionSize * uint128(tokenId.optionRatio(legIndex));
-                    amount0 = Math.mulDiv(amount1, Q96, geometricMeanPriceX96);
-                }
-
-                if (tokenId.tokenType(legIndex) == tokenId.isLong(legIndex)) {
-                    // if option is a short call or a long put, add amountsMoved0 to right slot and subtract amountsMoved1 from left slot
-                    coveredRequirement0 += int256(amount0);
-                    coveredRequirement1 -= int256(amount1);
-                } else {
-                    // if option is a short put or a long call, add amountsMoved1 to left slot and subtract amountsMoved0 from right slot
-                    coveredRequirement0 -= int256(amount0);
-                    coveredRequirement1 += int256(amount1);
-                }
-
-                unchecked {
-                    ++legIndex;
-                }
-            }
+            coveredRequirement0 += _covered0;
+            coveredRequirement1 += _covered1;
 
             unchecked {
                 ++i;
+            }
+        }
+    }
+
+    function getCoveredAmounts(
+        TokenId tokenId,
+        uint128 positionSize
+    ) internal pure returns (int256 covered0, int256 covered1) {
+        for (uint256 legIndex; legIndex < tokenId.countLegs(); ) {
+            uint256 amount0;
+            uint256 amount1;
+
+            (int24 tickLower, int24 tickUpper) = tokenId.asTicks(legIndex);
+
+            // effective strike price of the option (avg. price over LP range)
+            // geometric mean of two numbers = √(x1 * x2) = √x1 * √x2
+            uint256 geometricMeanPriceX96 = Math.mulDiv(
+                Math.getSqrtRatioAtTick(tickLower),
+                Math.getSqrtRatioAtTick(tickUpper),
+                Q96
+            );
+
+            if (tokenId.asset(legIndex) == 0) {
+                amount0 = positionSize * uint128(tokenId.optionRatio(legIndex));
+                amount1 = Math.mulDiv(amount0, geometricMeanPriceX96, Q96);
+            } else {
+                amount1 = positionSize * uint128(tokenId.optionRatio(legIndex));
+                amount0 = Math.mulDiv(amount1, Q96, geometricMeanPriceX96);
+            }
+
+            if (tokenId.tokenType(legIndex) == tokenId.isLong(legIndex)) {
+                // if option is a short call or a long put, add amountsMoved0 to right slot and subtract amountsMoved1 from left slot
+                covered0 += int256(amount0);
+                covered1 -= int256(amount1);
+            } else {
+                // if option is a short put or a long call, add amountsMoved1 to left slot and subtract amountsMoved0 from right slot
+                covered0 -= int256(amount0);
+                covered1 += int256(amount1);
+            }
+
+            unchecked {
+                ++legIndex;
             }
         }
     }
@@ -548,6 +559,7 @@ contract PanopticHelper {
             positionIdList
         );
 
+        console2.log("balanceCross, requiredCross", balanceCross, requiredCross);
         utilization = (requiredCross * 10000) / balanceCross;
     }
 
@@ -656,7 +668,105 @@ contract PanopticHelper {
         }
     }
 
+    function inTheMoneyAmounts(
+        TokenId tokenId,
+        uint128 positionSize,
+        int24 atTick
+    ) public pure returns (int256, int256) {
+        (int256 net0, int256 net1) = getTokenFlow(tokenId, positionSize, atTick);
+
+        (LeftRightSigned longAmounts, LeftRightSigned shortAmounts) = PanopticMath
+            .computeExercisedAmounts(tokenId, positionSize);
+        LeftRightSigned netMoved = longAmounts.add(shortAmounts);
+
+        return (net0 - int256((netMoved.rightSlot())), net1 - int256((netMoved.leftSlot())));
+    }
+
+    /// @notice Finds the maximum position size for a given positionIdList and a new tokenId
+    /// @dev returns the max position size if the position is 1) covered or 2) naked.
+    function sizePosition(
+        PanopticPool pool,
+        address account,
+        TokenId[] calldata positionIdList,
+        TokenId newTokenId
+    ) external view returns (uint128 coveredSize, uint128 nakedSize) {
+        // get the position sizing from cross-margining, redo covered calculation in addition to the naked position minting
+        (uint160 sqrtPriceX96, int24 currentTick, , , , , ) = pool.univ3pool().slot0();
+
+        // get the max size for long legs
+
+        // get the max size for covered mints that are ITM
+        {
+            uint256 balance0 = pool.collateralToken0().convertToAssets(
+                pool.collateralToken0().balanceOf(account)
+            );
+            uint256 balance1 = pool.collateralToken1().convertToAssets(
+                pool.collateralToken1().balanceOf(account)
+            );
+
+            (int256 net0, int256 net1) = inTheMoneyAmounts(newTokenId, 2 ** 64, currentTick);
+
+            console2.log("net0", net0);
+            console2.log("net1", net1);
+            if (net0 > 0) {
+                coveredSize = uint128((998 * balance0 * 2 ** 64) / uint256(net0 * 1000));
+            } else if (net1 > 0) {
+                coveredSize = uint128((998 * balance1 * 2 ** 64) / uint256(net1 * 1000));
+            }
+        }
+
+        //return (coveredSize, nakedSize);
+
+        /*
+        uint256 availableCross;
+        {
+            (uint256 balanceCross, uint256 requiredCross) = checkCollateral(
+                pool,
+                account,
+                currentTick,
+                positionIdList
+            );
+            console2.log('balanceCross, requiredCross', balanceCross, requiredCross);
+
+            availableCross = balanceCross - (4 * requiredCross) / 3;
+
+            console2.log('availableCross', availableCross);
+        }
+        int256 deltaBX64;
+        int256 deltaRX64;
+        {
+            (uint128 required0, uint128 required1) = positionBuyingPowerRequirement(pool, account, newTokenId, type(uint64).max);
+
+            console2.log('required0, required1', required0, required1);
+            if (currentTick < 0) {
+                deltaRX64 = int256(required0 + PanopticMath.convert1to0(required1, sqrtPriceX96));
+            } else {
+                deltaRX64 = int256(required1 + PanopticMath.convert0to1(required0, sqrtPriceX96));
+            }
+        }
+
+        {
+            (int256 covered0, int256 covered1) = getCoveredAmounts(newTokenId, type(uint64).max);
+
+            if (currentTick < 0) {
+                deltaBX64 = covered0 + PanopticMath.convert1to0(covered1, sqrtPriceX96);
+            } else {
+                deltaBX64 = covered1 + PanopticMath.convert0to1(covered0, sqrtPriceX96);
+            }
+        }
+        console2.log('deltaBX64', deltaBX64);
+        console2.log('deltaRX64', deltaRX64);
+
+        int256 delta = int256(availableCross * 2**64) / ((4*deltaRX64)/3 -deltaBX64); 
+
+        console2.log('delta', delta);
+        return (coveredSize, uint128(uint256(delta)));
+
+        */
+    }
+
     /// @notice Checks whether a prospective position to mint is valid.
+    /// @dev will return false if the position's liquidity and/or notional value is too small or too large.
     /// @param tokenId A TokenId describing the position to mint
     /// @param positionSize The size of the position
     /// @return True if position is validly mintable; false if not.
