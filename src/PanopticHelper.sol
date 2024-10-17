@@ -682,6 +682,42 @@ contract PanopticHelper {
         return (net0 - int256((netMoved.rightSlot())), net1 - int256((netMoved.leftSlot())));
     }
 
+    /// @notice Query the total amount of liquidity sold in the corresponding chunk for a position leg.
+    /// @dev totalLiquidity (total sold) = removedLiquidity + netLiquidity (in AMM).
+    /// @param tokenId The option position
+    /// @param leg The leg of the option position to get `totalLiquidity` for
+    /// @return totalLiquidity The total amount of liquidity sold in the corresponding chunk for a position leg
+    /// @return netLiquidity The amount of liquidity available in the corresponding chunk for a position leg
+    /// @return removedLiquidity The amount of liquidity removed through buying in the corresponding chunk for a position leg
+    function _getLiquidities(
+        PanopticPool pool,
+        TokenId tokenId,
+        uint256 leg
+    )
+        internal
+        view
+        returns (uint256 totalLiquidity, uint128 netLiquidity, uint128 removedLiquidity)
+    {
+        (int24 tickLower, int24 tickUpper) = tokenId.asTicks(leg);
+
+        address univ3pool = address(SFPM.getUniswapV3PoolFromId(tokenId.poolId()));
+
+        LeftRightUnsigned accountLiquidities = SFPM.getAccountLiquidity(
+            univ3pool,
+            address(pool),
+            tokenId.tokenType(leg),
+            tickLower,
+            tickUpper
+        );
+
+        netLiquidity = accountLiquidities.rightSlot();
+        removedLiquidity = accountLiquidities.leftSlot();
+
+        unchecked {
+            totalLiquidity = netLiquidity + removedLiquidity;
+        }
+    }
+
     /// @notice Finds the maximum position size for a given positionIdList and a new tokenId
     /// @dev returns the max position size if the position is 1) covered or 2) naked.
     function sizePosition(
@@ -689,11 +725,56 @@ contract PanopticHelper {
         address account,
         TokenId[] calldata positionIdList,
         TokenId newTokenId
-    ) external view returns (uint128 coveredSize, uint128 nakedSize) {
+    ) external view returns (uint256 maxAvailableSize, uint128 coveredSize, uint128 nakedSize) {
         // get the position sizing from cross-margining, redo covered calculation in addition to the naked position minting
         (uint160 sqrtPriceX96, int24 currentTick, , , , , ) = pool.univ3pool().slot0();
 
         // get the max size for long legs
+
+        if (newTokenId.countLongs() > 0) {
+            uint256 maxAvailableSize = type(uint256).max;
+            for (uint256 i; i < newTokenId.countLegs(); ++i) {
+                if (newTokenId.isLong(i) == 1) {
+                    (
+                        uint256 totalLiquidity,
+                        uint256 netLiquidity,
+                        uint256 removedLiquidity
+                    ) = _getLiquidities(pool, newTokenId, i);
+
+                    uint256 availableLiquidity = (netLiquidity * 89) / 100;
+
+                    (int24 tickLower, int24 tickUpper) = newTokenId.asTicks(i);
+                    if (newTokenId.tokenType(i) == 0) {
+                        uint160 lowPriceX96 = Math.getSqrtRatioAtTick(tickLower);
+                        uint160 highPriceX96 = Math.getSqrtRatioAtTick(tickUpper);
+                        uint256 _max;
+                        unchecked {
+                            _max =
+                                Math.mulDiv(
+                                    uint256(availableLiquidity) << 96,
+                                    highPriceX96 - lowPriceX96,
+                                    highPriceX96
+                                ) /
+                                lowPriceX96;
+                        }
+                        if (_max < maxAvailableSize) {
+                            maxAvailableSize = _max;
+                        }
+                    } else if (newTokenId.tokenType(i) == 1) {
+                        uint160 lowPriceX96 = Math.getSqrtRatioAtTick(tickLower);
+                        uint160 highPriceX96 = Math.getSqrtRatioAtTick(tickUpper);
+                        uint256 _max;
+
+                        unchecked {
+                            _max = Math.mulDiv96(availableLiquidity, highPriceX96 - lowPriceX96);
+                        }
+                        if (_max < maxAvailableSize) {
+                            maxAvailableSize = _max;
+                        }
+                    }
+                }
+            }
+        }
 
         // get the max size for covered mints that are ITM
         {
