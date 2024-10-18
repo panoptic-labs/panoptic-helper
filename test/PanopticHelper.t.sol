@@ -1504,7 +1504,7 @@ contract PanopticHelperTest is PositionUtils {
             inputLeg[i] = _Leg;
         }
 
-        TokenId optimizedTokenId = ph.optimizeRiskPartners(pp, currentTick, tokenId);
+        tokenId = ph.optimizeRiskPartners(pp, currentTick, tokenId);
 
         vm.startPrank(Alice);
 
