@@ -558,7 +558,6 @@ contract PanopticHelper {
             tick,
             positionIdList
         );
-
         console2.log("balanceCross, requiredCross", balanceCross, requiredCross);
         utilization = (requiredCross * 10000) / balanceCross;
     }
@@ -677,9 +676,13 @@ contract PanopticHelper {
 
         (LeftRightSigned longAmounts, LeftRightSigned shortAmounts) = PanopticMath
             .computeExercisedAmounts(tokenId, positionSize);
-        LeftRightSigned netMoved = longAmounts.add(shortAmounts);
+        LeftRightSigned netMoved = shortAmounts.sub(longAmounts);
 
-        return (net0 - int256((netMoved.rightSlot())), net1 - int256((netMoved.leftSlot())));
+        console2.log("tokenFlow0", net0);
+        console2.log("tokenFlow1", net1);
+        console2.log("netMoved0", netMoved.rightSlot());
+        console2.log("netMoved1", netMoved.leftSlot());
+        return (int256((netMoved.rightSlot())) - net0, int256((netMoved.leftSlot())) - net1);
     }
 
     /// @notice Query the total amount of liquidity sold in the corresponding chunk for a position leg.
@@ -727,13 +730,14 @@ contract PanopticHelper {
         TokenId newTokenId
     ) external view returns (uint128 maxAvailableSize, uint128 coveredSize, uint128 nakedSize) {
         // get the max size for long legs: maxAvailableSize is bounded by available liquidity to purchase if there are any long legs
-        maxAvailableSize - getAvailableLongSize(pool, newTokenId);
+        //maxAvailableSize - getAvailableLongSize(pool, newTokenId);
 
         // get the max size for covered minting: coveredSize is bounded by the maximum amount of tokens in the user's account to mint a covered position
-        coveredSize = getCoveredSize(pool, account, newTokenId);
+        //coveredSize = getCoveredSize(pool, account, newTokenId);
 
         // get the max size for naked minting: nakedSize is bounded by the collateral requirement of the new mint (with swapAtMint), where newCollateralRequirement = 3/4 * balance
-        nakedSize = getNakedSize(pool, account, newTokenId, positionIdList);
+        nakedSize = getNakedSize(pool, account, newTokenId, positionIdList, 2 ** 64);
+        nakedSize = getNakedSize(pool, account, newTokenId, positionIdList, nakedSize);
     }
 
     function getAvailableLongSize(
@@ -801,8 +805,6 @@ contract PanopticHelper {
 
         (int256 net0, int256 net1) = inTheMoneyAmounts(newTokenId, 2 ** 64, currentTick);
 
-        console2.log("net0", net0);
-        console2.log("net1", net1);
         if (net0 > 0) {
             coveredSize = uint128((998 * balance0 * 2 ** 64) / uint256(net0 * 1000));
         } else if (net1 > 0) {
@@ -814,9 +816,11 @@ contract PanopticHelper {
         PanopticPool pool,
         address account,
         TokenId newTokenId,
-        TokenId[] calldata positionIdList
+        TokenId[] calldata positionIdList,
+        uint128 startSize
     ) internal view returns (uint128 nakedSize) {
         // get the max size for naked mints, ITM amounts are swapped
+
         (uint160 sqrtPriceX96, int24 currentTick, , , , , ) = pool.univ3pool().slot0();
 
         uint256 availableCross;
@@ -833,38 +837,43 @@ contract PanopticHelper {
 
             console2.log("availableCross", availableCross);
         }
-        int256 deltaBX64;
-        int256 deltaRX64;
+        int256 deltaB;
+        int256 deltaR;
         {
             (uint128 required0, uint128 required1) = positionBuyingPowerRequirement(
                 pool,
                 account,
                 newTokenId,
-                2 ** 64
+                startSize
             );
 
-            (int256 net0, int256 net1) = inTheMoneyAmounts(newTokenId, 2 ** 64, currentTick);
+            console2.log("startSize", startSize);
+            (int256 net0, int256 net1) = inTheMoneyAmounts(newTokenId, startSize, currentTick);
 
-            net0 = net0 < 0 ? -int256(net0) : int256(0);
-            net0 = net1 < 0 ? -int256(net1) : int256(0);
+            console2.log("itm0-pre", net0);
+            console2.log("itm1-pre", net1);
 
-            console2.log("required0, required1", required0, required1);
+            console2.log("required0, required1 - IN", required0, required1, startSize);
             if (currentTick < 0) {
-                deltaRX64 = int256(required0 + PanopticMath.convert1to0(required1, sqrtPriceX96));
-                deltaBX64 = net0 + PanopticMath.convert1to0(net1, sqrtPriceX96);
+                deltaR = int256(required0 + PanopticMath.convert1to0(required1, sqrtPriceX96));
+                deltaB = net0 + PanopticMath.convert1to0(net1, sqrtPriceX96);
             } else {
-                deltaRX64 = int256(required1 + PanopticMath.convert0to1(required0, sqrtPriceX96));
-                deltaBX64 = net1 + PanopticMath.convert0to1(net0, sqrtPriceX96);
+                deltaR = int256(required1 + PanopticMath.convert0to1(required0, sqrtPriceX96));
+                deltaB = net1 + PanopticMath.convert0to1(net0, sqrtPriceX96);
             }
         }
 
-        console2.log("deltaRX64", deltaRX64);
-        console2.log("deltaBX64", deltaBX64);
+        console2.log("deltaR", deltaR);
+        console2.log("deltaB", deltaB);
 
-        int256 delta = int256(availableCross * 2 ** 64) / ((4 * deltaRX64) / 3 - deltaBX64);
+        int256 delta = int256(availableCross * startSize) / ((4 * deltaR) / 3 - deltaB);
 
         console2.log("delta", delta);
-        nakedSize = uint128(995 * uint256(delta)) / 1000;
+        console2.log("startSize", startSize);
+
+        nakedSize = uint128(99 * uint256(delta)) / 100;
+
+        return nakedSize;
     }
 
     /// @notice Checks whether a prospective position to mint is valid.
