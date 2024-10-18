@@ -1179,7 +1179,7 @@ contract PanopticHelperTest is PositionUtils {
         assertTrue(requiredAfter <= requiredBefore);
     }
 
-    function test_Success_sizeSinglePosition(uint256 x, uint256 seed) public {
+    function test_Success_sizeSinglePosition(uint256 x) public {
         _initPool(x);
 
         TokenId tokenId = TokenId
@@ -1425,7 +1425,6 @@ contract PanopticHelperTest is PositionUtils {
             );
             assertTrue((10000 * collateralBalance) / requiredCollateral < 13_400, "close enough");
         }
-        assertTrue(false);
     }
 
     function test_Success_sizePosition(uint256 x, uint256 seed) public {
