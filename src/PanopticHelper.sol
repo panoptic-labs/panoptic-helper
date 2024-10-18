@@ -732,6 +732,7 @@ contract PanopticHelper {
 
         //console2.log('coveredSize', coveredSize);
         // get the max size for naked minting: nakedSize is bounded by the collateral requirement of the new mint (with swapAtMint), where newCollateralRequirement = 3/4 * balance
+        // do it twice so that the pool utilization is more accurate the second time
         nakedSize = getNakedSize(pool, account, newTokenId, positionIdList, 2 ** 64);
         nakedSize = getNakedSize(pool, account, newTokenId, positionIdList, nakedSize);
     }

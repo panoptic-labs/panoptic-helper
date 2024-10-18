@@ -1519,9 +1519,36 @@ contract PanopticHelperTest is PositionUtils {
         ct0.deposit(10 ** ct0.decimals(), Alice);
         ct1.deposit(PanopticMath.convert0to1(10 ** ct0.decimals(), currentSqrtPriceX96), Alice);
 
+        TokenId[] memory posIdList_base = new TokenId[](1);
+
+        TokenId tokenId_base = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            0,
+            0,
+            1,
+            0,
+            (199051 / pool.tickSpacing()) * pool.tickSpacing(),
+            2
+        );
+
+        posIdList_base[0] = tokenId_base;
+
+        (, , uint128 positionSize) = ph.sizePosition(pp, Alice, new TokenId[](0), tokenId_base);
+
+        console2.log("positionSize", positionSize);
+
+        pp.mintOptions(
+            posIdList_base,
+            positionSize / 2,
+            0,
+            Constants.MAX_V3POOL_TICK,
+            Constants.MIN_V3POOL_TICK
+        );
+
         console2.log("currentTick", currentTick);
 
-        (, , uint128 positionSize) = ph.sizePosition(pp, Alice, new TokenId[](0), tokenId);
+        (, , positionSize) = ph.sizePosition(pp, Alice, posIdList_base, tokenId);
 
         console2.log("positionSize", positionSize);
 
@@ -1533,9 +1560,10 @@ contract PanopticHelperTest is PositionUtils {
         );
 
         console2.log("required0, required1", requiredToken0, requiredToken1);
-        TokenId[] memory posIdList = new TokenId[](1);
+        TokenId[] memory posIdList = new TokenId[](2);
 
-        posIdList[0] = tokenId;
+        posIdList[0] = tokenId_base;
+        posIdList[1] = tokenId;
 
         vm.assume(ph.isMintValid(tokenId, positionSize) == true);
         (, currentTick, , , , , ) = pool.slot0();
