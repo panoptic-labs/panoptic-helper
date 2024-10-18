@@ -558,7 +558,6 @@ contract PanopticHelper {
             tick,
             positionIdList
         );
-        console2.log("balanceCross, requiredCross", balanceCross, requiredCross);
         utilization = (requiredCross * 10000) / balanceCross;
     }
 
@@ -678,10 +677,6 @@ contract PanopticHelper {
             .computeExercisedAmounts(tokenId, positionSize);
         LeftRightSigned netMoved = shortAmounts.sub(longAmounts);
 
-        console2.log("tokenFlow0", net0);
-        console2.log("tokenFlow1", net1);
-        console2.log("netMoved0", netMoved.rightSlot());
-        console2.log("netMoved1", netMoved.leftSlot());
         return (int256((netMoved.rightSlot())) - net0, int256((netMoved.leftSlot())) - net1);
     }
 
@@ -730,11 +725,12 @@ contract PanopticHelper {
         TokenId newTokenId
     ) external view returns (uint128 maxAvailableSize, uint128 coveredSize, uint128 nakedSize) {
         // get the max size for long legs: maxAvailableSize is bounded by available liquidity to purchase if there are any long legs
-        //maxAvailableSize - getAvailableLongSize(pool, newTokenId);
+        maxAvailableSize = getAvailableLongSize(pool, newTokenId);
 
         // get the max size for covered minting: coveredSize is bounded by the maximum amount of tokens in the user's account to mint a covered position
         //coveredSize = getCoveredSize(pool, account, newTokenId);
 
+        //console2.log('coveredSize', coveredSize);
         // get the max size for naked minting: nakedSize is bounded by the collateral requirement of the new mint (with swapAtMint), where newCollateralRequirement = 3/4 * balance
         nakedSize = getNakedSize(pool, account, newTokenId, positionIdList, 2 ** 64);
         nakedSize = getNakedSize(pool, account, newTokenId, positionIdList, nakedSize);
@@ -754,10 +750,10 @@ contract PanopticHelper {
                         uint256 removedLiquidity
                     ) = _getLiquidities(pool, newTokenId, i);
 
-                    uint256 availableLiquidity = (netLiquidity * 89) / 100;
+                    uint256 availableLiquidity = (netLiquidity * 9) / 10 - 1;
 
                     (int24 tickLower, int24 tickUpper) = newTokenId.asTicks(i);
-                    if (newTokenId.tokenType(i) == 0) {
+                    if (newTokenId.asset(i) == 0) {
                         uint160 lowPriceX96 = Math.getSqrtRatioAtTick(tickLower);
                         uint160 highPriceX96 = Math.getSqrtRatioAtTick(tickUpper);
                         uint256 _max;
@@ -770,10 +766,11 @@ contract PanopticHelper {
                                 ) /
                                 lowPriceX96;
                         }
+
                         if (_max < maxAvailableSize) {
                             maxAvailableSize = uint128(_max);
                         }
-                    } else if (newTokenId.tokenType(i) == 1) {
+                    } else if (newTokenId.asset(i) == 1) {
                         uint160 lowPriceX96 = Math.getSqrtRatioAtTick(tickLower);
                         uint160 highPriceX96 = Math.getSqrtRatioAtTick(tickUpper);
                         uint256 _max;
@@ -831,11 +828,8 @@ contract PanopticHelper {
                 currentTick,
                 positionIdList
             );
-            console2.log("balanceCross, requiredCross", balanceCross, requiredCross);
 
             availableCross = balanceCross - (4 * requiredCross) / 3;
-
-            console2.log("availableCross", availableCross);
         }
         int256 deltaB;
         int256 deltaR;
@@ -847,13 +841,8 @@ contract PanopticHelper {
                 startSize
             );
 
-            console2.log("startSize", startSize);
             (int256 net0, int256 net1) = inTheMoneyAmounts(newTokenId, startSize, currentTick);
 
-            console2.log("itm0-pre", net0);
-            console2.log("itm1-pre", net1);
-
-            console2.log("required0, required1 - IN", required0, required1, startSize);
             if (currentTick < 0) {
                 deltaR = int256(required0 + PanopticMath.convert1to0(required1, sqrtPriceX96));
                 deltaB = net0 + PanopticMath.convert1to0(net1, sqrtPriceX96);
@@ -863,15 +852,9 @@ contract PanopticHelper {
             }
         }
 
-        console2.log("deltaR", deltaR);
-        console2.log("deltaB", deltaB);
-
         int256 delta = int256(availableCross * startSize) / ((4 * deltaR) / 3 - deltaB);
 
-        console2.log("delta", delta);
-        console2.log("startSize", startSize);
-
-        nakedSize = uint128(99 * uint256(delta)) / 100;
+        nakedSize = uint128(98 * uint256(delta)) / 100;
 
         return nakedSize;
     }
