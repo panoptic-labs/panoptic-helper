@@ -751,7 +751,7 @@ contract PanopticHelper {
                         uint256 removedLiquidity
                     ) = _getLiquidities(pool, newTokenId, i);
 
-                    uint256 availableLiquidity = (netLiquidity * 9) / 10 - 1;
+                    uint256 availableLiquidity = (totalLiquidity * 9) / 10 - removedLiquidity - 1;
 
                     (int24 tickLower, int24 tickUpper) = newTokenId.asTicks(i);
                     if (newTokenId.asset(i) == 0) {
