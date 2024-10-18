@@ -1474,4 +1474,333 @@ contract PanopticHelper {
                 )
         );
     }
+
+    // sizeThePosition: given a list of active positions, a prospective position, and a target buying power percentage:
+    // tell me what # of contracts to do the prospective position at such that my post-mint buying power is the target
+
+    // how?
+
+    // step 1: figure out the total buying power this user has based on their current collateral value
+    // (e.g., reciprocal of our margin requirement * collateralValue - i think that'd be 5*collateralValue
+    // step 2: multiply (1) by targetBuyingPowerPercentageUsage / 100 to figure out the total buyingPowerUsage their account can handle
+    // step 3: figure out the buyingPower the prospective position would use up for 1 contract
+    // - This differs on a few things:
+    // -- Buying and selling have different margin requirements:
+    /*
+
+    /// @notice Required collateral ratios for buying, represented as percentage * 10_000.
+    /// @dev i.e 20% -> 0.2 * 10_000 = 2_000.
+    uint256 immutable SELLER_COLLATERAL_RATIO;
+
+    /// @notice Required collateral ratios for selling, represented as percentage * 10_000.
+    /// @dev i.e 10% -> 0.1 * 10_000 = 1_000.
+    uint256 immutable BUYER_COLLATERAL_RATIO;
+    */
+    // -- And risk-partnered positions have more generous margin requirements too
+
+
+    // step 4: Find a number of contracts x that uses up (2) - x*(3):
+
+    // - the upper bound of this value is what you'd expect: ((2) - (3)) / x
+    // - however, executing a mint will:
+    // -- affect token prices
+    // -- may increase/decrease pool utilisation which changes the margin requirement
+
+    // Random notes from talking with Henry Wed Oct 16th:
+    // step 1: figure out how  current collateral amount and notional value
+    //  what multiplier of collateral
+    // (e.g., the reverse of the collateral requirement formula in CollateralTracker.getAccountMarginDetails)
+    // this gives you some multiplier which is the largest possible position size
+    // you then attempt a mint and see what impact on pool utilisation is
+    // - if it pushes PU too high you try again with lower value
+    // then, get your average you also take your average execution cost
+    uint256 constant DECIMALS = 10_000;
+
+    function sizeThePosition(
+        PanopticPool pool,
+        address account,
+        TokenId[] calldata positionIdList,
+        uint256 percentBPR
+    ) external view returns (uint128 positionSize) {
+        // Constraint 1: The new position's size should be capped such that positionSize * requiredForPosition <= currentCrossBalance - currentPositionRequired
+        uint128 requiredForPosition = _requiredCollateralForSinglePosition(
+            pool,
+            _getCurrentTick(pool),
+            0
+        );
+        uint128 boundForCurrentExcessBuyingPower = _excessBuyingPower(pool, account, positionIdList) / requiredForPosition
+
+        // Constraint 2: Long legs can only buy up all liquidity at their strike price
+
+        // Constraint 3: Pool utilisation cannot exceed 90%
+
+        // TODO: Return the min of all calculated position sizes for the various constraints to consider
+        return Math.min(
+            Math.min(
+                boundForCurrentExcessBuyingPower,
+                size2
+            ),
+            Math.min(
+                size3,
+                size4
+            )
+        );
+    }
+
+    // TODO: might just be able to use checkCollateral and pass in a single positionId for this?
+    function _requiredCollateralForSinglePosition(
+        PanopticPool pool,
+        int24 atTick,
+        uint256 tokenType
+    ) internal view returns(uint128) {
+        // Query the current and required collateral amounts for the two tokens
+        LeftRightUnsigned tokenData0 = pool.collateralToken0().getAccountMarginDetails(
+            account,
+            atTick,
+            [position],
+            0,
+            0
+        );
+        LeftRightUnsigned tokenData1 = pool.collateralToken1().getAccountMarginDetails(
+            account,
+            atTick,
+            [position],
+            0,
+            0
+        );
+
+        // convert (using atTick) and return the total collateral balance and required balance in terms of tokenType
+        return PanopticMath.convertCollateralData(tokenData0, tokenData1, tokenType, atTick);
+    }
+
+    // TODO this is the same as netEquity
+    function _excessBuyingPower(
+        PanopticPool pool,
+        address account,
+        TokenId[] calldata positionIdList
+    ) internal view returns(uint128 excessCollateral) {
+        (uint256 collateralBalance, uint256 requiredCollateral) = checkCollateral(pool, account, getCurrentTick(pool), 0, positionIdList);
+
+        if (collateralBalance <= requiredCollateral) {
+            return 0;
+        }
+        excessCollateral = collateralBalance - requiredCollateral;
+
+    }
+
+    function _getCurrentTick(PanopticPool pool) internal view returns (int24) {
+        (, int24 currentTick, , , , , ) = pool.univ3pool().slot0();
+        return currentTick;
+    }
+
+    /*Stashing boilerplate:
+    function sizeThePosition(
+        PanopticPool pool,
+        address account,
+        TokenId[] calldata positionIdList,
+        uint256 percentBPR
+    ) external view returns (uint128 positionSize) {
+        TokenId newTokenId = positionIdList[positionIdList.length - 1];
+
+        // Step 1: Calculate total buying power based on current collateral and pool utilization
+        CollateralTracker ct0 = pool.collateralToken0();
+        CollateralTracker ct1 = pool.collateralToken1();
+        (uint256 poolAssets0, uint256 inAMM0, uint256 utilization0) = ct0.getPoolData();
+        (uint256 poolAssets1, uint256 inAMM1, uint256 utilization1) = ct1.getPoolData();
+
+        uint256 collateral0 = ct0.convertToAssets(ct0.balanceOf(account));
+        uint256 collateral1 = ct1.convertToAssets(ct1.balanceOf(account));
+
+        uint256 totalBuyingPower = calculateTotalBuyingPower(
+            collateral0,
+            collateral1,
+            utilization0,
+            utilization1,
+            ct0,
+            ct1
+        );
+
+        // Step 2: Calculate target buying power usage
+        uint256 targetBuyingPowerUsage = (totalBuyingPower * percentBPR) / DECIMALS;
+
+        // Get current pool data
+        (int24 currentTick, int24 fastOracleTick, , , ) = pool.getOracleTicks();
+
+        // Step 3-4: Binary search for optimal position size
+        uint128 low = 1;
+        uint128 high = type(uint128).max;
+        uint128 mid;
+
+        while (low <= high) {
+            mid = low + (high - low) / 2;
+
+            // Simulate position with current mid size
+            (uint256 bpUsed, int256 swapAmount0, int256 swapAmount1) = simulatePosition(
+                pool,
+                account,
+                positionIdList,
+                newTokenId,
+                mid,
+                currentTick,
+                fastOracleTick,
+                utilization0,
+                utilization1
+            );
+
+            if (bpUsed == targetBuyingPowerUsage) {
+                return mid;
+            } else if (bpUsed < targetBuyingPowerUsage) {
+                low = mid + 1;
+            } else {
+                high = mid - 1;
+            }
+        }
+
+        // Final check with different utilization scenarios
+        uint256 swapExecutionPrice = calculateSwapExecutionPrice(currentTick, swapAmount0, swapAmount1);
+        uint256 newUtil0 = calculateNewUtilization(poolAssets0, inAMM0, swapAmount0);
+        uint256 newUtil1 = calculateNewUtilization(poolAssets1, inAMM1, swapAmount1);
+
+        uint128 size1 = calculateSizeForTarget(pool, account, positionIdList, newTokenId, targetBuyingPowerUsage, fastOracleTick, currentTick, swapExecutionPrice, utilization0, utilization1, false);
+        uint128 size2 = calculateSizeForTarget(pool, account, positionIdList, newTokenId, targetBuyingPowerUsage, fastOracleTick, currentTick, swapExecutionPrice, newUtil0, utilization1, false);
+        uint128 size3 = calculateSizeForTarget(pool, account, positionIdList, newTokenId, targetBuyingPowerUsage, fastOracleTick, currentTick, swapExecutionPrice, utilization0, newUtil1, false);
+        uint128 size4 = calculateSizeForTarget(pool, account, positionIdList, newTokenId, targetBuyingPowerUsage, fastOracleTick, currentTick, swapExecutionPrice, newUtil0, newUtil1, false);
+
+        return Math.min(Math.min(size1, size2), Math.min(size3, size4));
+    }
+
+    function calculateTotalBuyingPower(
+        uint256 collateral0,
+        uint256 collateral1,
+        uint256 utilization0,
+        uint256 utilization1,
+        CollateralTracker ct0,
+        CollateralTracker ct1
+    ) internal view returns (uint256) {
+        uint256 buyingPower0 = (collateral0 * DECIMALS) / ct0.SELLER_COLLATERAL_RATIO();
+        uint256 buyingPower1 = (collateral1 * DECIMALS) / ct1.SELLER_COLLATERAL_RATIO();
+
+        // Adjust buying power based on utilization
+        buyingPower0 = (buyingPower0 * DECIMALS) / ct0._sellCollateralRatio(int256(utilization0));
+        buyingPower1 = (buyingPower1 * DECIMALS) / ct1._sellCollateralRatio(int256(utilization1));
+
+        return buyingPower0 + buyingPower1;
+    }
+
+    function simulatePosition(
+        PanopticPool pool,
+        address account,
+        TokenId[] calldata positionIdList,
+        TokenId newTokenId,
+        uint128 positionSize,
+        int24 currentTick,
+        int24 fastOracleTick,
+        uint256 utilization0,
+        uint256 utilization1
+    ) internal view returns (uint256 buyingPowerUsed, int256 swapAmount0, int256 swapAmount1) {
+        // Simulate minting the position and calculate buying power used
+        (LeftRightUnsigned[4] memory collectedByLeg, LeftRightSigned totalSwapped) = pool.SFPM().mintTokenizedPosition(newTokenId, positionSize, type(int24).min, type(int24).max);
+
+        swapAmount0 = totalSwapped.rightSlot();
+        swapAmount1 = totalSwapped.leftSlot();
+
+        // Calculate buying power used based on position requirements
+        buyingPowerUsed = calculateBuyingPowerUsed(pool, account, positionIdList, newTokenId, positionSize, currentTick, fastOracleTick, utilization0, utilization1);
+    }
+
+    function calculateBuyingPowerUsed(
+        PanopticPool pool,
+        address account,
+        TokenId[] calldata positionIdList,
+        TokenId newTokenId,
+        uint128 positionSize,
+        int24 currentTick,
+        int24 fastOracleTick,
+        uint256 utilization0,
+        uint256 utilization1
+    ) internal view returns (uint256) {
+        CollateralTracker ct0 = pool.collateralToken0();
+        CollateralTracker ct1 = pool.collateralToken1();
+
+        uint256 requiredCollateral0 = 0;
+        uint256 requiredCollateral1 = 0;
+
+        // Calculate required collateral for existing positions
+        for (uint256 i = 0; i < positionIdList.length; i++) {
+            (uint256 required0, uint256 required1) = calculateRequiredCollateral(
+                pool,
+                positionIdList[i],
+                currentTick,
+                utilization0,
+                utilization1
+            );
+            requiredCollateral0 += required0;
+            requiredCollateral1 += required1;
+        }
+
+        // Calculate required collateral for the new position
+        (uint256 newRequired0, uint256 newRequired1) = calculateRequiredCollateral(
+            pool,
+            newTokenId,
+            currentTick,
+            utilization0,
+            utilization1
+        );
+        requiredCollateral0 += newRequired0;
+        requiredCollateral1 += newRequired1;
+
+        // Convert required collateral to buying power used
+        uint256 buyingPowerUsed0 = (requiredCollateral0 * DECIMALS) / ct0.SELLER_COLLATERAL_RATIO();
+        uint256 buyingPowerUsed1 = (requiredCollateral1 * DECIMALS) / ct1.SELLER_COLLATERAL_RATIO();
+
+        return buyingPowerUsed0 + buyingPowerUsed1;
+    }
+
+    function calculateRequiredCollateral(
+        PanopticPool pool,
+        TokenId tokenId,
+        int24 currentTick,
+        uint256 utilization0,
+        uint256 utilization1
+    ) internal view returns (uint256 required0, uint256 required1) {
+        // Implement the logic to calculate required collateral for a single position
+        // This should use the CollateralTracker's _getRequiredCollateralAtTickSinglePosition function
+        // and account for both token0 and token1 collateral requirements
+        // Placeholder implementation
+        return (0, 0);
+    }
+
+    function calculateSwapExecutionPrice(int24 currentTick, int256 swapAmount0, int256 swapAmount1) internal pure returns (uint256) {
+        // Implement swap execution price calculation based on amounts and current tick
+        // This is a placeholder implementation
+        return uint256(uint24(currentTick));
+    }
+
+    function calculateNewUtilization(uint256 poolAssets, uint256 inAMM, int256 swapAmount) internal pure returns (uint256) {
+        // Calculate new utilization based on pool assets, current in-AMM amount, and swap amount
+        return ((inAMM + uint256(swapAmount > 0 ? swapAmount : 0)) * DECIMALS) / (poolAssets + inAMM);
+    }
+
+    function calculateSizeForTarget(
+        PanopticPool pool,
+        address account,
+        TokenId[] calldata positionIdList,
+        TokenId newTokenId,
+        uint256 targetBuyingPowerUsage,
+        int24 fastOracleTick,
+        int24 currentTick,
+        uint256 swapExecutionPrice,
+        uint256 utilization0,
+        uint256 utilization1,
+        bool useMinCR
+    ) internal view returns (uint128) {
+        // Implement the logic to calculate position size based on target buying power usage
+        // This should use the provided parameters to determine the optimal size
+        // Placeholder implementation
+        return type(uint128).max;
+    }
+    */
+
+    }
+
 }
