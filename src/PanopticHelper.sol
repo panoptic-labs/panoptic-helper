@@ -339,6 +339,7 @@ contract PanopticHelper {
 
         (uint160 currentPriceX96, int24 currentTick, , , , , ) = univ3pool.slot0();
         int24 tickSpacing = univ3pool.tickSpacing();
+        uint256 fee = uint256(univ3pool.fee());
         int256 scaledTick = int256((currentTick / tickSpacing) * tickSpacing);
 
         uint256 currentLiquidity = univ3pool.liquidity();
@@ -347,7 +348,7 @@ contract PanopticHelper {
         bool stop;
 
         if (amountIn > 0) {
-            uint256 amount = uint256(amountIn);
+            uint256 amount = (uint256(amountIn) * (10000 - fee)) / 10000;
             int24 nextTick = (currentTick / tickSpacing) * tickSpacing + tickSpacing;
             uint160 highPriceX96 = Math.getSqrtRatioAtTick(nextTick);
 
@@ -387,7 +388,7 @@ contract PanopticHelper {
             }
         } else if (amountIn < 0) {
             // if amountIn is negative, amount sent to the smart contract is token0 and price goes down
-            uint256 amount = uint256(-amountIn);
+            uint256 amount = (uint256(-amountIn) * (10000 - fee)) / 10000;
             int24 nextTick = (currentTick / tickSpacing) * tickSpacing;
             uint160 lowPriceX96 = Math.getSqrtRatioAtTick(nextTick);
 
