@@ -1179,6 +1179,20 @@ contract PanopticHelperTest is PositionUtils {
         assertTrue(requiredAfter <= requiredBefore);
     }
 
+    function test_quotePrice() public {
+        _initPool(0);
+
+        (currentSqrtPriceX96, currentTick, , , , , ) = pool.slot0();
+
+        console2.log("currentSqrtPriceX96", currentSqrtPriceX96);
+
+        int256 amountIn = 5 * 108916089235601453162 + 1e4;
+        console2.log("amountIn", amountIn);
+        (uint160 finalPrice, uint256 amountOut) = ph.quoteFinalPrice(pp, amountIn);
+        console2.log("finalPrice, amountOut", finalPrice, amountOut);
+        assertTrue(false);
+    }
+
     function test_Success_checkCollateral_OTMandITMShortCall(
         uint256 x,
         uint256[2] memory widthSeeds,
