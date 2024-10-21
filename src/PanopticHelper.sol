@@ -12,6 +12,7 @@ import {Math} from "@libraries/Math.sol";
 // Custom types
 import {LeftRightUnsigned} from "@types/LeftRight.sol";
 import {TokenId, TokenIdLibrary} from "@types/TokenId.sol";
+import {PositionBalance, PositionBalanceLibrary} from "@types/PositionBalance.sol";
 
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {Base64} from "@openzeppelin/contracts/utils/Base64.sol";
@@ -285,98 +286,163 @@ contract PanopticHelper {
         }
     }
 
-    // TODO: below is a WIP which is why it has things like hardcoded vars - just trying things out
-    /// @notice Determine new TokenId with adjusted position size.
+    /// @notice Evaluates if the supplied position has enough liquidity to be burnt successfully; if not, returns what the max position size would be
     /// @notice account The address of the account to evaluate
     /// @notice tokenId The TokenId to reduce the size of
+    /// @notice netLiquidityUsageLimitBPS When readusting, the proportion of net liquidity to limit the new position size to using
     /// @return newTokenId The new TokenId with adjusted position size
     /// @return newPositionSize The updated size of the new position
-    // function reducedSize(
-    //     PanopticPool pool,
-    //     address account,
-    //     TokenId tokenId,
-    //     // TODO i think you can get this from the SFPM on the user's behalf - EDIT yes comes from calculateAccumulatedFeesBatch
-    //     uint128 oldPositionSize
-    // ) external view returns (TokenId newTokenId, uint128 newPositionSize) {
-    function reducedSize() external view returns (TokenId newTokenId, uint128 newPositionSize) {
-        // uni pool: 0xe549883274Bf392B8bD499F5e709D116A8B84BeD
-        address account = 0x275e8F09F090CF9B8e77008643e33d477fBb05E6;
-        TokenId tokenId = TokenId.wrap(304236343532294555810893407614143);
-        uint128 oldPositionSize = 1;
-        // Unwrap the tokenId to get details about its legs
+    function reducedSizeIfNecessary(
+         PanopticPool pool,
+         address account,
+         TokenId tokenId,
+         // e.g. 90_000 to try and avoid any leg needing > 90% of the net liquidity
+         uint256 netLiquidityUsageLimitBPS
+    ) external view returns (TokenId newTokenId, uint128 newPositionSize) {
+        // Get the details about this position's legs and current size
         Leg[] memory legs = unwrapTokenId(tokenId);
-        newPositionSize = type(uint128).max;
 
-        // Iterate over each leg and determine the liquidity constraints
+        // TODO: use new method name pool.getAccumulatedFeesAndPositionsData here eventually
+        TokenId[] memory accountsPositionsToGetSizesFor = new TokenId[](1);
+        accountsPositionsToGetSizesFor[0] = tokenId;
+        (,,uint256[2][] memory existingPositions) = pool.calculateAccumulatedFeesBatch(
+            account,
+            false,
+            accountsPositionsToGetSizesFor
+        );
+        uint128 oldPositionSize = PositionBalance.wrap(
+            // The only position in the list's second item,
+            // which should be the PositionBalance
+            // (first item is the corresponding tokenId)
+            oldPositionSizeArray[0][1]
+        ).positionSize();
+
+        newPositionSize = oldPositionSize;
+        if (newTokenId.countLongs() == 0) {
+            // There are no longs; sell as much as you're currently selling.
+            // TODO: could be more sophisticated and return the
+            // actual limit on how much you can sell for this case, even above oldPositionSize.
+            return newPositionSize;
+        }
+
+        // Iterate over each leg and determine if there is enough netLiquidity in the SFPM to burn it.
         for (uint256 i = 0; i < tokenId.countLegs(); i++) {
-            LeftRightUnsigned liquidityData = SFPM.getAccountLiquidity(
-                legs[i].UniswapV3Pool,
-                account,
-                legs[i].tokenType,
-                legs[i].strike - (legs[i].width / 2),
-                legs[i].strike + (legs[i].width / 2)
-            );
-            uint256 netLiquidity = liquidityData.rightSlot();
+            if (legs[i].isLong()) {
+                LeftRightUnsigned liquidityData = SFPM.getAccountLiquidity(
+                    legs[i].UniswapV3Pool,
+                    account,
+                    legs[i].tokenType,
+                    legs[i].strike - (legs[i].width / 2),
+                    legs[i].strike + (legs[i].width / 2)
+                );
+                uint256 netLiquidity = liquidityData.rightSlot();
+            }
 
-            // check if current buying power usage is below 90%
-            /*
-            const userCollateral = panopticHelper.checkCollateral({
-              panopticPoolAddress: getAddress(ppa.panopticPool.id),
-              userAccount: getAddress(ppa.account.id),
-              positionIdList: positionIdList,
-            })
-            userTotalRequiredCollateralIn1 = userCollateral.userCollateralBalanceToken1
-            userTotalRequiredCollateralIn0 = userCollateral.userCollateralBalanceToken0
-            const userTotalRequiredCollateralQuoteToken = isAssetToken0
-              ? userTotalRequiredCollateralIn1
-              : userTotalRequiredCollateralIn0
-            const availableBuyingPowerQuoteToken =
-              userCollateralBalanceInQuoteToken - userTotalRequiredCollateralQuoteToken
-            const buyingPowerUsage = new Decimal(100).minus(
-                new Decimal(availableBuyingPowerQuoteToken.toString())
-                  .times(100)
-                  .div(new Decimal(userCollateralBalanceInQuoteToken.toString())),
-              )
-            */
+            if (newPositionSize * legs[i].optionRatio > netLiquidity) {
+                // If there's not enough liquidity, adjust the new position size to keep utilization at the supplied limit
+                newPositionSize = uint128((netLiquidity * netLiquidityUsageLimitBPS) / 10_000) / legs[i].optionRatio;
+            }
+        }
+    }
 
-            // Check if the current leg has enough liquidity to burn
-            if (oldPositionSize * legs[i].optionRatio > netLiquidity) {
-                // If there's not enough liquidity, adjust the available size to keep utilization at 90%
-                uint128 availableSize = uint128((netLiquidity * 90) / 100); // Utilization at 90%
-                if (availableSize < newPositionSize) {
-                    newPositionSize = availableSize;
+    // TODO: Are these maxes correct?
+    uint128 MAX_POSITION_SIZE = type(uint128).max;
+    uint24 MAX_OPTION_RATIO = type(uint24).max;
+
+    /// @notice generates a tokenID and positionSize that represents the same position as the supplied tokenID and positionSize, but with the optionRatios of each leg scaled upward/downward (and positionSize scaled inversely)
+    /// @dev this is useful if you want to effectively hold the same position but need to avoid minting the same tokenID twice in a row
+    /// @param oldPosition The original TokenId
+    /// @param oldPositionSize The original position size
+    /// @return newPosition The new TokenId with adjusted optionRatios
+    /// @return newPositionSize The new position size, inversely scaled to the optionRatio changes. 0 if no valid alteration found.
+    function equivalentPosition(
+        TokenId oldPosition,
+        uint128 oldPositionSize
+    ) external pure returns(TokenId newPosition, uint128 newPositionSize) {
+        Leg[] memory legs = unwrapTokenId(oldPosition);
+
+        uint128[] optionRatios = new uint128[oldPosition.countLegs()];
+        for (uint i = 0; i < oldPosition.countLegs(); i++) {
+            optionRatios[i] = legs[i].optionRatio();
+        }
+
+        newPosition = oldPosition;
+
+        // First strategy:
+        // - Divide the position size by its lowest non-identity factor,
+        // - and then multiply all the leg's option ratios by it
+        // (if doing so results in a valid option ratio for each leg)
+        bool scalingUpwardFailed = false;
+        if (oldPositionSize > 1) {
+            uint128 lowestOldPositionSizeFactor = _lowestNonIdentityFactor(oldPositionSize);
+            for (uint i = 0; i < optionRatios.length; i++) {
+                if (lowestOldPositionSizeFactor * optionRatios[i] < MAX_OPTION_RATIO) {
+                    newPosition = newPosition.overwriteOptionRatio(
+                        lowestOldPositionSizeFactor * optionRatios[i],
+                        i
+                    );
+                } else {
+                    scalingUpwardFailed = true;
+                    break;
                 }
+            }
+
+            if (!scalingUpwardFailed) {
+                return (
+                    newPosition,
+                    oldPositionSize / lowestOldPositionSizeFactor
+                );
             }
         }
 
-        // newTokenId = TokenId.wrap(0);
-        // for (uint256 i = 0; i < legs.length; i++) {
-        //     // TODO this comes from somewhere
-        //     uint256 newOptionRatio = (legs[i].optionRatio * newPositionSize) / legs[i].asset;
+        // TODO: below code can be made more concise - the ifs and return statements etc can be consolidated to still ensure we return 0 when there is no valid alteration, without this many ifs
+        // Second strategy: Find the smallest non-identity common factor among the oldPosition's leg's optionRatios. if there is one:
+        // - divide all of the option ratios by it
+        // - return newPosition = oldPosition * LCD _if_ that value is less than max position size
+        uint128 lcdAmongOptionRatios = _findLeastCommonDivisor(optionRatios);
+        if (
+            lcdAmongOptionRatios > 1 &&
+            oldPositionSize * lcdAmongOptionRatios < MAX_POSITION_SIZE
+        ) {
+            for (uint i = 0; i < optionRatios.length; i++) {
+                newPosition = newPosition.overwriteOptionRatio(
+                    optionRatios[i] / lcdAmongOptionRatios,
+                    i
+                );
+            }
+            newPositionSize = oldPositionSize * lcdAmongOptionRatios;
+        }
 
-        //     // Reconstruct the new TokenId with the same properties but updated optionRatio
-        //     newTokenId.addLeg(
-        //         i,
-        //         newOptionRatio,
-        //         legs[i].asset,
-        //         legs[i].isLong,
-        //         legs[i].tokenType,
-        //         legs[i].riskPartner,
-        //         legs[i].strike,
-        //         legs[i].width
-        //     );
-        // }
+        // If neither of these work, return newPositionSize = 0:
     }
 
-    function sizeThePosition(
-      PanopticPool pool,
-      address account,
-      TokenId[] positionIdList,
-      uint256 percentBPR
-    ) external view returns([uint128 positionSizes]) {
-
+    function _lowestNonIdentityFactor(uint128 n) private pure returns (uint128) {
+        for (uint128 i = 2; i <= n; i++)
+            if (n % i == 0) return i;
     }
 
+    function _findLeastCommonDivisor(uint128[] memory numbers) private pure returns (uint128) {
+        uint128 min = numbers[0];
+        for (uint i = 1; i < numbers.length; i++) {
+            if (numbers[i] < min) {
+                min = numbers[i];
+            }
+        }
+
+        for (uint128 i = 2; i <= min; i++) {
+            bool isDivisor = true;
+            for (uint j = 0; j < numbers.length; j++) {
+                if (numbers[j] % i != 0) {
+                    isDivisor = false;
+                    break;
+                }
+            }
+            if (isDivisor) {
+                return i;
+            }
+        }
+        return 1;
+    }
 
     /// @notice An external function that returns the collateral needed for a single tokenId at the provided tick.
     /// @param pool The PanopticPool instance to optimize the tokenId for
@@ -1514,7 +1580,7 @@ contract PanopticHelper {
     // you then attempt a mint and see what impact on pool utilisation is
     // - if it pushes PU too high you try again with lower value
     // then, get your average you also take your average execution cost
-    uint256 constant DECIMALS = 10_000;
+    /*uint256 constant DECIMALS = 10_000;
 
     function sizeThePosition(
         PanopticPool pool,
@@ -1526,9 +1592,11 @@ contract PanopticHelper {
         uint128 requiredForPosition = _requiredCollateralForSinglePosition(
             pool,
             _getCurrentTick(pool),
-            0
+            0,
+            account,
+            positionIdList[positionIdList.length - 1]
         );
-        uint128 boundForCurrentExcessBuyingPower = _excessBuyingPower(pool, account, positionIdList) / requiredForPosition
+        uint128 boundForCurrentExcessBuyingPower = _excessBuyingPower(pool, account, positionIdList) / requiredForPosition;
 
         // Constraint 2: Long legs can only buy up all liquidity at their strike price
 
@@ -1538,11 +1606,11 @@ contract PanopticHelper {
         return Math.min(
             Math.min(
                 boundForCurrentExcessBuyingPower,
-                size2
+                type(uint128).max
             ),
             Math.min(
-                size3,
-                size4
+                type(uint128).max,
+                type(uint128).max
             )
         );
     }
@@ -1551,7 +1619,9 @@ contract PanopticHelper {
     function _requiredCollateralForSinglePosition(
         PanopticPool pool,
         int24 atTick,
-        uint256 tokenType
+        uint256 tokenType,
+        address account,
+        TokenId position
     ) internal view returns(uint128) {
         // Query the current and required collateral amounts for the two tokens
         LeftRightUnsigned tokenData0 = pool.collateralToken0().getAccountMarginDetails(
@@ -1579,7 +1649,7 @@ contract PanopticHelper {
         address account,
         TokenId[] calldata positionIdList
     ) internal view returns(uint128 excessCollateral) {
-        (uint256 collateralBalance, uint256 requiredCollateral) = checkCollateral(pool, account, getCurrentTick(pool), 0, positionIdList);
+        (uint256 collateralBalance, uint256 requiredCollateral) = checkCollateral(pool, account, _getCurrentTick(pool), 0, positionIdList);
 
         if (collateralBalance <= requiredCollateral) {
             return 0;
@@ -1801,6 +1871,6 @@ contract PanopticHelper {
     }
     */
 
-    }
+
 
 }

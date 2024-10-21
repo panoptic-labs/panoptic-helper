@@ -1296,4 +1296,143 @@ contract PanopticHelperTest is PositionUtils {
             assertEq(requiredCollateral, calculatedRequiredCollateral);
         }
     }
+
+    function test_Success_reducedSizeSinglePosition() public {
+        _initPool(0);
+
+        TokenId tokenId = TokenId
+            .wrap(0)
+            .addPoolId(poolId)
+            .addLeg(0, 1, 0, 0, 1, 0, (200311 / pool.tickSpacing()) * pool.tickSpacing(), 2);
+
+        vm.startPrank(Alice);
+
+        // Mint a large position
+        uint128 initialPositionSize = 1e18;
+        TokenId[] memory posIdList = new TokenId[](1);
+        posIdList[0] = tokenId;
+        pp.mintOptions(
+            posIdList,
+            initialPositionSize,
+            0,
+            Constants.MAX_V3POOL_TICK,
+            Constants.MIN_V3POOL_TICK
+        );
+
+        // Reduce the size
+        (TokenId newTokenId, uint128 newPositionSize) = ph.reducedSize(pp, Alice, tokenId);
+
+        // Check that the new position size is smaller
+        assertLt(newPositionSize, initialPositionSize);
+
+        // Check that the new token ID is valid
+        newTokenId.validate();
+
+        // Burn the old position and mint the new one
+        TokenId[] memory postBurnIdList = new TokenId[](0);
+        pp.burnOptions(
+            tokenId,
+            postBurnIdList,
+            Constants.MAX_V3POOL_TICK,
+            Constants.MIN_V3POOL_TICK
+        );
+        posIdList[0] = newTokenId;
+        pp.mintOptions(
+            posIdList,
+            newPositionSize,
+            0,
+            Constants.MAX_V3POOL_TICK,
+            Constants.MIN_V3POOL_TICK
+        );
+
+        // Check that the new position was minted successfully
+        assertEq(sfpm.getAccountPositions(Alice, TokenId.unwrap(newTokenId)), newPositionSize);
+    }
+
+    function test_Success_reducedSizeMultiLegPosition(uint256 seed) public {
+        _initPool(seed);
+
+        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId)
+            .addLeg(0, 1, 0, 0, 1, 1, (200311 / pool.tickSpacing()) * pool.tickSpacing(), 2)
+            .addLeg(1, 1, 0, 0, 0, 0, (198079 / pool.tickSpacing()) * pool.tickSpacing(), 2)
+            .addLeg(2, 1, 0, 0, 0, 2, (199051 / pool.tickSpacing()) * pool.tickSpacing(), 2)
+            .addLeg(3, 1, 0, 0, 1, 3, (199051 / pool.tickSpacing()) * pool.tickSpacing(), 2);
+
+        vm.startPrank(Alice);
+
+        // Mint a large position
+        uint128 initialPositionSize = 1e18;
+        TokenId[] memory posIdList = new TokenId[](1);
+        posIdList[0] = tokenId;
+        pp.mintOptions(
+            posIdList,
+            initialPositionSize,
+            0,
+            Constants.MAX_V3POOL_TICK,
+            Constants.MIN_V3POOL_TICK
+        );
+
+        // Reduce the size
+        (TokenId newTokenId, uint128 newPositionSize) = ph.reducedSize(pp, Alice, tokenId);
+
+        // Check that the new position size is smaller
+        assertLt(newPositionSize, initialPositionSize);
+
+        // Check that the new token ID is valid
+        newTokenId.validate();
+
+        // Burn the old position and mint the new one
+        TokenId[] memory postBurnIdList = new TokenId[](0);
+        pp.burnOptions(
+            tokenId,
+            postBurnIdList,
+            Constants.MAX_V3POOL_TICK,
+            Constants.MIN_V3POOL_TICK
+        );
+        posIdList[0] = newTokenId;
+        pp.mintOptions(
+            posIdList,
+            newPositionSize,
+            0,
+            Constants.MAX_V3POOL_TICK,
+            Constants.MIN_V3POOL_TICK
+        );
+
+        // Check that the new position was minted successfully
+        assertEq(sfpm.getAccountPositions(Alice, TokenId.unwrap(newTokenId)), newPositionSize);
+
+        // Check that the option ratios were adjusted correctly
+        for (uint256 i = 0; i < 4; i++) {
+            assertLe(newTokenId.optionRatio(i), tokenId.optionRatio(i));
+        }
+    }
+
+    function test_Success_reducedSizeNoReduction(uint256 seed) public {
+        _initPool(seed);
+
+        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId)
+            .addLeg(0, 1, 0, 1, 1, 0, (200311 / pool.tickSpacing()) * pool.tickSpacing(), 2);
+
+        vm.startPrank(Alice);
+
+        // Mint a small position
+        uint128 initialPositionSize = 1e15;
+        TokenId[] memory posIdList = new TokenId[](1);
+        posIdList[0] = tokenId;
+        pp.mintOptions(
+            posIdList,
+            initialPositionSize,
+            0,
+            Constants.MAX_V3POOL_TICK,
+            Constants.MIN_V3POOL_TICK
+        );
+
+        // Try to reduce the size
+        (TokenId newTokenId, uint128 newPositionSize) = ph.reducedSize(pp, Alice, tokenId);
+
+        // Check that the position size and token ID remain unchanged
+        assertEq(newPositionSize, initialPositionSize);
+        assertEq(TokenId.unwrap(newTokenId), TokenId.unwrap(tokenId));
+    }
+
 }
