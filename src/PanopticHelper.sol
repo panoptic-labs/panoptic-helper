@@ -404,7 +404,7 @@ contract PanopticHelper {
                         Math.mulDiv(
                             currentLiquidity << 96,
                             currentPriceX96,
-                            (currentLiquidity << 96) + Math.mulDiv96(amount, currentPriceX96)
+                            (currentLiquidity << 96) + amount * currentPriceX96
                         )
                     );
                     amountOut += Math.mulDiv96(currentLiquidity, currentPriceX96 - finalPrice);
