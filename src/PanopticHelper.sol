@@ -331,10 +331,15 @@ contract PanopticHelper {
         return true;
     }
 
+    /// @notice Estimated the final sqrtPrice and the amount received for an "exact input" swap
+    /// @param pool the Panoptic pool on top of that trade
+    /// @param amountIn the amount of tokens to be traded (amountIn < 0 means token0-for-token1, amountIn > 0 means token1-for-token0)
+    /// @return finalSqrtPrice the final price after that trade
+    /// @return amountOut the amount of tokens received for that trade
     function quoteFinalPrice(
         PanopticPool pool,
         int256 amountIn
-    ) public view returns (uint160 finalPrice, uint256 amountOut) {
+    ) public view returns (uint160 finalSqrtPrice, uint256 amountOut) {
         IUniswapV3Pool univ3pool = pool.univ3pool();
 
         (uint160 currentPriceX96, int24 currentTick, , , , , ) = univ3pool.slot0();
@@ -356,11 +361,11 @@ contract PanopticHelper {
                 uint256 amountAll = Math.mulDiv96(currentLiquidity, highPriceX96 - currentPriceX96);
 
                 if (amount < amountAll) {
-                    finalPrice =
+                    finalSqrtPrice =
                         currentPriceX96 +
                         uint160(Math.mulDiv(amount, 2 ** 96, currentLiquidity));
                     {
-                        uint160 _f = finalPrice;
+                        uint160 _f = finalSqrtPrice;
                         amountOut +=
                             Math.mulDiv(currentLiquidity << 96, _f - currentPriceX96, _f) /
                             currentPriceX96;
@@ -400,14 +405,14 @@ contract PanopticHelper {
                 ) / currentPriceX96;
 
                 if (amount < amountAll) {
-                    finalPrice = uint160(
+                    finalSqrtPrice = uint160(
                         Math.mulDiv(
                             currentLiquidity << 96,
                             currentPriceX96,
                             (currentLiquidity << 96) + amount * currentPriceX96
                         )
                     );
-                    amountOut += Math.mulDiv96(currentLiquidity, currentPriceX96 - finalPrice);
+                    amountOut += Math.mulDiv96(currentLiquidity, currentPriceX96 - finalSqrtPrice);
                     stop = true;
                 } else {
                     amount -= amountAll;
