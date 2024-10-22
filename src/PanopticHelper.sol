@@ -349,8 +349,11 @@ contract PanopticHelper {
     uint128 MAX_POSITION_SIZE = type(uint128).max;
     uint24 MAX_OPTION_RATIO = type(uint24).max;
 
-    /// @notice generates a tokenID and positionSize that represents the same position as the supplied tokenID and positionSize, but with the optionRatios of each leg scaled upward/downward (and positionSize scaled inversely)
-    /// @dev this is useful if you want to effectively hold the same position but need to avoid minting the same tokenID twice in a row
+    /// @notice generates a tokenID and positionSize that represents the same position as the supplied
+    ///         tokenID and positionSize, but with the optionRatios of each leg scaled upward/downward
+    ///         (and positionSize scaled inversely)
+    /// @dev this is useful if you want to effectively hold the same position but need to avoid minting
+    ///      the same tokenID twice in a row
     /// @param oldPosition The original TokenId
     /// @param oldPositionSize The original position size
     /// @return newPosition The new TokenId with adjusted optionRatios
@@ -414,6 +417,45 @@ contract PanopticHelper {
         }
 
         // If neither of these work, return newPositionSize = 0:
+    }
+
+
+    /// @notice generates a tokenID that represents the same position as the supplied tokenID, but
+    ///         with the optionRatios of each leg scaled upward/downward
+    /// @dev this is useful if you want to effectively hold the same position but need to avoid
+    ///      minting the same tokenID twice in a row
+    /// @param oldPosition The original TokenId
+    /// @param scaleFactor The factor to scale up/down by
+    /// @param scalingUp Whether we're increasing or decreasing each leg.optionRatio
+    /// @return newPosition The new TokenId with adjusted optionRatios
+    function scaledPosition(
+        TokenId oldPosition,
+        uint128 scaleFactor,
+        bool scalingUp
+    ) external pure returns(TokenId newPosition) {
+        Leg[] memory legs = unwrapTokenId(oldPosition);
+
+        uint128[] optionRatios = new uint128[oldPosition.countLegs()];
+        for (uint i = 0; i < oldPosition.countLegs(); i++) {
+            optionRatios[i] = legs[i].optionRatio();
+        }
+
+        newPosition = oldPosition;
+
+        for (uint i = 0; i < optionRatios.length; i++) {
+            if (scalingUp ?
+                  scaleFactor * optionRatios[i] < MAX_OPTION_RATIO :
+                  optionRatios[i] / scaleFactor > 0
+                ) {
+                newPosition = newPosition.overwriteOptionRatio(
+                    scalingUp ? scaleFactor * optionRatios[i] : optionRatios[i] / scaleFactor,
+                    i
+                );
+            } else {
+                // TODO: convert to error message var
+                revert("One of the option ratios cannnot be scaled up or down by the supplied factor");
+            }
+        }
     }
 
     function _lowestNonIdentityFactor(uint128 n) private pure returns (uint128) {
