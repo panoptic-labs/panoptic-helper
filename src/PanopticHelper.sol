@@ -244,28 +244,30 @@ contract PanopticHelper {
     ///                                   the new position size to using
     /// @return newPositionSize The updated size of the new position
     function reduceSizeIfNecessary(
-         PanopticPool pool,
-         address account,
-         TokenId tokenId,
-         // e.g. 90_000 to try and avoid any leg needing > 90% of the net liquidity
-         uint128 netLiquidityUsageLimitBPS
+        PanopticPool pool,
+        address account,
+        TokenId tokenId,
+        // e.g. 90_000 to try and avoid any leg needing > 90% of the net liquidity
+        uint128 netLiquidityUsageLimitBPS
     ) external view returns (uint128 newPositionSize) {
         // Get the details about this position's legs and current size
         TokenIdHelper.Leg[] memory legs = tokenIdHelper.unwrapTokenId(tokenId, address(0));
 
         TokenId[] memory accountsPositionsToGetSizesFor = new TokenId[](1);
         accountsPositionsToGetSizesFor[0] = tokenId;
-        (,,uint256[2][] memory existingPositions) = pool.getAccumulatedFeesAndPositionsData(
+        (, , uint256[2][] memory existingPositions) = pool.getAccumulatedFeesAndPositionsData(
             account,
             false,
             accountsPositionsToGetSizesFor
         );
-        uint128 oldPositionSize = PositionBalance.wrap(
-            // The only position in the list's second item,
-            // which should be the PositionBalance
-            // (first item is the corresponding tokenId)
-            existingPositions[0][1]
-        ).positionSize();
+        uint128 oldPositionSize = PositionBalance
+            .wrap(
+                // The only position in the list's second item,
+                // which should be the PositionBalance
+                // (first item is the corresponding tokenId)
+                existingPositions[0][1]
+            )
+            .positionSize();
 
         // If there are are no longs; sell as much as you're currently selling.
         // (TODO: could be more sophisticated and return the
@@ -274,7 +276,7 @@ contract PanopticHelper {
         newPositionSize = oldPositionSize;
         if (tokenId.countLongs() > 0) {
             // Iterate over each leg and determine if there is enough netLiquidity in the SFPM to burn it.
-            for (uint256 i = 0; i < tokenId.countLegs();) {
+            for (uint256 i = 0; i < tokenId.countLegs(); ) {
                 if (legs[i].isLong == 1) {
                     LeftRightUnsigned liquidityData = SFPM.getAccountLiquidity(
                         legs[i].UniswapV3Pool,
@@ -288,11 +290,15 @@ contract PanopticHelper {
                     if (newPositionSize * legs[i].optionRatio > netLiquidity) {
                         // If not enough liquidity, lower position size to keep util at supplied limit
                         newPositionSize = uint128(
-                            (netLiquidity * netLiquidityUsageLimitBPS) / uint128(10_000) / legs[i].optionRatio
+                            (netLiquidity * netLiquidityUsageLimitBPS) /
+                                uint128(10_000) /
+                                legs[i].optionRatio
                         );
                     }
                 }
-                unchecked { ++i; }
+                unchecked {
+                    ++i;
+                }
             }
         }
     }
@@ -463,10 +469,10 @@ contract PanopticHelper {
     ) external view returns (uint256[][][] memory) {
         uint256[][][] memory chunkData = new uint256[][][](positionIdList.length);
 
-        for (uint256 i; i < positionIdList.length;) {
+        for (uint256 i; i < positionIdList.length; ) {
             uint256[][] memory ithPositionLiquidities = new uint256[][](4);
 
-            for (uint256 j; j < positionIdList[i].countLegs();) {
+            for (uint256 j; j < positionIdList[i].countLegs(); ) {
                 LeftRightUnsigned liquidityData = SFPM.getAccountLiquidity(
                     address(SFPM.getUniswapV3PoolFromId(positionIdList[i].poolId())),
                     account,
@@ -482,11 +488,15 @@ contract PanopticHelper {
                 liquidityDataArr[1] = liquidityData.leftSlot();
                 ithPositionLiquidities[j] = liquidityDataArr;
 
-                unchecked { ++j; }
+                unchecked {
+                    ++j;
+                }
             }
 
             chunkData[i] = ithPositionLiquidities;
-            unchecked { ++i; }
+            unchecked {
+                ++i;
+            }
         }
 
         return chunkData;

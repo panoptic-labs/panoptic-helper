@@ -10,7 +10,6 @@ import {TokenId, TokenIdLibrary} from "@types/TokenId.sol";
 
 /// @title Deployable contract to interact with TokenIds, that comes with extra utils for ease of use
 contract TokenIdHelper {
-
     struct Leg {
         uint64 poolId;
         address UniswapV3Pool;
@@ -332,7 +331,10 @@ contract TokenIdHelper {
     /// @param uniswapV3Pool the pool this position is on, so we can stick it on each leg.\
     ///                      Can pass whatever here if you don't care about its correctness.
     /// @return legs an array of leg structs
-    function unwrapTokenId(TokenId tokenId, address uniswapV3Pool) public pure returns (Leg[] memory) {
+    function unwrapTokenId(
+        TokenId tokenId,
+        address uniswapV3Pool
+    ) public pure returns (Leg[] memory) {
         uint256 numLegs = tokenId.countLegs();
         Leg[] memory legs = new Leg[](numLegs);
 
@@ -413,7 +415,7 @@ contract TokenIdHelper {
     function equivalentPosition(
         TokenId oldPosition,
         uint128 oldPositionSize
-    ) external pure returns(TokenId newPosition, uint128 newPositionSize) {
+    ) external pure returns (TokenId newPosition, uint128 newPositionSize) {
         Leg[] memory legs = unwrapTokenId(oldPosition, address(0));
 
         uint256[] memory optionRatios = new uint256[](legs.length);
@@ -476,8 +478,7 @@ contract TokenIdHelper {
     }
 
     function _lowestNonIdentityFactor(uint256 n) private pure returns (uint256) {
-        for (uint256 i = 2; i <= n; i++)
-            if (n % i == 0) return i;
+        for (uint256 i = 2; i <= n; i++) if (n % i == 0) return i;
     }
 
     function _findLeastCommonDivisor(uint256[] memory numbers) private pure returns (uint256) {
@@ -515,7 +516,7 @@ contract TokenIdHelper {
         TokenId oldPosition,
         uint128 scaleFactor,
         bool scalingUp
-    ) external pure returns(TokenId newPosition) {
+    ) external pure returns (TokenId newPosition) {
         Leg[] memory legs = unwrapTokenId(oldPosition, address(0));
 
         uint256[] memory optionRatios = new uint256[](legs.length);
@@ -526,10 +527,11 @@ contract TokenIdHelper {
         newPosition = oldPosition;
 
         for (uint256 i = 0; i < optionRatios.length; i++) {
-            if (scalingUp ?
-                  scaleFactor * optionRatios[i] < MAX_OPTION_RATIO :
-                  optionRatios[i] / scaleFactor > 0
-                ) {
+            if (
+                scalingUp
+                    ? scaleFactor * optionRatios[i] < MAX_OPTION_RATIO
+                    : optionRatios[i] / scaleFactor > 0
+            ) {
                 newPosition = overwriteOptionRatio(
                     newPosition,
                     scalingUp ? scaleFactor * optionRatios[i] : optionRatios[i] / scaleFactor,
@@ -537,7 +539,9 @@ contract TokenIdHelper {
                 );
             } else {
                 // TODO: convert to error message var
-                revert("One of the option ratios cannnot be scaled up or down by the supplied factor");
+                revert(
+                    "One of the option ratios cannnot be scaled up or down by the supplied factor"
+                );
             }
         }
     }
