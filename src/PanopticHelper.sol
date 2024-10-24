@@ -6,6 +6,7 @@ import "forge-std/Test.sol";
 import {IUniswapV3Pool} from "univ3-core/interfaces/IUniswapV3Pool.sol";
 import {PanopticPool} from "@contracts/PanopticPool.sol";
 import {SemiFungiblePositionManager} from "@contracts/SemiFungiblePositionManager.sol";
+import {TokenIdHelper} from "@helper/TokenIdHelper.sol";
 // Libraries
 import {Constants} from "@libraries/Constants.sol";
 import {PanopticMath} from "@libraries/PanopticMath.sol";
@@ -13,6 +14,7 @@ import {Math} from "@libraries/Math.sol";
 // Custom types
 import {LeftRightUnsigned} from "@types/LeftRight.sol";
 import {TokenId, TokenIdLibrary} from "@types/TokenId.sol";
+import {PositionBalance, PositionBalanceLibrary} from "@types/PositionBalance.sol";
 
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {Base64} from "@openzeppelin/contracts/utils/Base64.sol";
@@ -22,24 +24,15 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 /// @author Axicon Labs Limited
 contract PanopticHelper {
     SemiFungiblePositionManager internal immutable SFPM;
-
-    struct Leg {
-        uint64 poolId;
-        address UniswapV3Pool;
-        uint256 asset;
-        uint256 optionRatio;
-        uint256 tokenType;
-        uint256 isLong;
-        uint256 riskPartner;
-        int24 strike;
-        int24 width;
-    }
+    TokenIdHelper internal immutable tokenIdHelper;
 
     /// @notice Construct the PanopticHelper contract
-    /// @param _SFPM address of the SemiFungiblePositionManager
+    /// @param SFPM_ address of the SemiFungiblePositionManager
+    /// @param tokenIdHelper_ address of the TokenIdHelper to leverage
     /// @dev the SFPM is used to get the pool ID for a given address
-    constructor(SemiFungiblePositionManager _SFPM) payable {
-        SFPM = _SFPM;
+    constructor(SemiFungiblePositionManager SFPM_, TokenIdHelper tokenIdHelper_) payable {
+        SFPM = SFPM_;
+        tokenIdHelper = tokenIdHelper_;
     }
 
     /// @notice Returns the total number of contracts owned by `account` and the pool utilization at mint for a specified `tokenId.
@@ -56,7 +49,7 @@ contract PanopticHelper {
         TokenId[] memory tokenIdList = new TokenId[](1);
         tokenIdList[0] = tokenId;
 
-        (, , uint256[2][] memory positionBalanceArray) = pool.calculateAccumulatedFeesBatch(
+        (, , uint256[2][] memory positionBalanceArray) = pool.getAccumulatedFeesAndPositionsData(
             account,
             false,
             tokenIdList
@@ -91,7 +84,7 @@ contract PanopticHelper {
             LeftRightUnsigned shortPremium,
             LeftRightUnsigned longPremium,
             uint256[2][] memory positionBalanceArray
-        ) = pool.calculateAccumulatedFeesBatch(account, false, positionIdList);
+        ) = pool.getAccumulatedFeesAndPositionsData(account, false, positionIdList);
 
         // Query the current and required collateral amounts for the two tokens
         LeftRightUnsigned tokenData0 = pool.collateralToken0().getAccountMarginDetails(
@@ -239,6 +232,68 @@ contract PanopticHelper {
                 } catch {}
             }
             return lowestTokenId;
+        }
+    }
+
+    /// @notice Evaluates if the supplied position has enough liquidity to be burnt successfully
+    ///         if it does, returns the supplied position size
+    ///         if not, returns what the max position size would be
+    /// @notice account The address of the account to evaluate
+    /// @notice tokenId The TokenId to reduce the size of
+    /// @notice netLiquidityUsageLimitBPS When readusting, the proportion of net liquidity to limit
+    ///                                   the new position size to using
+    /// @return newPositionSize The updated size of the new position
+    function reduceSizeIfNecessary(
+         PanopticPool pool,
+         address account,
+         TokenId tokenId,
+         // e.g. 90_000 to try and avoid any leg needing > 90% of the net liquidity
+         uint128 netLiquidityUsageLimitBPS
+    ) external view returns (uint128 newPositionSize) {
+        // Get the details about this position's legs and current size
+        TokenIdHelper.Leg[] memory legs = tokenIdHelper.unwrapTokenId(tokenId, address(0));
+
+        TokenId[] memory accountsPositionsToGetSizesFor = new TokenId[](1);
+        accountsPositionsToGetSizesFor[0] = tokenId;
+        (,,uint256[2][] memory existingPositions) = pool.getAccumulatedFeesAndPositionsData(
+            account,
+            false,
+            accountsPositionsToGetSizesFor
+        );
+        uint128 oldPositionSize = PositionBalance.wrap(
+            // The only position in the list's second item,
+            // which should be the PositionBalance
+            // (first item is the corresponding tokenId)
+            existingPositions[0][1]
+        ).positionSize();
+
+        // If there are are no longs; sell as much as you're currently selling.
+        // (TODO: could be more sophisticated and return the
+        // actual limit on how much you can sell for this case, even above oldPositionSize)
+        // Else, we'll use the current position size as a max to reduce as need be.
+        newPositionSize = oldPositionSize;
+        if (tokenId.countLongs() > 0) {
+            // Iterate over each leg and determine if there is enough netLiquidity in the SFPM to burn it.
+            for (uint256 i = 0; i < tokenId.countLegs();) {
+                if (legs[i].isLong == 1) {
+                    LeftRightUnsigned liquidityData = SFPM.getAccountLiquidity(
+                        legs[i].UniswapV3Pool,
+                        account,
+                        legs[i].tokenType,
+                        legs[i].strike - (legs[i].width / 2),
+                        legs[i].strike + (legs[i].width / 2)
+                    );
+                    uint128 netLiquidity = liquidityData.rightSlot();
+
+                    if (newPositionSize * legs[i].optionRatio > netLiquidity) {
+                        // If not enough liquidity, lower position size to keep util at supplied limit
+                        newPositionSize = uint128(
+                            (netLiquidity * netLiquidityUsageLimitBPS) / uint128(10_000) / legs[i].optionRatio
+                        );
+                    }
+                }
+                unchecked { ++i; }
+            }
         }
     }
 
@@ -396,6 +451,47 @@ contract PanopticHelper {
         return PanopticMath.twapFilter(univ3pool, twapWindow);
     }
 
+    /// @notice Fetch data about chunks in a positionIdList.
+    /// @param pool The PanopticPool instance corresponding to the pool specified in `TokenId`
+    /// @param account The address of the account to retrieve liquidity data for
+    /// @param positionIdList List of TokenIds to evaluate
+    /// @return chunkData A memory array of [positionIdList.length][4][2] containing netLiquidity and removedLiquidity for each leg
+    function getChunkData(
+        PanopticPool pool,
+        address account,
+        TokenId[] memory positionIdList
+    ) external view returns (uint256[][][] memory) {
+        uint256[][][] memory chunkData = new uint256[][][](positionIdList.length);
+
+        for (uint256 i; i < positionIdList.length;) {
+            uint256[][] memory ithPositionLiquidities = new uint256[][](4);
+
+            for (uint256 j; j < positionIdList[i].countLegs();) {
+                LeftRightUnsigned liquidityData = SFPM.getAccountLiquidity(
+                    address(SFPM.getUniswapV3PoolFromId(positionIdList[i].poolId())),
+                    account,
+                    positionIdList[i].tokenType(j),
+                    positionIdList[i].strike(j) - (positionIdList[i].width(j) / 2),
+                    positionIdList[i].strike(j) + (positionIdList[i].width(j) / 2)
+                );
+
+                uint256[] memory liquidityDataArr = new uint256[](2);
+                // net liquidity:
+                liquidityDataArr[0] = liquidityData.rightSlot();
+                // removed liquidity:
+                liquidityDataArr[1] = liquidityData.leftSlot();
+                ithPositionLiquidities[j] = liquidityDataArr;
+
+                unchecked { ++j; }
+            }
+
+            chunkData[i] = ithPositionLiquidities;
+            unchecked { ++i; }
+        }
+
+        return chunkData;
+    }
+
     /// @notice Returns the net assets (balance - maintenance margin) of a given account on a given pool.
     /// @dev does not work for very large tick gradients.
     /// @param pool address of the pool
@@ -417,29 +513,6 @@ contract PanopticHelper {
         );
 
         return int256(balanceCross) - int256(requiredCross);
-    }
-
-    /// @notice Unwraps the contents of the tokenId into its legs.
-    /// @param tokenId the input tokenId
-    /// @return legs an array of leg structs
-    function unwrapTokenId(TokenId tokenId) public view returns (Leg[] memory) {
-        uint256 numLegs = tokenId.countLegs();
-        Leg[] memory legs = new Leg[](numLegs);
-
-        uint64 poolId = tokenId.poolId();
-        address UniswapV3Pool = address(SFPM.getUniswapV3PoolFromId(tokenId.poolId()));
-        for (uint256 i = 0; i < numLegs; ++i) {
-            legs[i].poolId = poolId;
-            legs[i].UniswapV3Pool = UniswapV3Pool;
-            legs[i].asset = tokenId.asset(i);
-            legs[i].optionRatio = tokenId.optionRatio(i);
-            legs[i].tokenType = tokenId.tokenType(i);
-            legs[i].isLong = tokenId.isLong(i);
-            legs[i].riskPartner = tokenId.riskPartner(i);
-            legs[i].strike = tokenId.strike(i);
-            legs[i].width = tokenId.width(i);
-        }
-        return legs;
     }
 
     /// @notice Returns an estimate of the downside liquidation price for a given account on a given pool.

@@ -24,6 +24,7 @@ import {PanopticPool} from "@contracts/PanopticPool.sol";
 import {CollateralTracker} from "@contracts/CollateralTracker.sol";
 import {PanopticFactory} from "@contracts/PanopticFactory.sol";
 import {PanopticHelper} from "../src/PanopticHelper.sol";
+import {TokenIdHelper} from "../src/TokenIdHelper.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {PositionUtils} from "lib/panoptic-v1-core/test/foundry/testUtils/PositionUtils.sol";
 import {UniPoolPriceMock} from "lib/panoptic-v1-core/test/foundry/testUtils/PriceMocks.sol";
@@ -116,6 +117,7 @@ contract PanopticHelperTest is PositionUtils {
     PanopticFactory factory;
     PanopticPoolHarness pp;
     PanopticHelper ph;
+    TokenIdHelper tih;
     CollateralTracker ct0;
     CollateralTracker ct1;
 
@@ -379,7 +381,8 @@ contract PanopticHelperTest is PositionUtils {
 
     function setUp() public {
         sfpm = new SemiFungiblePositionManagerHarness(V3FACTORY);
-        ph = new PanopticHelper(SemiFungiblePositionManager(sfpm));
+        tih = new TokenIdHelper();
+        ph = new PanopticHelper(SemiFungiblePositionManager(sfpm), tih);
 
         // deploy reference pool and collateral token
         poolReference = address(new PanopticPoolHarness(sfpm));
@@ -587,7 +590,7 @@ contract PanopticHelperTest is PositionUtils {
         );
         tokenId.validate();
 
-        PanopticHelper.Leg memory inputLeg = PanopticHelper.Leg({
+        TokenIdHelper.Leg memory inputLeg = TokenIdHelper.Leg({
             poolId: poolId,
             UniswapV3Pool: address(pool),
             optionRatio: optionRatio,
@@ -601,7 +604,8 @@ contract PanopticHelperTest is PositionUtils {
 
         uint256 keccakIn = uint256(keccak256(abi.encode(inputLeg)));
 
-        PanopticHelper.Leg[] memory unwrappedLeg = ph.unwrapTokenId(tokenId);
+        address UniswapV3Pool = address(sfpm.getUniswapV3PoolFromId(tokenId.poolId()));
+        TokenIdHelper.Leg[] memory unwrappedLeg = tih.unwrapTokenId(tokenId, UniswapV3Pool);
         uint256 keccakOut = uint256(keccak256(abi.encode(unwrappedLeg[0])));
 
         assertEq(keccakIn, keccakOut);
@@ -647,8 +651,8 @@ contract PanopticHelperTest is PositionUtils {
             tokenId = tokenId.addWidth(width, 1);
         }
         tokenId.validate();
-        PanopticHelper.Leg[2] memory inputLeg;
-        inputLeg[0] = PanopticHelper.Leg({
+        TokenIdHelper.Leg[2] memory inputLeg;
+        inputLeg[0] = TokenIdHelper.Leg({
             poolId: poolId,
             UniswapV3Pool: address(pool),
             optionRatio: optionRatio,
@@ -659,7 +663,7 @@ contract PanopticHelperTest is PositionUtils {
             strike: strike1,
             width: width
         });
-        inputLeg[1] = PanopticHelper.Leg({
+        inputLeg[1] = TokenIdHelper.Leg({
             poolId: poolId,
             UniswapV3Pool: address(pool),
             optionRatio: optionRatio,
@@ -673,8 +677,9 @@ contract PanopticHelperTest is PositionUtils {
 
         uint256 keccakIn = uint256(keccak256(abi.encode(inputLeg)));
 
-        PanopticHelper.Leg[] memory unwrappedLeg = ph.unwrapTokenId(tokenId);
-        PanopticHelper.Leg[2] memory outputLeg;
+        address UniswapV3Pool = address(sfpm.getUniswapV3PoolFromId(tokenId.poolId()));
+        TokenIdHelper.Leg[] memory unwrappedLeg = tih.unwrapTokenId(tokenId, UniswapV3Pool);
+        TokenIdHelper.Leg[2] memory outputLeg;
         outputLeg[0] = unwrappedLeg[0];
         outputLeg[1] = unwrappedLeg[1];
         uint256 keccakOut = uint256(keccak256(abi.encode(outputLeg)));
@@ -687,7 +692,7 @@ contract PanopticHelperTest is PositionUtils {
         _initPool(x);
 
         uint256 numberOfLegs = uint256((seed % 4) + 1);
-        PanopticHelper.Leg[] memory inputLeg = new PanopticHelper.Leg[](numberOfLegs);
+        TokenIdHelper.Leg[] memory inputLeg = new TokenIdHelper.Leg[](numberOfLegs);
 
         TokenId tokenId = TokenId.wrap(0).addPoolId(poolId);
 
@@ -732,7 +737,7 @@ contract PanopticHelperTest is PositionUtils {
             tokenId = tokenId.addWidth(width, i);
 
             // add to input array of legs
-            PanopticHelper.Leg memory _Leg = PanopticHelper.Leg({
+            TokenIdHelper.Leg memory _Leg = TokenIdHelper.Leg({
                 poolId: poolId,
                 UniswapV3Pool: address(pool),
                 optionRatio: optionRatio,
@@ -758,7 +763,8 @@ contract PanopticHelperTest is PositionUtils {
 
         tokenId.validate();
 
-        PanopticHelper.Leg[] memory unwrappedLeg = ph.unwrapTokenId(tokenId);
+        address UniswapV3Pool = address(sfpm.getUniswapV3PoolFromId(tokenId.poolId()));
+        TokenIdHelper.Leg[] memory unwrappedLeg = tih.unwrapTokenId(tokenId, UniswapV3Pool);
 
         uint256 keccakIn = uint256(keccak256(abi.encode(inputLeg)));
 
@@ -776,7 +782,7 @@ contract PanopticHelperTest is PositionUtils {
 
         uint256 numberOfLegs = 4;
 
-        PanopticHelper.Leg[] memory inputLeg = new PanopticHelper.Leg[](numberOfLegs);
+        TokenIdHelper.Leg[] memory inputLeg = new TokenIdHelper.Leg[](numberOfLegs);
 
         TokenId[10] memory riskArray;
         riskArray[0] = TokenId
@@ -894,7 +900,7 @@ contract PanopticHelperTest is PositionUtils {
             tokenId = tokenId.addWidth(width, i);
 
             // add to input array of legs
-            PanopticHelper.Leg memory _Leg = PanopticHelper.Leg({
+            TokenIdHelper.Leg memory _Leg = TokenIdHelper.Leg({
                 poolId: poolId,
                 UniswapV3Pool: address(pool),
                 optionRatio: optionRatio,
@@ -919,7 +925,8 @@ contract PanopticHelperTest is PositionUtils {
         }
 
         tokenId.validate();
-        PanopticHelper.Leg[] memory unwrappedLeg = ph.unwrapTokenId(tokenId);
+        address UniswapV3Pool = address(sfpm.getUniswapV3PoolFromId(tokenId.poolId()));
+        TokenIdHelper.Leg[] memory unwrappedLeg = tih.unwrapTokenId(tokenId, UniswapV3Pool);
 
         uint256 keccakIn = uint256(keccak256(abi.encode(inputLeg)));
 
@@ -937,7 +944,7 @@ contract PanopticHelperTest is PositionUtils {
 
         uint256 numberOfLegs = 4;
 
-        PanopticHelper.Leg[] memory inputLeg = new PanopticHelper.Leg[](numberOfLegs);
+        TokenIdHelper.Leg[] memory inputLeg = new TokenIdHelper.Leg[](numberOfLegs);
 
         TokenId[10] memory riskArray;
         riskArray[0] = TokenId
@@ -1055,7 +1062,7 @@ contract PanopticHelperTest is PositionUtils {
             tokenId = tokenId.addWidth(width, i);
 
             // add to input array of legs
-            PanopticHelper.Leg memory _Leg = PanopticHelper.Leg({
+            TokenIdHelper.Leg memory _Leg = TokenIdHelper.Leg({
                 poolId: poolId,
                 UniswapV3Pool: address(pool),
                 optionRatio: optionRatio,
@@ -1090,7 +1097,8 @@ contract PanopticHelperTest is PositionUtils {
         }
 
         tokenId.validate();
-        PanopticHelper.Leg[] memory unwrappedLeg = ph.unwrapTokenId(tokenId);
+        address UniswapV3Pool = address(sfpm.getUniswapV3PoolFromId(tokenId.poolId()));
+        TokenIdHelper.Leg[] memory unwrappedLeg = tih.unwrapTokenId(tokenId, UniswapV3Pool);
 
         uint256 keccakIn = uint256(keccak256(abi.encode(inputLeg)));
 
@@ -1107,7 +1115,7 @@ contract PanopticHelperTest is PositionUtils {
         console2.log("seed", seed);
         uint256 numberOfLegs = ((seed >> 222) % 4) + 1;
 
-        PanopticHelper.Leg[] memory inputLeg = new PanopticHelper.Leg[](numberOfLegs);
+        TokenIdHelper.Leg[] memory inputLeg = new TokenIdHelper.Leg[](numberOfLegs);
 
         TokenId tokenId = TokenId.wrap(0).addPoolId(poolId);
 
@@ -1158,7 +1166,7 @@ contract PanopticHelperTest is PositionUtils {
             tokenId = tokenId.addWidth(width, i);
 
             // add to input array of legs
-            PanopticHelper.Leg memory _Leg = PanopticHelper.Leg({
+            TokenIdHelper.Leg memory _Leg = TokenIdHelper.Leg({
                 poolId: poolId,
                 UniswapV3Pool: address(pool),
                 optionRatio: optionRatio,
@@ -1263,7 +1271,7 @@ contract PanopticHelperTest is PositionUtils {
                 LeftRightUnsigned shortPremium,
                 LeftRightUnsigned longPremium,
                 uint256[2][] memory posBalanceArray
-            ) = pp.calculateAccumulatedFeesBatch(Alice, false, posIdList);
+            ) = pp.getAccumulatedFeesAndPositionsData(Alice, false, posIdList);
 
             tokenData0 = ct0.getAccountMarginDetails(
                 Alice,
