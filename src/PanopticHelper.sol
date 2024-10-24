@@ -642,7 +642,7 @@ contract PanopticHelper {
         uint256[2][] memory positionBalance = new uint256[2][](1);
         {
             positionBalance[0][0] = TokenId.unwrap(tokenId);
-            positionBalance[0][1] = uint256(positionSize) + uint256(utilizations << 128);
+            positionBalance[0][1] = uint256(positionSize) + (uint256(utilizations) << 128);
         }
         {
             (, int24 tick, , , , , ) = pool.univ3pool().slot0();
