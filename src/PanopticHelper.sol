@@ -764,12 +764,14 @@ contract PanopticHelper {
         uint128 startSize = getStartSize(pool, account, newTokenId);
 
         // get the max size for covered minting: coveredSize is bounded by the maximum amount of tokens in the user's account to mint a covered position
-        coveredSize = getCoveredSize(pool, account, newTokenId);
+        coveredSize = getCoveredSize(pool, account, newTokenId, startSize);
 
         // get the max size for naked minting: nakedSize is bounded by the collateral requirement of the new mint (with swapAtMint), where newCollateralRequirement = 3/4 * balance
-        // do it twice so that the pool utilization is more accurate the second time
-
         nakedSize = getNakedSize(pool, account, newTokenId, positionIdList, startSize);
+
+        // scales size by: maximum amount of available liquidity for longs. Scaled coveredSize so that it's never larger than nakedSize
+        nakedSize = uint128(Math.min(maxAvailableLong, nakedSize));
+        coveredSize = uint128(Math.min(nakedSize, coveredSize));
     }
 
     /// @notice finds the absolute maximum size of the position, based on the amounts of tokens that need to be moved to Uniswap
@@ -797,8 +799,8 @@ contract PanopticHelper {
         PanopticPool pool,
         TokenId newTokenId
     ) internal view returns (uint128 maxAvailableSize) {
+        maxAvailableSize = type(uint128).max;
         if (newTokenId.countLongs() > 0) {
-            maxAvailableSize = type(uint128).max;
             for (uint256 i; i < newTokenId.countLegs(); ++i) {
                 if (newTokenId.isLong(i) == 1) {
                     (
@@ -847,8 +849,10 @@ contract PanopticHelper {
     function getCoveredSize(
         PanopticPool pool,
         address account,
-        TokenId newTokenId
+        TokenId newTokenId,
+        uint128 startSize
     ) internal view returns (uint128 coveredSize) {
+        coveredSize = startSize;
         (uint160 sqrtPriceX96, int24 currentTick, , , , , ) = pool.univ3pool().slot0();
         uint256 balance0 = pool.collateralToken0().convertToAssets(
             pool.collateralToken0().balanceOf(account)
@@ -857,12 +861,16 @@ contract PanopticHelper {
             pool.collateralToken1().balanceOf(account)
         );
 
-        (int256 net0, int256 net1) = inTheMoneyAmounts(newTokenId, 2 ** 64, currentTick);
+        (int256 net0, int256 net1) = inTheMoneyAmounts(newTokenId, startSize, currentTick);
+
+        console2.log("bal0, bal1", balance0, balance1);
+        console2.log("net0", net0);
+        console2.log("net1", net1);
 
         if (net0 < 0) {
-            coveredSize = uint128((balance0 * 2 ** 64) / uint256(-net0));
+            coveredSize = uint128((balance0 * startSize) / uint256(-net0));
         } else if (net1 < 0) {
-            coveredSize = uint128((balance1 * 2 ** 64) / uint256(-net1));
+            coveredSize = uint128((balance1 * startSize) / uint256(-net1));
         }
     }
 
