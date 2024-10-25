@@ -1326,18 +1326,10 @@ contract PanopticHelperTest is PositionUtils {
         // mint position with long legs
         {
             TokenId tokenId2 = TokenId
-            .wrap(0)
-            .addPoolId(poolId)
-            .addLeg(0, 1, 0, 1, 1, 1, (200311 / pool.tickSpacing()) * pool.tickSpacing(), 2).addLeg( // long
-                    1,
-                    1,
-                    0,
-                    0,
-                    1,
-                    0,
-                    (199051 / pool.tickSpacing()) * pool.tickSpacing(),
-                    2
-                ); // short
+                .wrap(0)
+                .addPoolId(poolId)
+                .addLeg(0, 1, 0, 1, 1, 1, (200311 / pool.tickSpacing()) * pool.tickSpacing(), 2)
+                .addLeg(1, 1, 0, 0, 1, 0, (199051 / pool.tickSpacing()) * pool.tickSpacing(), 2); // long // short
 
             (uint128 coveredSize, uint128 positionSize) = ph.sizePosition(
                 pp,
