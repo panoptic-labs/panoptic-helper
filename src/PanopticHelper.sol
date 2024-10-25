@@ -612,37 +612,20 @@ contract PanopticHelper {
     /// @param account Address of the user that would take the position
     /// @param tokenId A TokenId describing the position
     /// @param positionSize The size of the position
-    /// @return The threshold for margin call in token0
-    /// @return The threshold for margin call in token1
+    /// @return the threshold for margin call in token0
+    /// @return the threshold for margin call in token1
     function positionBuyingPowerRequirement(
         PanopticPool pool,
         address account,
         TokenId tokenId,
         uint128 positionSize
     ) public view returns (uint128, uint128) {
-        uint128 utilizations;
-        {
-            (uint256 poolAssets0, uint256 insideAMM0, ) = pool.collateralToken0().getPoolData();
-
-            (uint256 poolAssets1, uint256 insideAMM1, ) = pool.collateralToken1().getPoolData();
-
-            (, int24 currentTick, , , , , ) = PanopticPool(pool).univ3pool().slot0();
-
-            (int256 net0, int256 net1) = getTokenFlow(tokenId, positionSize, currentTick);
-
-            int256 newPoolUtilization0 = (10000 * (int256(insideAMM0) + net0)) /
-                (int256(poolAssets0) + int256(insideAMM0) + net0);
-            int256 newPoolUtilization1 = (10000 * (int256(insideAMM1) + net1)) /
-                (int256(poolAssets1) + int256(insideAMM1) + net1);
-            utilizations =
-                uint128(uint256(newPoolUtilization0)) +
-                uint128(uint256(newPoolUtilization1) << 16);
-        }
+        uint128 utilizations = getNewUtilizations(pool, tokenId, positionSize);
 
         uint256[2][] memory positionBalance = new uint256[2][](1);
         {
             positionBalance[0][0] = TokenId.unwrap(tokenId);
-            positionBalance[0][1] = uint256(positionSize) + uint256(utilizations << 128);
+            positionBalance[0][1] = uint256(positionSize) + (uint256(utilizations) << 128);
         }
         {
             (, int24 tick, , , , , ) = pool.univ3pool().slot0();
@@ -662,8 +645,57 @@ contract PanopticHelper {
                 0,
                 0
             );
+
+            (uint256 balanceA, uint256 requiredA) = PanopticMath.getCrossBalances(
+                tokenData0,
+                tokenData1,
+                Math.getSqrtRatioAtTick(tick)
+            );
+
             return (tokenData0.leftSlot(), tokenData1.leftSlot());
         }
+    }
+
+    function getNewUtilizations(
+        PanopticPool pool,
+        TokenId tokenId,
+        uint128 positionSize
+    ) internal view returns (uint128 utilizations) {
+        (, int24 currentTick, , , , , ) = PanopticPool(pool).univ3pool().slot0();
+        int256 deltaA0;
+        int256 deltaA1;
+        {
+            (int256 itm0, int256 itm1) = inTheMoneyAmounts(tokenId, positionSize, currentTick);
+            (int256 net0, int256 net1) = getTokenFlow(tokenId, positionSize, currentTick);
+            (deltaA0, deltaA1) = itm0 < 0
+                ? (
+                    net0 + itm0,
+                    net1 + PanopticMath.convert0to1(-itm0, Math.getSqrtRatioAtTick(currentTick))
+                )
+                : (
+                    net0 + PanopticMath.convert1to0(-itm1, Math.getSqrtRatioAtTick(currentTick)),
+                    net1 + itm1
+                );
+        }
+
+        (uint256 poolAssets0, uint256 insideAMM0, ) = pool.collateralToken0().getPoolData();
+
+        (uint256 poolAssets1, uint256 insideAMM1, ) = pool.collateralToken1().getPoolData();
+
+        (LeftRightSigned longAmounts, LeftRightSigned shortAmounts) = PanopticMath
+            .computeExercisedAmounts(tokenId, positionSize);
+        LeftRightSigned netMoved = shortAmounts.sub(longAmounts);
+
+        int256 moved0 = int256(netMoved.rightSlot());
+        int256 moved1 = int256(netMoved.leftSlot());
+
+        int256 newPoolUtilization0 = (10000 * (int256(insideAMM0) + moved0)) /
+            (int256(poolAssets0) - deltaA0 + moved0);
+        int256 newPoolUtilization1 = (10000 * (int256(insideAMM1) + moved1)) /
+            (int256(poolAssets1) - deltaA1 + moved1);
+        utilizations =
+            uint128(uint256(newPoolUtilization0)) +
+            uint128(uint256(newPoolUtilization1) << 16);
     }
 
     function inTheMoneyAmounts(
@@ -675,6 +707,7 @@ contract PanopticHelper {
 
         (LeftRightSigned longAmounts, LeftRightSigned shortAmounts) = PanopticMath
             .computeExercisedAmounts(tokenId, positionSize);
+
         LeftRightSigned netMoved = shortAmounts.sub(longAmounts);
 
         return (int256((netMoved.rightSlot())) - net0, int256((netMoved.leftSlot())) - net1);
@@ -723,18 +756,41 @@ contract PanopticHelper {
         address account,
         TokenId[] calldata positionIdList,
         TokenId newTokenId
-    ) external view returns (uint128 maxAvailableSize, uint128 coveredSize, uint128 nakedSize) {
+    ) external view returns (uint128 coveredSize, uint128 nakedSize) {
         // get the max size for long legs: maxAvailableSize is bounded by available liquidity to purchase if there are any long legs
-        maxAvailableSize = getAvailableLongSize(pool, newTokenId);
+        uint256 maxAvailableLong = getAvailableLongSize(pool, newTokenId);
+
+        // get the max size from the available pool assets
+        uint128 startSize = getStartSize(pool, account, newTokenId);
 
         // get the max size for covered minting: coveredSize is bounded by the maximum amount of tokens in the user's account to mint a covered position
-        //coveredSize = getCoveredSize(pool, account, newTokenId);
+        coveredSize = getCoveredSize(pool, account, newTokenId);
 
-        //console2.log('coveredSize', coveredSize);
         // get the max size for naked minting: nakedSize is bounded by the collateral requirement of the new mint (with swapAtMint), where newCollateralRequirement = 3/4 * balance
         // do it twice so that the pool utilization is more accurate the second time
-        nakedSize = getNakedSize(pool, account, newTokenId, positionIdList, 2 ** 64);
-        nakedSize = getNakedSize(pool, account, newTokenId, positionIdList, nakedSize);
+
+        nakedSize = getNakedSize(pool, account, newTokenId, positionIdList, startSize);
+    }
+
+    /// @notice finds the absolute maximum size of the position, based on the amounts of tokens that need to be moved to Uniswap
+    function getStartSize(
+        PanopticPool pool,
+        address account,
+        TokenId newTokenId
+    ) internal view returns (uint128 startSize) {
+        (LeftRightSigned longAmounts, LeftRightSigned shortAmounts) = PanopticMath
+            .computeExercisedAmounts(newTokenId, 2 ** 64);
+        LeftRightSigned netMoved = shortAmounts.sub(longAmounts);
+
+        uint256 net0 = uint256(Math.max(netMoved.rightSlot(), 1));
+        uint256 net1 = uint256(Math.max(netMoved.leftSlot(), 1));
+
+        (uint256 balance0, , ) = pool.collateralToken0().getPoolData();
+        (uint256 balance1, , ) = pool.collateralToken1().getPoolData();
+
+        startSize = uint128(Math.min((balance0 * 2 ** 64) / net0, (balance1 * 2 ** 64) / net1));
+
+        startSize = uint128(Math.min(startSize, 2 ** 64));
     }
 
     function getAvailableLongSize(
@@ -803,10 +859,10 @@ contract PanopticHelper {
 
         (int256 net0, int256 net1) = inTheMoneyAmounts(newTokenId, 2 ** 64, currentTick);
 
-        if (net0 > 0) {
-            coveredSize = uint128((998 * balance0 * 2 ** 64) / uint256(net0 * 1000));
-        } else if (net1 > 0) {
-            coveredSize = uint128((998 * balance1 * 2 ** 64) / uint256(net1 * 1000));
+        if (net0 < 0) {
+            coveredSize = uint128((balance0 * 2 ** 64) / uint256(-net0));
+        } else if (net1 < 0) {
+            coveredSize = uint128((balance1 * 2 ** 64) / uint256(-net1));
         }
     }
 
@@ -816,7 +872,7 @@ contract PanopticHelper {
         TokenId newTokenId,
         TokenId[] calldata positionIdList,
         uint128 startSize
-    ) internal view returns (uint128 nakedSize) {
+    ) internal view returns (uint128) {
         // get the max size for naked mints, ITM amounts are swapped
 
         (uint160 sqrtPriceX96, int24 currentTick, , , , , ) = pool.univ3pool().slot0();
@@ -832,32 +888,63 @@ contract PanopticHelper {
 
             availableCross = balanceCross - (4 * requiredCross) / 3;
         }
-        int256 deltaB;
-        int256 deltaR;
-        {
-            (uint128 required0, uint128 required1) = positionBuyingPowerRequirement(
-                pool,
-                account,
-                newTokenId,
-                startSize
-            );
 
-            (int256 net0, int256 net1) = inTheMoneyAmounts(newTokenId, startSize, currentTick);
+        uint128 left = 1;
+        uint128 right = startSize;
 
-            if (currentTick < 0) {
-                deltaR = int256(required0 + PanopticMath.convert1to0(required1, sqrtPriceX96));
-                deltaB = net0 + PanopticMath.convert1to0(net1, sqrtPriceX96);
+        PanopticPool _pool = pool;
+        address _account = account;
+        TokenId _newTokenId = newTokenId;
+        int24 _currentTick = currentTick;
+        uint160 _sqrtPriceX96 = sqrtPriceX96;
+        while (left <= right) {
+            uint128 mid = left + (right - left) / 2;
+            uint128 value;
+
+            {
+                (uint128 required0, uint128 required1) = positionBuyingPowerRequirement(
+                    _pool,
+                    _account,
+                    _newTokenId,
+                    mid
+                );
+
+                int256 deltaB;
+                int256 deltaR;
+                (int256 itm0, int256 itm1) = inTheMoneyAmounts(_newTokenId, mid, _currentTick);
+
+                if (_currentTick < 0) {
+                    deltaR = int256(required0 + PanopticMath.convert1to0(required1, _sqrtPriceX96));
+                    deltaB = itm0 + PanopticMath.convert1to0(itm1, _sqrtPriceX96);
+                } else {
+                    deltaR = int256(required1 + PanopticMath.convert0to1(required0, _sqrtPriceX96));
+                    deltaB = itm1 + PanopticMath.convert0to1(itm0, _sqrtPriceX96);
+                }
+                int256 delta = ((4 * deltaR) / 3 - deltaB);
+                //int256 delta = int256(availableCross * startSize) / ((4 * deltaR) / 3 - deltaB);
+
+                value = delta > 0 ? uint128(uint256(delta)) : 0;
+            }
+
+            // Check if we found the target within tolerance
+            if (
+                value <= (availableCross * (10000 + 1)) / 10000 &&
+                value >= (availableCross * (10000 - 1)) / 10000
+            ) {
+                return mid;
+            }
+
+            // If we didn't find it, continue searching
+            if (value < availableCross) {
+                // Prevent overflow
+                if (mid == right) return mid;
+                left = mid + 1;
             } else {
-                deltaR = int256(required1 + PanopticMath.convert0to1(required0, sqrtPriceX96));
-                deltaB = net1 + PanopticMath.convert0to1(net0, sqrtPriceX96);
+                // Prevent underflow
+                if (mid == left) return mid;
+                right = mid - 1;
             }
         }
-
-        int256 delta = int256(availableCross * startSize) / ((4 * deltaR) / 3 - deltaB);
-
-        nakedSize = uint128(98 * uint256(delta)) / 100;
-
-        return nakedSize;
     }
 
     /// @notice Checks whether a prospective position to mint is valid.
