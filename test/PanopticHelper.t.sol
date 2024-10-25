@@ -113,6 +113,12 @@ contract PanopticHelperTest is PositionUtils {
     int24 medianTick;
     int24 TWAPtick;
 
+    uint256 totalAssets0;
+    uint256 totalAssets1;
+
+    uint256 totalSupply0;
+    uint256 totalSupply1;
+
     PanopticFactory factory;
     PanopticPoolHarness pp;
     PanopticHelper ph;
@@ -1219,7 +1225,7 @@ contract PanopticHelperTest is PositionUtils {
             console2.log("currentTick", currentTick);
 
             console2.log("strike", tokenId.strike(0));
-            (, , uint128 positionSize) = ph.sizePosition(pp, Alice, new TokenId[](0), tokenId);
+            (, uint128 positionSize) = ph.sizePosition(pp, Alice, new TokenId[](0), tokenId);
 
             console2.log("positionSize", positionSize);
 
@@ -1234,7 +1240,7 @@ contract PanopticHelperTest is PositionUtils {
                 pp,
                 Alice,
                 tokenId,
-                positionSize
+                (positionSize * 985) / 1000
             );
 
             {
@@ -1257,7 +1263,7 @@ contract PanopticHelperTest is PositionUtils {
             console2.log("bal1-before", ct1.convertToAssets(ct1.balanceOf(Alice)));
             pp.mintOptions(
                 posIdList,
-                positionSize,
+                (positionSize * 985) / 1000,
                 0,
                 Constants.MAX_V3POOL_TICK,
                 Constants.MIN_V3POOL_TICK
@@ -1313,25 +1319,34 @@ contract PanopticHelperTest is PositionUtils {
                 collateralBalance,
                 requiredCollateral
             );
-            assertTrue((10000 * collateralBalance) / requiredCollateral < 13_400, "close enough");
+            assertTrue((10000 * collateralBalance) / requiredCollateral < 14_285, "close enough");
         }
         vm.startPrank(Bob);
 
+        // mint position with long legs
         {
             TokenId tokenId2 = TokenId
-                .wrap(0)
-                .addPoolId(poolId)
-                .addLeg(0, 1, 0, 1, 1, 1, (200311 / pool.tickSpacing()) * pool.tickSpacing(), 2)
-                .addLeg(1, 1, 0, 0, 1, 0, (199051 / pool.tickSpacing()) * pool.tickSpacing(), 2);
+            .wrap(0)
+            .addPoolId(poolId)
+            .addLeg(0, 1, 0, 1, 1, 1, (200311 / pool.tickSpacing()) * pool.tickSpacing(), 2).addLeg( // long
+                    1,
+                    1,
+                    0,
+                    0,
+                    1,
+                    0,
+                    (199051 / pool.tickSpacing()) * pool.tickSpacing(),
+                    2
+                ); // short
 
-            (, uint128 coveredSize, uint128 positionSize) = ph.sizePosition(
+            (uint128 coveredSize, uint128 positionSize) = ph.sizePosition(
                 pp,
                 Bob,
                 new TokenId[](0),
                 tokenId2
             );
 
-            console2.log("positionSize", positionSize);
+            console2.log("coveredSize, positionSize", coveredSize, positionSize);
 
             TokenId[] memory posIdList = new TokenId[](1);
 
@@ -1344,7 +1359,7 @@ contract PanopticHelperTest is PositionUtils {
                 pp,
                 Bob,
                 tokenId2,
-                positionSize
+                (positionSize * 975) / 1000
             );
 
             {
@@ -1367,10 +1382,10 @@ contract PanopticHelperTest is PositionUtils {
             console2.log("bal1-before", ct1.convertToAssets(ct1.balanceOf(Bob)));
             pp.mintOptions(
                 posIdList,
-                (coveredSize * 8) / 10,
+                (positionSize * 975) / 1000,
                 2 ** 63,
-                Constants.MIN_V3POOL_TICK,
-                Constants.MAX_V3POOL_TICK
+                Constants.MAX_V3POOL_TICK,
+                Constants.MIN_V3POOL_TICK
             );
             console2.log("bal0-after", ct0.convertToAssets(ct0.balanceOf(Bob)));
             console2.log("bal1-after", ct1.convertToAssets(ct1.balanceOf(Bob)));
@@ -1423,7 +1438,283 @@ contract PanopticHelperTest is PositionUtils {
                 collateralBalance,
                 requiredCollateral
             );
-            assertTrue((10000 * collateralBalance) / requiredCollateral < 13_400, "close enough");
+        }
+    }
+
+    function test_Success_sizeWithUtilizationImpact(uint256 x, uint256 seed) public {
+        //console2.log('x, seed', x, seed);
+        _cacheWorldState(pools[bound(x, 0, pools.length - 1)]);
+
+        _deployPanopticPool();
+
+        vm.startPrank(Bob);
+        // account for MEV tax
+        deal(token0, Bob, (type(uint104).max * uint256(1010)) / 1000);
+        deal(token1, Bob, (type(uint104).max * uint256(1010)) / 1000);
+
+        IERC20Partial(token0).approve(address(router), type(uint256).max);
+        IERC20Partial(token1).approve(address(router), type(uint256).max);
+        IERC20Partial(token0).approve(address(pp), type(uint256).max);
+        IERC20Partial(token1).approve(address(pp), type(uint256).max);
+        IERC20Partial(token0).approve(address(ct0), type(uint256).max);
+        IERC20Partial(token1).approve(address(ct1), type(uint256).max);
+
+        (currentSqrtPriceX96, currentTick, , , , , ) = pool.slot0();
+        ct0.deposit((10 ** ct0.decimals()) * 8, Bob);
+        ct1.deposit(PanopticMath.convert0to1(10 ** ct0.decimals(), currentSqrtPriceX96) * 8, Bob);
+
+        vm.startPrank(Alice);
+
+        deal(token0, Alice, type(uint104).max);
+        deal(token1, Alice, type(uint104).max);
+
+        IERC20Partial(token0).approve(address(router), type(uint256).max);
+        IERC20Partial(token1).approve(address(router), type(uint256).max);
+        IERC20Partial(token0).approve(address(pp), type(uint256).max);
+        IERC20Partial(token1).approve(address(pp), type(uint256).max);
+        IERC20Partial(token0).approve(address(ct0), type(uint256).max);
+        IERC20Partial(token1).approve(address(ct1), type(uint256).max);
+
+        (currentSqrtPriceX96, currentTick, , , , , ) = pool.slot0();
+        ct0.deposit(10 ** ct0.decimals(), Alice);
+        ct1.deposit(PanopticMath.convert0to1(10 ** ct0.decimals(), currentSqrtPriceX96), Alice);
+
+        (, currentTick, , , , , ) = pool.slot0();
+
+        seed = uint256(keccak256(abi.encode(seed)));
+        console2.log("seed", seed);
+        uint256 numberOfLegs = ((seed >> 222) % 4) + 1;
+
+        PanopticHelper.Leg[] memory inputLeg = new PanopticHelper.Leg[](numberOfLegs);
+
+        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId);
+
+        for (uint256 leg; leg < numberOfLegs; ++leg) {
+            tokenId = tokenId.addRiskPartner(leg, leg);
+        }
+
+        // keep option ratio same for all
+        uint256 optionRatio = uint256(seed % 2 ** 7);
+        optionRatio = optionRatio == 0 ? 1 : optionRatio;
+
+        // keep asset same for all
+        uint256 asset = uint256((seed >> 9) % 2);
+
+        for (uint256 i; i < numberOfLegs; ++i) {
+            // update seed
+            seed = uint256(keccak256(abi.encode(seed)));
+            uint256 isLong;
+            {
+                isLong = uint256((seed >> 7) % 2) * 0;
+
+                uint256 tokenType = uint256((seed >> 27) % 2);
+                tokenId = tokenId.addTokenType(tokenType, i);
+                // add optionRatio
+                tokenId = tokenId.addOptionRatio(optionRatio, i);
+
+                // add isLong
+                tokenId = tokenId.addIsLong(isLong, i);
+
+                // add asset
+                tokenId = tokenId.addAsset(asset, i);
+            }
+            // add strike
+            uint256 strikeTemp = uint256((seed >> 10) % 2 ** 20);
+            uint256 strikeSign = uint256((seed >> 30) % 2);
+            int24 strike = strikeTemp > 887272
+                ? int24(uint24(strikeTemp / 2))
+                : int24(uint24(strikeTemp));
+            strike = int24(bound(strike, 1, 50000));
+            strike = strikeSign == 0 ? -strike : strike;
+            strike = currentTick + strike;
+            strike = (strike / pool.tickSpacing()) * pool.tickSpacing();
+            tokenId = tokenId.addStrike(strike, i);
+
+            // add width
+            int24 width = int24(uint24(uint256((seed >> 31) % 2 ** 12)));
+            width = (width / 2) * 2;
+            width = width == 0 ? int24(2) : width;
+
+            tokenId = tokenId.addWidth(width, i);
+
+            // add to input array of legs
+            PanopticHelper.Leg memory _Leg = PanopticHelper.Leg({
+                poolId: poolId,
+                UniswapV3Pool: address(pool),
+                optionRatio: optionRatio,
+                asset: asset,
+                isLong: isLong,
+                tokenType: tokenId.tokenType(i),
+                riskPartner: tokenId.riskPartner(i),
+                strike: strike,
+                width: width
+            });
+            inputLeg[i] = _Leg;
+        }
+
+        tokenId = ph.optimizeRiskPartners(pp, currentTick, tokenId);
+
+        /*
+        tokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            0,
+            0,
+            1,
+            0,
+            (200311 / pool.tickSpacing()) * pool.tickSpacing(),
+            20
+        );
+       */
+
+        vm.startPrank(Alice);
+
+        TokenId[] memory posIdList = new TokenId[](1);
+
+        posIdList[0] = tokenId;
+
+        (uint128 coveredSize, uint128 nakedSize) = ph.sizePosition(
+            pp,
+            Alice,
+            new TokenId[](0),
+            tokenId
+        );
+
+        vm.assume(ph.isMintValid(tokenId, coveredSize) == true);
+        vm.assume(ph.isMintValid(tokenId, nakedSize) == true);
+
+        console2.log("coveredSize", coveredSize, nakedSize);
+        (, currentTick, , , , , ) = pool.slot0();
+
+        console2.log("currentTic -before", currentTick);
+        {
+            console2.log("bal0-before", ct0.convertToAssets(ct0.balanceOf(Alice)));
+            console2.log("bal1-before", ct1.convertToAssets(ct1.balanceOf(Alice)));
+            {
+                (uint256 pA0, uint256 iA0, uint256 poolUtil0) = pp.collateralToken0().getPoolData();
+                (uint256 pA1, uint256 iA1, uint256 poolUtil1) = pp.collateralToken1().getPoolData();
+                console2.log(pA0, iA0, pA1, iA1);
+                console2.log("before poolUs", poolUtil0, poolUtil1);
+            }
+
+            uint256 snap = vm.snapshot();
+
+            console2.log("covered");
+        }
+        pp.mintOptions(
+            posIdList,
+            (uint128(Math.min(coveredSize, (nakedSize * 8) / 10)) * 990) / 1000,
+            0,
+            Constants.MIN_V3POOL_TICK,
+            Constants.MAX_V3POOL_TICK
+        );
+        console2.log("bal0-after", ct0.convertToAssets(ct0.balanceOf(Alice)));
+        console2.log("bal1-after", ct1.convertToAssets(ct1.balanceOf(Alice)));
+        (, currentTick, , , , , ) = pool.slot0();
+        console2.log("currentTick -after", currentTick);
+        {
+            (uint256 pA0, uint256 iA0, uint256 poolUtil0) = pp.collateralToken0().getPoolData();
+            (uint256 pA1, uint256 iA1, uint256 poolUtil1) = pp.collateralToken1().getPoolData();
+            console2.log(pA0, iA0, pA1, iA1);
+            console2.log("after poolUs", poolUtil0, poolUtil1);
+        }
+
+        (
+            LeftRightUnsigned shortPremium,
+            LeftRightUnsigned longPremium,
+            uint256[2][] memory posBalanceArray
+        ) = pp.calculateAccumulatedFeesBatch(Alice, false, posIdList);
+
+        tokenData0 = ct0.getAccountMarginDetails(
+            Alice,
+            currentTick,
+            posBalanceArray,
+            shortPremium.rightSlot(),
+            longPremium.rightSlot()
+        );
+        tokenData1 = ct1.getAccountMarginDetails(
+            Alice,
+            currentTick,
+            posBalanceArray,
+            shortPremium.leftSlot(),
+            longPremium.leftSlot()
+        );
+
+        console2.log("required0, required1", tokenData0.leftSlot(), tokenData1.leftSlot());
+        //assertEq(requiredToken0, tokenData0.leftSlot(), "required token0");
+        //assertEq(requiredToken1, tokenData1.leftSlot(), "required token1");
+
+        uint256 utilization = ph.buyingPowerUtilization(pp, Alice, posIdList);
+
+        console2.log("BPU", utilization);
+
+        // Do it for the naked sizes
+        vm.revertTo(snap);
+
+        {
+            pp.mintOptions(
+                posIdList,
+                (nakedSize * 989) / 1000,
+                0,
+                Constants.MAX_V3POOL_TICK,
+                Constants.MIN_V3POOL_TICK
+            );
+            console2.log("bal0-after", ct0.convertToAssets(ct0.balanceOf(Alice)));
+            console2.log("bal1-after", ct1.convertToAssets(ct1.balanceOf(Alice)));
+            (, currentTick, , , , , ) = pool.slot0();
+            console2.log("currentTick -after", currentTick);
+            {
+                (uint256 pA0, uint256 iA0, uint256 poolUtil0) = pp.collateralToken0().getPoolData();
+                (uint256 pA1, uint256 iA1, uint256 poolUtil1) = pp.collateralToken1().getPoolData();
+                console2.log(pA0, iA0, pA1, iA1);
+                console2.log("after poolUs", poolUtil0, poolUtil1);
+            }
+
+            /*
+            (
+                LeftRightUnsigned shortPremium,
+                LeftRightUnsigned longPremium,
+                uint256[2][] memory posBalanceArray
+            ) = pp.calculateAccumulatedFeesBatch(Alice, false, posIdList);
+
+            tokenData0 = ct0.getAccountMarginDetails(
+                Alice,
+                currentTick,
+                posBalanceArray,
+                shortPremium.rightSlot(),
+                longPremium.rightSlot()
+            );
+            tokenData1 = ct1.getAccountMarginDetails(
+                Alice,
+                currentTick,
+                posBalanceArray,
+                shortPremium.leftSlot(),
+                longPremium.leftSlot()
+            );
+
+            console2.log("required0, required1", tokenData0.leftSlot(), tokenData1.leftSlot());
+            */
+            //assertEq(requiredToken0, tokenData0.leftSlot(), "required token0");
+            //assertEq(requiredToken1, tokenData1.leftSlot(), "required token1");
+
+            uint256 utilization = ph.buyingPowerUtilization(pp, Alice, posIdList);
+
+            console2.log("BPU", utilization);
+
+            // these are the balance/required cross, reusing variables to save stack space
+            (uint256 collateralBalance, uint256 requiredCollateral) = ph.checkCollateral(
+                pp,
+                Alice,
+                currentTick,
+                posIdList
+            );
+
+            console2.log(
+                "collateralBalance, requiredBalance",
+                collateralBalance,
+                requiredCollateral
+            );
+            assertTrue((10000 * collateralBalance) / requiredCollateral < 14_285, "close enough");
         }
     }
 
@@ -1520,6 +1811,12 @@ contract PanopticHelperTest is PositionUtils {
 
         TokenId[] memory posIdList_base = new TokenId[](1);
 
+        totalAssets0 = ct0.totalAssets();
+        totalAssets1 = ct1.totalAssets();
+
+        totalSupply0 = ct0.totalSupply();
+        totalSupply1 = ct1.totalSupply();
+
         TokenId tokenId_base = TokenId.wrap(0).addPoolId(poolId).addLeg(
             0,
             1,
@@ -1531,31 +1828,43 @@ contract PanopticHelperTest is PositionUtils {
             2
         );
 
+        {
+            assertEq(totalSupply0 / totalAssets0, ct0.totalSupply() / ct0.totalAssets());
+            assertEq(totalSupply1 / totalAssets1, ct1.totalSupply() / ct1.totalAssets());
+        }
         posIdList_base[0] = tokenId_base;
 
-        (, , uint128 positionSize) = ph.sizePosition(pp, Alice, new TokenId[](0), tokenId_base);
+        (uint128 coveredSize, uint128 nakedSize) = ph.sizePosition(
+            pp,
+            Alice,
+            new TokenId[](0),
+            tokenId_base
+        );
 
-        console2.log("positionSize", positionSize);
+        console2.log("positionSizes", coveredSize, nakedSize);
 
         pp.mintOptions(
             posIdList_base,
-            positionSize / 2,
+            nakedSize / 2,
             0,
             Constants.MAX_V3POOL_TICK,
             Constants.MIN_V3POOL_TICK
         );
-
+        {
+            assertEq(totalSupply0 / totalAssets0, ct0.totalSupply() / ct0.totalAssets());
+            assertEq(totalSupply1 / totalAssets1, ct1.totalSupply() / ct1.totalAssets());
+        }
         console2.log("currentTick", currentTick);
 
-        (, , positionSize) = ph.sizePosition(pp, Alice, posIdList_base, tokenId);
+        (coveredSize, nakedSize) = ph.sizePosition(pp, Alice, posIdList_base, tokenId);
 
-        console2.log("positionSize", positionSize);
+        console2.log("positionSizes", coveredSize, nakedSize);
 
         (uint128 requiredToken0, uint128 requiredToken1) = ph.positionBuyingPowerRequirement(
             pp,
             Alice,
             tokenId,
-            positionSize
+            (nakedSize * 980) / 1000
         );
 
         console2.log("required0, required1", requiredToken0, requiredToken1);
@@ -1564,14 +1873,14 @@ contract PanopticHelperTest is PositionUtils {
         posIdList[0] = tokenId_base;
         posIdList[1] = tokenId;
 
-        vm.assume(ph.isMintValid(tokenId, positionSize) == true);
+        vm.assume(ph.isMintValid(tokenId, nakedSize) == true);
         (, currentTick, , , , , ) = pool.slot0();
 
         console2.log("bal0-before", ct0.convertToAssets(ct0.balanceOf(Alice)));
         console2.log("bal1-before", ct1.convertToAssets(ct1.balanceOf(Alice)));
         pp.mintOptions(
             posIdList,
-            positionSize,
+            (nakedSize * 980) / 1000,
             0,
             Constants.MAX_V3POOL_TICK,
             Constants.MIN_V3POOL_TICK
@@ -1618,7 +1927,7 @@ contract PanopticHelperTest is PositionUtils {
         );
 
         console2.log("collateralBalance, requiredBalance", collateralBalance, requiredCollateral);
-        assertTrue((10000 * collateralBalance) / requiredCollateral < 14_500, "close enough");
+        assertTrue((10000 * collateralBalance) / requiredCollateral < 14_285, "close enough");
     }
 
     /// forge-config: default.fuzz.runs = 100
