@@ -31,20 +31,18 @@ contract TokenIdHelperTest is Test {
         TokenIdHelper.Leg[] memory legs;
 
         {
-          TokenId tokenId = TokenId.wrap(0)
-              .addPoolId($poolId)
-              .addLeg(
-                  0,
-                  $optionRatio,
-                  $asset,
-                  $isLong,
-                  $tokenType,
-                  $riskPartner,
-                  $strike,
-                  $width
-              );
+            TokenId tokenId = TokenId.wrap(0).addPoolId($poolId).addLeg(
+                0,
+                $optionRatio,
+                $asset,
+                $isLong,
+                $tokenType,
+                $riskPartner,
+                $strike,
+                $width
+            );
 
-          legs = tokenIdHelper.unwrapTokenId(tokenId, $mockPool);
+            legs = tokenIdHelper.unwrapTokenId(tokenId, $mockPool);
         }
 
         // Verify all leg data is preserved
@@ -63,18 +61,16 @@ contract TokenIdHelperTest is Test {
     // TODO: why is this failing?
     function test_equivalentPosition_preservesPayoff() public {
         uint64 poolId = 1234;
-        TokenId originalPosition = TokenId.wrap(0)
-            .addPoolId(poolId)
-            .addLeg(
-                0,
-                2, // optionRatio = 2
-                0,
-                1,
-                0,
-                0,
-                100,
-                10
-            );
+        TokenId originalPosition = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            2, // optionRatio = 2
+            0,
+            1,
+            0,
+            0,
+            100,
+            10
+        );
 
         uint128 originalSize = 1000;
 
@@ -92,18 +88,16 @@ contract TokenIdHelperTest is Test {
     // TODO: this one also failing
     function test_scaledPosition_preservesPayoff() public {
         uint64 poolId = 1234;
-        TokenId originalPosition = TokenId.wrap(0)
-            .addPoolId(poolId)
-            .addLeg(
-                0,
-                2,
-                0,
-                1,
-                0,
-                0,
-                100,
-                10
-            );
+        TokenId originalPosition = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            2,
+            0,
+            1,
+            0,
+            0,
+            100,
+            10
+        );
 
         uint128 scaleFactor = 2;
         bool scalingUp = true;
@@ -124,7 +118,11 @@ contract TokenIdHelperTest is Test {
         assertEq(scaledPosition.strike(0), originalPosition.strike(0), "Strike should not change");
         assertEq(scaledPosition.width(0), originalPosition.width(0), "Width should not change");
         assertEq(scaledPosition.isLong(0), originalPosition.isLong(0), "isLong should not change");
-        assertEq(scaledPosition.tokenType(0), originalPosition.tokenType(0), "Token type should not change");
+        assertEq(
+            scaledPosition.tokenType(0),
+            originalPosition.tokenType(0),
+            "Token type should not change"
+        );
     }
 
     // TODO: Get to these once the above work
@@ -163,5 +161,4 @@ contract TokenIdHelperTest is Test {
 
     function testFuzz_scaledPosition_preservesRelativeRatios( ...
     */
-
 }
