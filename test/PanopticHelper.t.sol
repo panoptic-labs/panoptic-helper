@@ -1303,4 +1303,40 @@ contract PanopticHelperTest is PositionUtils {
             assertEq(requiredCollateral, calculatedRequiredCollateral);
         }
     }
+
+    function test_reduceSizeIfNecessary_returns_same_size_if_no_change() public {
+        // TODO:
+        // - mint a call to purchase token0 at max size (TODO: how to get max size?),
+        // - then immediately call reduceSizeIfNecessary
+        // it should return same positionSize as you originally minted with,
+        // as the liquidities have not changed since you minted
+    }
+
+    function test_reduceSizeIfNecessary_returns_lower_size_if_necessary() public {
+        // TODO:
+        // - PLP via the SFPM with token0,
+        // - mint a call to purchase token0 at max size (TODO: how to get max size?),
+        // - then remove liquidity from the SFPM with the PLPing account,
+        // - then immediately call reduceSizeIfNecessary
+        // it should return a smaller positionSize than what you originally minted with,
+        // as there is less liquidity
+    }
+
+    function test_reduceSizeIfNecessary_returns_same_size_if_unnecessary() public {
+        // TODO:
+        // - PLP via the SFPM with token0,
+        // - mint a call to purchase token0 at max size (TODO: how to get max size?),
+        // - then immediately call reduceSizeIfNecessary
+        // it should return same positionSize as you originally minted with,
+        // even despite the extra liquidity that could let you increase size
+    }
+
+    function test_getChunkData_returns_correct_liquidities() public {
+        // TODO:
+        // - PLP via the SFPM with token0,
+        // - mint a call to purchase token0 at max size (TODO: how to get max size?),
+        // - then immediately call reduceSizeIfNecessary
+        // it should return same positionSize as you originally minted with,
+        // even despite the extra liquidity that could let you increase size
+    }
 }
