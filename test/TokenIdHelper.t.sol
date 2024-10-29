@@ -22,6 +22,7 @@ contract TokenIdHelperTest is Test {
     int24 constant $strike = 100;
     int24 constant $width = 10;
     address constant $mockPool = address(0x123);
+
     function test_unwrapTokenId_getsCorrectLegData() public {
         TokenIdHelper.Leg[] memory legs;
 
@@ -57,25 +58,29 @@ contract TokenIdHelperTest is Test {
     // - Add a version which provides a baseline test of the scaling-up-of-positionSize-case
     //   this one uses hardcoded values to ensure a scale-down scenario
     function test_equivalentPosition_preservesOriginalScale() public {
-        TokenId originalPosition = TokenId.wrap(0).addPoolId($poolId).addLeg(
-            0,
-            2, // optionRatio = 2
-            0,
-            1,
-            0,
-            0,
-            100,
-            10
-        ).addLeg(
-            1,
-            3, // optionRatio = 3
-            0,
-            1,
-            0,
-            0,
-            100,
-            10
-        );
+        TokenId originalPosition = TokenId
+            .wrap(0)
+            .addPoolId($poolId)
+            .addLeg(
+                0,
+                2, // optionRatio = 2
+                0,
+                1,
+                0,
+                0,
+                100,
+                10
+            )
+            .addLeg(
+                1,
+                3, // optionRatio = 3
+                0,
+                1,
+                0,
+                0,
+                100,
+                10
+            );
         uint128 originalSize = 1000;
 
         (TokenId newPosition, uint128 newSize) = tokenIdHelper.equivalentPosition(
@@ -112,24 +117,23 @@ contract TokenIdHelperTest is Test {
         uint128 positionSize,
         uint8 optionRatio
     ) public {
-        vm.assume(positionSize > 0 &&
-          optionRatio > 0 &&
-          optionRatio < 128 &&
-          type(uint256).max / positionSize > optionRatio &&
-          type(uint256).max / optionRatio > positionSize
+        vm.assume(
+            positionSize > 0 &&
+                optionRatio > 0 &&
+                optionRatio < 128 &&
+                type(uint256).max / positionSize > optionRatio &&
+                type(uint256).max / optionRatio > positionSize
         );
-        TokenId originalPosition = TokenId.wrap(0)
-            .addPoolId(1234)
-            .addLeg(
-                0,
-                optionRatio,
-                0,
-                1,
-                0,
-                0,
-                100,
-                10
-            );
+        TokenId originalPosition = TokenId.wrap(0).addPoolId(1234).addLeg(
+            0,
+            optionRatio,
+            0,
+            1,
+            0,
+            0,
+            100,
+            10
+        );
 
         (TokenId newPosition, uint128 newSize) = tokenIdHelper.equivalentPosition(
             originalPosition,
@@ -157,11 +161,7 @@ contract TokenIdHelperTest is Test {
 
         uint128 scaleFactor = 2;
 
-        TokenId scaledPosition = tokenIdHelper.scaledPosition(
-            originalPosition,
-            scaleFactor,
-            true
-        );
+        TokenId scaledPosition = tokenIdHelper.scaledPosition(originalPosition, scaleFactor, true);
 
         assertEq(
             scaledPosition.optionRatio(0),
@@ -188,37 +188,22 @@ contract TokenIdHelperTest is Test {
     ) public {
         // Assume non-zero / non-identity values, as well as bounded values, for meaningful test
         vm.assume(originalOptionRatio1 > 0 && originalOptionRatio2 > 0);
-        vm.assume(scaleFactor > 1 &&
-          scaleFactor < type(uint128).max / originalOptionRatio1 &&
-          scaleFactor < type(uint128).max / originalOptionRatio2);
+        vm.assume(
+            scaleFactor > 1 &&
+                scaleFactor < type(uint128).max / originalOptionRatio1 &&
+                scaleFactor < type(uint128).max / originalOptionRatio2
+        );
 
         // Keep ratios within bounds to avoid overflow
         vm.assume(originalOptionRatio1 < 128 && originalOptionRatio2 < 128);
         vm.assume(scaleFactor * uint128(originalOptionRatio1) < 128);
         vm.assume(scaleFactor * uint128(originalOptionRatio2) < 128);
 
-        TokenId originalPosition = TokenId.wrap(0)
+        TokenId originalPosition = TokenId
+            .wrap(0)
             .addPoolId(1234)
-            .addLeg(
-                0,
-                originalOptionRatio1,
-                0,
-                1,
-                0,
-                0,
-                100,
-                10
-            )
-            .addLeg(
-                1,
-                originalOptionRatio2,
-                0,
-                1,
-                0,
-                0,
-                100,
-                10
-            );
+            .addLeg(0, originalOptionRatio1, 0, 1, 0, 0, 100, 10)
+            .addLeg(1, originalOptionRatio2, 0, 1, 0, 0, 100, 10);
 
         TokenId scaledUpPosition = tokenIdHelper.scaledPosition(
             originalPosition,
@@ -244,34 +229,25 @@ contract TokenIdHelperTest is Test {
         uint8 originalOptionRatio2
     ) public {
         // Assume non-zero / non-identity values, as well as divisible values, for meaningful test
-        vm.assume(originalOptionRatio1 > 0 && originalOptionRatio1 < 128 &&
-          originalOptionRatio2 > 0 && originalOptionRatio2 < 128);
-        vm.assume(scaleFactor > 1 &&
-          scaleFactor < originalOptionRatio1 && originalOptionRatio1 % scaleFactor == 0 &&
-          scaleFactor < originalOptionRatio2 && originalOptionRatio2 % scaleFactor == 0);
+        vm.assume(
+            originalOptionRatio1 > 0 &&
+                originalOptionRatio1 < 128 &&
+                originalOptionRatio2 > 0 &&
+                originalOptionRatio2 < 128
+        );
+        vm.assume(
+            scaleFactor > 1 &&
+                scaleFactor < originalOptionRatio1 &&
+                originalOptionRatio1 % scaleFactor == 0 &&
+                scaleFactor < originalOptionRatio2 &&
+                originalOptionRatio2 % scaleFactor == 0
+        );
 
-        TokenId originalPosition = TokenId.wrap(0)
+        TokenId originalPosition = TokenId
+            .wrap(0)
             .addPoolId(1234)
-            .addLeg(
-                0,
-                originalOptionRatio1,
-                0,
-                1,
-                0,
-                0,
-                100,
-                10
-            )
-            .addLeg(
-                1,
-                originalOptionRatio2,
-                0,
-                1,
-                0,
-                0,
-                100,
-                10
-            );
+            .addLeg(0, originalOptionRatio1, 0, 1, 0, 0, 100, 10)
+            .addLeg(1, originalOptionRatio2, 0, 1, 0, 0, 100, 10);
         TokenId scaledDownPosition = tokenIdHelper.scaledPosition(
             originalPosition,
             scaleFactor,
