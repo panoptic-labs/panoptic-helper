@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.18;
-import "forge-std/Test.sol";
 
 // Interfaces
 import {IUniswapV3Pool} from "univ3-core/interfaces/IUniswapV3Pool.sol";
@@ -458,12 +457,10 @@ contract PanopticHelper {
     }
 
     /// @notice Fetch data about chunks in a positionIdList.
-    /// @param pool The PanopticPool instance corresponding to the pool specified in `TokenId`
     /// @param account The address of the account to retrieve liquidity data for
     /// @param positionIdList List of TokenIds to evaluate
     /// @return chunkData A memory array of [positionIdList.length][4][2] containing netLiquidity and removedLiquidity for each leg
     function getChunkData(
-        PanopticPool pool,
         address account,
         TokenId[] memory positionIdList
     ) external view returns (uint256[][][] memory) {

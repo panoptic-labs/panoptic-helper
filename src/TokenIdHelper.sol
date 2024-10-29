@@ -389,8 +389,8 @@ contract TokenIdHelper {
     ) public pure returns (TokenId overwrittenTokenId) {
         unchecked {
             overwrittenTokenId = TokenId.wrap(
-                TokenId.unwrap(tokenId) ^
-                    (// Get a uint with bits set to 1 for the bits of the `legIndex`th leg that would occupy the optionRatio
+                TokenId.unwrap(tokenId) &
+                    ~(// Get a uint with bits set to 1 for the bits of the `legIndex`th leg that would occupy the optionRatio
                     0x000000000000_000000000000_000000000000_0000000000FE_0000000000000000 <<
                         (48 * legIndex))
             );
@@ -399,9 +399,8 @@ contract TokenIdHelper {
         return overwrittenTokenId.addOptionRatio(newOptionRatio, legIndex);
     }
 
-    // TODO: Are these maxes correct?
     uint128 public constant MAX_POSITION_SIZE = type(uint128).max;
-    uint256 public constant MAX_OPTION_RATIO = type(uint256).max;
+    uint256 public constant MAX_OPTION_RATIO = 127;
 
     /// @notice generates a tokenID and positionSize that represents the same position as the supplied
     ///         tokenID and positionSize, but with the optionRatios of each leg scaled upward/downward
@@ -433,7 +432,7 @@ contract TokenIdHelper {
         if (oldPositionSize > 1) {
             uint256 lowestOldPositionSizeFactor = _lowestNonIdentityFactor(oldPositionSize);
             for (uint256 i = 0; i < optionRatios.length; i++) {
-                if (lowestOldPositionSizeFactor * optionRatios[i] < MAX_OPTION_RATIO) {
+                if (lowestOldPositionSizeFactor < MAX_OPTION_RATIO / optionRatios[i]) {
                     newPosition = overwriteOptionRatio(
                         newPosition,
                         lowestOldPositionSizeFactor * optionRatios[i],
@@ -461,7 +460,7 @@ contract TokenIdHelper {
         uint256 lcdAmongOptionRatios = _findLeastCommonDivisor(optionRatios);
         if (
             lcdAmongOptionRatios > 1 &&
-            oldPositionSize * uint128(lcdAmongOptionRatios) < MAX_POSITION_SIZE
+            oldPositionSize < MAX_POSITION_SIZE / uint128(lcdAmongOptionRatios)
         ) {
             for (uint256 i = 0; i < optionRatios.length; i++) {
                 newPosition = overwriteOptionRatio(
@@ -470,7 +469,7 @@ contract TokenIdHelper {
                     i
                 );
             }
-            // we already checked that this is < MAX_POSITION_SIZE, so cast is OK
+            // we checked that this is < MAX_POSITION_SIZE (<=> uint128.max), so cast is OK
             newPositionSize = oldPositionSize * uint128(lcdAmongOptionRatios);
         }
 
