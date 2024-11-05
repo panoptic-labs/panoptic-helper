@@ -1179,6 +1179,308 @@ contract PanopticHelperTest is PositionUtils {
         assertTrue(requiredAfter <= requiredBefore);
     }
 
+    /// forge-config: default.fuzz.runs = 100
+    function test_Success_buyingPowers(uint256 x, uint256 seed) public {
+        _initPool(x);
+
+        seed = uint256(keccak256(abi.encode(seed)));
+        console2.log("seed", seed);
+        uint256 numberOfLegs = ((seed >> 222) % 4) + 1;
+
+        PanopticHelper.Leg[] memory inputLeg = new PanopticHelper.Leg[](numberOfLegs);
+
+        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId);
+
+        // keep unpaired
+        for (uint256 leg; leg < numberOfLegs; ++leg) {
+            tokenId = tokenId.addRiskPartner(leg, leg);
+        }
+
+        // keep option ratio same for all
+        uint256 optionRatio = uint256(seed % 2 ** 7);
+        optionRatio = optionRatio == 0 ? 1 : optionRatio;
+
+        // keep asset same for all
+        uint256 asset = uint256((seed >> 9) % 2);
+
+        for (uint256 i; i < numberOfLegs; ++i) {
+            // update seed
+            seed = uint256(keccak256(abi.encode(seed)));
+            uint256 isLong;
+            {
+                // only short options
+                isLong = 0 * uint256((seed >> 7) % 2);
+
+                uint256 tokenType = uint256((seed >> 27) % 2);
+                tokenId = tokenId.addTokenType(tokenType, i);
+                // add optionRatio
+                tokenId = tokenId.addOptionRatio(optionRatio, i);
+
+                // add isLong
+                tokenId = tokenId.addIsLong(isLong, i);
+
+                // add asset
+                tokenId = tokenId.addAsset(asset, i);
+            }
+            // add strike
+            uint256 strikeTemp = uint256((seed >> 10) % 2 ** 20) / 100;
+            uint256 strikeSign = uint256((seed >> 30) % 2);
+            int24 strike = strikeTemp > 887272
+                ? int24(uint24(strikeTemp / 2))
+                : int24(uint24(strikeTemp));
+            strike = strikeSign == 0 ? -strike : strike;
+            strike = ((currentTick + strike) / pool.tickSpacing()) * pool.tickSpacing();
+            tokenId = tokenId.addStrike(strike, i);
+
+            // add width
+            int24 width = int24(uint24(uint256((seed >> 31) % 2 ** 12)));
+            width = (width / 2) * 2;
+            width = width == 0 ? int24(2) : width;
+
+            tokenId = tokenId.addWidth(width, i);
+
+            // add to input array of legs
+            PanopticHelper.Leg memory _Leg = PanopticHelper.Leg({
+                poolId: poolId,
+                UniswapV3Pool: address(pool),
+                optionRatio: optionRatio,
+                asset: asset,
+                isLong: isLong,
+                tokenType: tokenId.tokenType(i),
+                riskPartner: tokenId.riskPartner(i),
+                strike: strike,
+                width: width
+            });
+            inputLeg[i] = _Leg;
+        }
+
+        vm.startPrank(Alice);
+        uint128 positionSize = uint128(boundLog(x, 0, 64));
+        (uint128 requiredToken0, uint128 requiredToken1) = ph.positionBuyingPowerRequirement(
+            pp,
+            Alice,
+            tokenId,
+            positionSize
+        );
+
+        TokenId[] memory posIdList = new TokenId[](1);
+
+        posIdList[0] = tokenId;
+
+        vm.assume(ph.isMintValid(tokenId, positionSize) == true);
+
+        pp.mintOptions(
+            posIdList,
+            positionSize,
+            0,
+            Constants.MIN_V3POOL_TICK,
+            Constants.MAX_V3POOL_TICK
+        );
+
+        (, currentTick, , , , , ) = pool.slot0();
+
+        (int128 premium0, int128 premium1, uint256[2][] memory posBalanceArray) = pp
+            .calculateAccumulatedFeesBatch(Alice, false, posIdList);
+
+        tokenData0 = ct0.getAccountMarginDetails(Alice, currentTick, posBalanceArray, premium0);
+        tokenData1 = ct1.getAccountMarginDetails(Alice, currentTick, posBalanceArray, premium1);
+
+        assertEq(requiredToken0, tokenData0.leftSlot(), "required token0");
+        assertEq(requiredToken1, tokenData1.leftSlot(), "required token1");
+    }
+
+    function test_Success_buyingPower_checks(uint256 x, uint256 seed) public {
+        _initPool(x);
+
+        seed = uint256(keccak256(abi.encode(seed)));
+        console2.log("seed", seed);
+        uint256 numberOfLegs = ((seed >> 222) % 4) + 1;
+
+        PanopticHelper.Leg[] memory inputLeg = new PanopticHelper.Leg[](numberOfLegs);
+
+        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId);
+
+        // keep unpaired
+        for (uint256 leg; leg < numberOfLegs; ++leg) {
+            tokenId = tokenId.addRiskPartner(leg, leg);
+        }
+
+        // keep option ratio same for all
+        uint256 optionRatio = uint256(seed % 2 ** 7);
+        optionRatio = optionRatio == 0 ? 1 : optionRatio;
+
+        // keep asset same for all
+        uint256 asset = uint256((seed >> 9) % 2);
+
+        for (uint256 i; i < numberOfLegs; ++i) {
+            // update seed
+            seed = uint256(keccak256(abi.encode(seed)));
+            uint256 isLong;
+            {
+                isLong = 0 * uint256((seed >> 7) % 2);
+
+                uint256 tokenType = uint256((seed >> 27) % 2);
+                tokenId = tokenId.addTokenType(tokenType, i);
+                // add optionRatio
+                tokenId = tokenId.addOptionRatio(optionRatio, i);
+
+                // add isLong
+                tokenId = tokenId.addIsLong(isLong, i);
+
+                // add asset
+                tokenId = tokenId.addAsset(asset, i);
+            }
+            // add strike
+            uint256 strikeTemp = uint256((seed >> 10) % 2 ** 20) / 100;
+            uint256 strikeSign = uint256((seed >> 30) % 2);
+            int24 strike = strikeTemp > 887272
+                ? int24(uint24(strikeTemp / 2))
+                : int24(uint24(strikeTemp));
+            strike = strikeSign == 0 ? -strike : strike;
+            strike = ((currentTick + strike) / pool.tickSpacing()) * pool.tickSpacing();
+            tokenId = tokenId.addStrike(strike, i);
+
+            // add width
+            int24 width = int24(uint24(uint256((seed >> 31) % 2 ** 12)));
+            width = (width / 2) * 2;
+            width = width == 0 ? int24(2) : width;
+
+            tokenId = tokenId.addWidth(width, i);
+
+            // add to input array of legs
+            PanopticHelper.Leg memory _Leg = PanopticHelper.Leg({
+                poolId: poolId,
+                UniswapV3Pool: address(pool),
+                optionRatio: optionRatio,
+                asset: asset,
+                isLong: isLong,
+                tokenType: tokenId.tokenType(i),
+                riskPartner: tokenId.riskPartner(i),
+                strike: strike,
+                width: width
+            });
+            inputLeg[i] = _Leg;
+        }
+
+        vm.startPrank(Alice);
+
+        uint128 positionSize = uint128(boundLog(x, 32, 48));
+
+        (uint128 requiredToken0, uint128 requiredToken1) = ph.positionBuyingPowerRequirement(
+            pp,
+            Alice,
+            tokenId,
+            positionSize
+        );
+
+        console2.log("requiredToken0", requiredToken0);
+        console2.log("requiredToken1", requiredToken1);
+
+        /*
+        ct0.withdraw(ct0.maxWithdraw(Alice), Alice, Alice);
+        ct1.withdraw(ct1.maxWithdraw(Alice), Alice, Alice);
+
+        IERC20Partial(token0).approve(address(ct0), type(uint256).max);
+        IERC20Partial(token1).approve(address(ct1), type(uint256).max);
+
+        ct0.deposit((15 * requiredToken0) / 10 + 100, Alice);
+        ct1.deposit((15 * requiredToken1) / 10 + 100, Alice);
+        */
+
+        TokenId[] memory posIdList = new TokenId[](1);
+
+        posIdList[0] = tokenId;
+
+        vm.assume(ph.isMintValid(tokenId, positionSize) == true);
+
+        pp.mintOptions(
+            posIdList,
+            positionSize,
+            0,
+            Constants.MIN_V3POOL_TICK,
+            Constants.MAX_V3POOL_TICK
+        );
+
+        (, currentTick, , , , , ) = pool.slot0();
+
+        (int256 buyingPowerRequirement0, int256 buyingPowerRequirement1) = ph
+            .buyingPowerRequirement(address(pp), Alice, posIdList);
+
+        console2.log("buyingPowerRequirement0", buyingPowerRequirement0);
+        console2.log("buyingPowerRequirement1", buyingPowerRequirement1);
+
+        (int256 buyingPower0, int256 buyingPower1) = ph.buyingPower(address(pp), Alice, posIdList);
+        console2.log("buyingPower0", buyingPower0);
+        console2.log("buyingPower1", buyingPower1);
+
+        uint256 utilization = ph.buyingPowerUtilization(address(pp), Alice, posIdList);
+        console2.log("utilization", utilization);
+
+        uint256[3][] memory BPRs = ph.buyingPowerRequirements(address(pp), Alice, posIdList);
+
+        console2.log("foos", BPRs[0][0], BPRs[0][1], BPRs[0][2]);
+
+        assertEq(BPRs[0][0], TokenId.unwrap(posIdList[0]));
+
+        (int256 c0, int256 c1) = ph.coveredRequirement(address(pp), Alice, posIdList);
+        console2.log("c0", c0);
+        console2.log("c1", c1);
+        assertTrue(false);
+        // assertEq(requiredToken0, tokenData0.leftSlot(), "required token0");
+        // assertEq(requiredToken1, tokenData1.leftSlot(), "required token1");
+    }
+
+    /// forge-config: default.fuzz.runs = 500
+    function test_Success_delta_gamma_1Leg(uint256 x) public {
+        _initPool(x);
+
+        (, currentTick, , , , , ) = pool.slot0();
+
+        int24 ts = pool.tickSpacing();
+        int24 width = 20;
+        int24 strike = (currentTick / ts) * ts;
+        uint256 optionRatio = 1;
+
+        // create an atm put
+        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            optionRatio,
+            0,
+            0,
+            1,
+            0,
+            strike,
+            width
+        );
+        tokenId.validate();
+
+        vm.startPrank(Alice);
+
+        uint128 positionSize = uint128(boundLog(x, 32, 48));
+
+        TokenId[] memory posIdList = new TokenId[](1);
+
+        posIdList[0] = tokenId;
+
+        vm.assume(ph.isMintValid(tokenId, positionSize) == true);
+
+        // mint otm put
+        pp.mintOptions(
+            posIdList,
+            positionSize,
+            0,
+            Constants.MIN_V3POOL_TICK,
+            Constants.MAX_V3POOL_TICK
+        );
+
+        (int256 delta0, int256 delta1) = ph.delta(address(pp), Alice, currentTick, posIdList);
+        console2.log("delta0", delta0);
+        console2.log("delta1", delta1);
+
+        console2.log("positionSize", positionSize);
+        assertTrue(false);
+    }
+
     function test_Success_checkCollateral_OTMandITMShortCall(
         uint256 x,
         uint256[2] memory widthSeeds,
