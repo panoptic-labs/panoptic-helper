@@ -331,6 +331,107 @@ contract PanopticHelper {
         return true;
     }
 
+    /// @notice Estimated the final sqrtPrice and the amount received for an "exact input" swap
+    /// @param pool the Panoptic pool on top of that trade
+    /// @param amountIn the amount of tokens to be traded (amountIn < 0 means token0-for-token1, amountIn > 0 means token1-for-token0)
+    /// @return finalSqrtPrice the final price after that trade
+    /// @return amountOut the amount of tokens received for that trade
+    function quoteFinalPrice(
+        PanopticPool pool,
+        int256 amountIn
+    ) public view returns (uint160 finalSqrtPrice, uint256 amountOut) {
+        IUniswapV3Pool univ3pool = pool.univ3pool();
+
+        (uint160 currentPriceX96, int24 currentTick, , , , , ) = univ3pool.slot0();
+        int24 tickSpacing = univ3pool.tickSpacing();
+        uint256 fee = uint256(univ3pool.fee());
+        int256 scaledTick = int256((currentTick / tickSpacing) * tickSpacing);
+
+        uint256 currentLiquidity = univ3pool.liquidity();
+
+        bool stop;
+
+        // if amountIn is positive, amount sent to the smart contract is token1 and price goes up
+        if (amountIn > 0) {
+            uint256 amount = (uint256(amountIn) * (1e6 - fee)) / 1e6;
+            int24 nextTick = (currentTick / tickSpacing) * tickSpacing + tickSpacing;
+            uint160 highPriceX96 = Math.getSqrtRatioAtTick(nextTick);
+
+            while (!stop) {
+                uint256 amountAll = Math.mulDiv96(currentLiquidity, highPriceX96 - currentPriceX96);
+
+                if (amount < amountAll) {
+                    finalSqrtPrice =
+                        currentPriceX96 +
+                        uint160(Math.mulDiv(amount, 2 ** 96, currentLiquidity));
+                    {
+                        uint160 _f = finalSqrtPrice;
+                        amountOut +=
+                            Math.mulDiv(currentLiquidity << 96, _f - currentPriceX96, _f) /
+                            currentPriceX96;
+                    }
+                    stop = true;
+                } else {
+                    amount -= amountAll;
+                    amountOut +=
+                        Math.mulDiv(
+                            currentLiquidity << 96,
+                            highPriceX96 - currentPriceX96,
+                            highPriceX96
+                        ) /
+                        currentPriceX96;
+
+                    (, int128 liquidityNet, , , , , , ) = univ3pool.ticks(nextTick);
+                    currentLiquidity = liquidityNet > 0
+                        ? currentLiquidity + uint128(liquidityNet)
+                        : currentLiquidity - uint128(-liquidityNet);
+                    currentTick = nextTick;
+                    nextTick = nextTick + tickSpacing;
+                    currentPriceX96 = Math.getSqrtRatioAtTick(currentTick);
+                    highPriceX96 = Math.getSqrtRatioAtTick(nextTick);
+                }
+            }
+        } else if (amountIn < 0) {
+            // if amountIn is negative, amount sent to the smart contract is token0 and price goes down
+            uint256 amount = (uint256(-amountIn) * (1e6 - fee)) / 1e6;
+            int24 nextTick = (currentTick / tickSpacing) * tickSpacing;
+            uint160 lowPriceX96 = Math.getSqrtRatioAtTick(nextTick);
+
+            while (!stop) {
+                uint256 amountAll = Math.mulDiv(
+                    currentLiquidity << 96,
+                    currentPriceX96 - lowPriceX96,
+                    lowPriceX96
+                ) / currentPriceX96;
+
+                if (amount < amountAll) {
+                    finalSqrtPrice = uint160(
+                        Math.mulDiv(
+                            currentLiquidity << 96,
+                            currentPriceX96,
+                            (currentLiquidity << 96) + amount * currentPriceX96
+                        )
+                    );
+                    amountOut += Math.mulDiv96(currentLiquidity, currentPriceX96 - finalSqrtPrice);
+                    stop = true;
+                } else {
+                    amount -= amountAll;
+                    amountOut += Math.mulDiv96(currentLiquidity, currentPriceX96 - lowPriceX96);
+
+                    (, int128 liquidityNet, , , , , , ) = univ3pool.ticks(nextTick);
+
+                    currentLiquidity = liquidityNet > 0
+                        ? currentLiquidity - uint128(liquidityNet)
+                        : currentLiquidity + uint128(-liquidityNet);
+                    currentTick = nextTick;
+                    nextTick = nextTick - tickSpacing;
+                    currentPriceX96 = Math.getSqrtRatioAtTick(currentTick);
+                    lowPriceX96 = Math.getSqrtRatioAtTick(nextTick);
+                }
+            }
+        }
+    }
+
     /*//////////////////////////////////////////////////////////////
                           ORACLE CALCULATIONS
     //////////////////////////////////////////////////////////////*/

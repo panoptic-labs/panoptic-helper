@@ -1179,6 +1179,37 @@ contract PanopticHelperTest is PositionUtils {
         assertTrue(requiredAfter <= requiredBefore);
     }
 
+    function test_quotePrice(uint256 x) public {
+        _initPool(0);
+
+        (currentSqrtPriceX96, currentTick, , , , , ) = pool.slot0();
+
+        int256 amountIn = x % 2 == 0
+            ? -int256(bound(x, 1, 150 * 45167111806))
+            : int256(bound(x, 1, 150 * 108916089235601463162));
+        (uint160 finalPrice, uint256 amountOut) = ph.quoteFinalPrice(pp, amountIn);
+
+        vm.startPrank(Swapper);
+
+        uint256 amountOutSwap = router.exactInputSingle(
+            ISwapRouter.ExactInputSingleParams(
+                amountIn < 0 ? token0 : token1,
+                amountIn > 0 ? token0 : token1,
+                fee,
+                Bob,
+                block.timestamp,
+                amountIn > 0 ? uint256(amountIn) : uint256(-amountIn),
+                0,
+                0
+            )
+        );
+
+        (uint160 finalSwapPriceX96, , , , , , ) = pool.slot0();
+
+        assertApproxEqRel(finalPrice, finalSwapPriceX96, 1e9, "final prices");
+        assertApproxEqRel(amountOut, amountOutSwap, 1e9, "amounts out");
+    }
+
     function test_Success_checkCollateral_OTMandITMShortCall(
         uint256 x,
         uint256[2] memory widthSeeds,
