@@ -59,7 +59,7 @@ contract UniswapMigratorTest is Test {
     UniswapMigrator uniswapMigrator;
 
     function setUp() public {
-        sfpm = new SemiFungiblePositionManager(V3FACTORY);
+        sfpm = new SemiFungiblePositionManager(V3FACTORY, 10 ** 13, 0);
 
         // deploy reference pool and collateral token
         poolReference = address(new PanopticPool(sfpm));
@@ -72,7 +72,6 @@ contract UniswapMigratorTest is Test {
         vm.startPrank(Deployer);
 
         factory = new PanopticFactory(
-            address(WETH),
             sfpm,
             V3FACTORY,
             poolReference,
@@ -91,14 +90,7 @@ contract UniswapMigratorTest is Test {
 
         pp = PanopticPool(
             address(
-                factory.deployNewPool(
-                    address(USDC),
-                    address(WETH),
-                    500,
-                    uint96(block.timestamp),
-                    type(uint256).max,
-                    type(uint256).max
-                )
+                factory.deployNewPool(address(USDC), address(WETH), 500, uint96(block.timestamp))
             )
         );
 

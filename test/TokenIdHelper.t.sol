@@ -23,14 +23,14 @@ import {SemiFungiblePositionManager} from "@contracts/SemiFungiblePositionManage
 import {PanopticPool} from "@contracts/PanopticPool.sol";
 import {CollateralTracker} from "@contracts/CollateralTracker.sol";
 import {PanopticFactory} from "@contracts/PanopticFactory.sol";
-import {PanopticHelper} from "../src/PanopticHelper.sol";
+import {TokenIdHelper} from "../src/TokenIdHelper.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {PositionUtils} from "lib/panoptic-v1-core/test/foundry/testUtils/PositionUtils.sol";
 import {UniPoolPriceMock} from "lib/panoptic-v1-core/test/foundry/testUtils/PriceMocks.sol";
 import {Pointer} from "@types/Pointer.sol";
 
 contract SemiFungiblePositionManagerHarness is SemiFungiblePositionManager {
-    constructor(IUniswapV3Factory _factory) SemiFungiblePositionManager(_factory) {}
+    constructor(IUniswapV3Factory _factory) SemiFungiblePositionManager(_factory, 10 ** 13, 0) {}
 
     function addrToPoolId(address pool) public view returns (uint256) {
         return s_AddrToPoolIdData[pool];
@@ -56,7 +56,7 @@ contract PanopticPoolHarness is PanopticPool {
     constructor(SemiFungiblePositionManager _sfpm) PanopticPool(_sfpm) {}
 }
 
-contract PanopticHelperTest is PositionUtils {
+contract TokenIdHelperTest is PositionUtils {
     /*//////////////////////////////////////////////////////////////
                            MAINNET CONTRACTS
     //////////////////////////////////////////////////////////////*/
@@ -115,7 +115,7 @@ contract PanopticHelperTest is PositionUtils {
 
     PanopticFactory factory;
     PanopticPoolHarness pp;
-    PanopticHelper ph;
+    TokenIdHelper th;
     CollateralTracker ct0;
     CollateralTracker ct1;
 
@@ -249,7 +249,7 @@ contract PanopticHelperTest is PositionUtils {
 
     function _cacheWorldState(IUniswapV3Pool _pool) internal {
         pool = _pool;
-        poolId = PanopticMath.getPoolId(address(_pool));
+        poolId = PanopticMath.getPoolId(address(_pool), _pool.tickSpacing());
         token0 = _pool.token0();
         token1 = _pool.token1();
         isWETH = token0 == address(WETH) ? 0 : 1;
@@ -266,7 +266,6 @@ contract PanopticHelperTest is PositionUtils {
         vm.startPrank(Deployer);
 
         factory = new PanopticFactory(
-            WETH,
             sfpm,
             V3FACTORY,
             poolReference,
@@ -282,16 +281,7 @@ contract PanopticHelperTest is PositionUtils {
         IERC20Partial(token1).approve(address(factory), type(uint104).max);
 
         pp = PanopticPoolHarness(
-            address(
-                factory.deployNewPool(
-                    token0,
-                    token1,
-                    fee,
-                    uint96(block.timestamp),
-                    type(uint256).max,
-                    type(uint256).max
-                )
-            )
+            address(factory.deployNewPool(token0, token1, fee, uint96(block.timestamp)))
         );
 
         ct0 = pp.collateralToken0();
@@ -379,22 +369,13 @@ contract PanopticHelperTest is PositionUtils {
 
     function setUp() public {
         sfpm = new SemiFungiblePositionManagerHarness(V3FACTORY);
-        ph = new PanopticHelper(SemiFungiblePositionManager(sfpm));
+        th = new TokenIdHelper(SemiFungiblePositionManager(sfpm));
 
         // deploy reference pool and collateral token
         poolReference = address(new PanopticPoolHarness(sfpm));
         collateralReference = address(
             new CollateralTracker(10, 2_000, 1_000, -1_024, 5_000, 9_000, 20_000)
         );
-    }
-
-    // bounds the input value between 2**min and 2**(max+1)-1
-    function boundLog(uint256 value, uint8 min, uint8 max) internal pure returns (uint256) {
-        uint256 range = uint256(max) - uint256(min) + 1;
-        uint256 m0 = min + (value % range);
-        value = uint256(keccak256(abi.encode(value)));
-        uint256 m1 = value % 2 ** max;
-        return 2 ** m0 + (m1 >> (max - m0));
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -476,88 +457,6 @@ contract PanopticHelperTest is PositionUtils {
         );
     }
 
-    /*//////////////////////////////////////////////////////////////////////////
-                                     BOUND LOG
-    //////////////////////////////////////////////////////////////////////////*/
-
-    function test_boundLog() public {
-        for (uint256 i = 0; i <= 255; ++i) {
-            assertEq(
-                boundLog(0, uint8(0), uint8(i)),
-                2 ** 0 + ((uint256(keccak256(abi.encode(uint256(0)))) % 2 ** i) >> i)
-            );
-
-            assertEq(
-                boundLog(0, uint8(i), uint8(255)),
-                2 ** i + ((uint256(keccak256(abi.encode(uint256(0)))) % 2 ** 255) >> (255 - i))
-            );
-
-            assertEq(
-                boundLog(0, uint8(i), uint8(i)),
-                2 ** i + (uint256(keccak256(abi.encode(uint256(0)))) % 2 ** i)
-            );
-        }
-    }
-
-    /// forge-config: default.fuzz.runs = 100000
-    function test_boundLog(uint256 x, uint8 min, uint8 max) public {
-        if (min > max) (min, max) = (max, min);
-
-        uint256 result = boundLog(x, min, max);
-
-        assertGe(result, 2 ** min);
-        assertLe(result, max == 255 ? type(uint256).max : 2 ** (max + 1) - 1);
-        assertEq(result, boundLog(x, min, max));
-    }
-
-    /// forge-config: default.fuzz.runs = 1000
-    function test_Success_boundLog_sameLimits(uint256 x) public {
-        for (uint8 i; i < 255; ++i) {
-            x = uint256(keccak256(abi.encode(x)));
-            uint256 _b = boundLog(x, i, i);
-
-            assertTrue(_b >= 2 ** i);
-            assertTrue(_b <= (2 ** (i + 1) - 1));
-        }
-        x = uint256(keccak256(abi.encode(x)));
-        uint256 b = boundLog(x, 255, 255);
-
-        assertTrue(b >= 2 ** 255);
-        assertTrue(b <= (type(uint256).max));
-    }
-
-    /// forge-config: default.fuzz.runs = 1000
-    function test_Success_boundLog_low(uint256 x) public {
-        for (uint8 i; i < 255; ++i) {
-            x = uint256(keccak256(abi.encode(x)));
-            uint256 _b = boundLog(x, 0, i);
-
-            assertTrue(_b >= 2 ** 0);
-            assertTrue(_b <= (2 ** (i + 1) - 1));
-        }
-        x = uint256(keccak256(abi.encode(x)));
-        uint256 b = boundLog(x, 0, 255);
-
-        assertTrue(b >= 2 ** 0);
-        assertTrue(b <= (type(uint256).max));
-    }
-
-    /// forge-config: default.fuzz.runs = 1000
-    function test_Success_boundLog_high(uint256 x) public {
-        for (uint8 i; i < 255; ++i) {
-            x = uint256(keccak256(abi.encode(x)));
-            uint256 _b = boundLog(x, i, 255);
-
-            assertTrue(_b >= 2 ** i);
-            assertTrue(_b <= type(uint256).max);
-        }
-        x = uint256(keccak256(abi.encode(x)));
-        uint256 b = boundLog(x, 255, 255);
-
-        assertTrue(b >= 2 ** 255);
-        assertTrue(b <= (type(uint256).max));
-    }
-
     /// forge-config: default.fuzz.runs = 500
     function test_Success_wrapUnwrapTokenIds_1Leg(
         uint256 x,
@@ -587,7 +486,7 @@ contract PanopticHelperTest is PositionUtils {
         );
         tokenId.validate();
 
-        PanopticHelper.Leg memory inputLeg = PanopticHelper.Leg({
+        TokenIdHelper.Leg memory inputLeg = TokenIdHelper.Leg({
             poolId: poolId,
             UniswapV3Pool: address(pool),
             optionRatio: optionRatio,
@@ -601,7 +500,7 @@ contract PanopticHelperTest is PositionUtils {
 
         uint256 keccakIn = uint256(keccak256(abi.encode(inputLeg)));
 
-        PanopticHelper.Leg[] memory unwrappedLeg = ph.unwrapTokenId(tokenId);
+        TokenIdHelper.Leg[] memory unwrappedLeg = th.unwrapTokenId(tokenId);
         uint256 keccakOut = uint256(keccak256(abi.encode(unwrappedLeg[0])));
 
         assertEq(keccakIn, keccakOut);
@@ -647,8 +546,8 @@ contract PanopticHelperTest is PositionUtils {
             tokenId = tokenId.addWidth(width, 1);
         }
         tokenId.validate();
-        PanopticHelper.Leg[2] memory inputLeg;
-        inputLeg[0] = PanopticHelper.Leg({
+        TokenIdHelper.Leg[2] memory inputLeg;
+        inputLeg[0] = TokenIdHelper.Leg({
             poolId: poolId,
             UniswapV3Pool: address(pool),
             optionRatio: optionRatio,
@@ -659,7 +558,7 @@ contract PanopticHelperTest is PositionUtils {
             strike: strike1,
             width: width
         });
-        inputLeg[1] = PanopticHelper.Leg({
+        inputLeg[1] = TokenIdHelper.Leg({
             poolId: poolId,
             UniswapV3Pool: address(pool),
             optionRatio: optionRatio,
@@ -673,8 +572,8 @@ contract PanopticHelperTest is PositionUtils {
 
         uint256 keccakIn = uint256(keccak256(abi.encode(inputLeg)));
 
-        PanopticHelper.Leg[] memory unwrappedLeg = ph.unwrapTokenId(tokenId);
-        PanopticHelper.Leg[2] memory outputLeg;
+        TokenIdHelper.Leg[] memory unwrappedLeg = th.unwrapTokenId(tokenId);
+        TokenIdHelper.Leg[2] memory outputLeg;
         outputLeg[0] = unwrappedLeg[0];
         outputLeg[1] = unwrappedLeg[1];
         uint256 keccakOut = uint256(keccak256(abi.encode(outputLeg)));
@@ -687,7 +586,7 @@ contract PanopticHelperTest is PositionUtils {
         _initPool(x);
 
         uint256 numberOfLegs = uint256((seed % 4) + 1);
-        PanopticHelper.Leg[] memory inputLeg = new PanopticHelper.Leg[](numberOfLegs);
+        TokenIdHelper.Leg[] memory inputLeg = new TokenIdHelper.Leg[](numberOfLegs);
 
         TokenId tokenId = TokenId.wrap(0).addPoolId(poolId);
 
@@ -732,7 +631,7 @@ contract PanopticHelperTest is PositionUtils {
             tokenId = tokenId.addWidth(width, i);
 
             // add to input array of legs
-            PanopticHelper.Leg memory _Leg = PanopticHelper.Leg({
+            TokenIdHelper.Leg memory _Leg = TokenIdHelper.Leg({
                 poolId: poolId,
                 UniswapV3Pool: address(pool),
                 optionRatio: optionRatio,
@@ -758,7 +657,7 @@ contract PanopticHelperTest is PositionUtils {
 
         tokenId.validate();
 
-        PanopticHelper.Leg[] memory unwrappedLeg = ph.unwrapTokenId(tokenId);
+        TokenIdHelper.Leg[] memory unwrappedLeg = th.unwrapTokenId(tokenId);
 
         uint256 keccakIn = uint256(keccak256(abi.encode(inputLeg)));
 
@@ -776,7 +675,7 @@ contract PanopticHelperTest is PositionUtils {
 
         uint256 numberOfLegs = 4;
 
-        PanopticHelper.Leg[] memory inputLeg = new PanopticHelper.Leg[](numberOfLegs);
+        TokenIdHelper.Leg[] memory inputLeg = new TokenIdHelper.Leg[](numberOfLegs);
 
         TokenId[10] memory riskArray;
         riskArray[0] = TokenId
@@ -894,7 +793,7 @@ contract PanopticHelperTest is PositionUtils {
             tokenId = tokenId.addWidth(width, i);
 
             // add to input array of legs
-            PanopticHelper.Leg memory _Leg = PanopticHelper.Leg({
+            TokenIdHelper.Leg memory _Leg = TokenIdHelper.Leg({
                 poolId: poolId,
                 UniswapV3Pool: address(pool),
                 optionRatio: optionRatio,
@@ -919,7 +818,7 @@ contract PanopticHelperTest is PositionUtils {
         }
 
         tokenId.validate();
-        PanopticHelper.Leg[] memory unwrappedLeg = ph.unwrapTokenId(tokenId);
+        TokenIdHelper.Leg[] memory unwrappedLeg = th.unwrapTokenId(tokenId);
 
         uint256 keccakIn = uint256(keccak256(abi.encode(inputLeg)));
 
@@ -937,7 +836,7 @@ contract PanopticHelperTest is PositionUtils {
 
         uint256 numberOfLegs = 4;
 
-        PanopticHelper.Leg[] memory inputLeg = new PanopticHelper.Leg[](numberOfLegs);
+        TokenIdHelper.Leg[] memory inputLeg = new TokenIdHelper.Leg[](numberOfLegs);
 
         TokenId[10] memory riskArray;
         riskArray[0] = TokenId
@@ -1055,7 +954,7 @@ contract PanopticHelperTest is PositionUtils {
             tokenId = tokenId.addWidth(width, i);
 
             // add to input array of legs
-            PanopticHelper.Leg memory _Leg = PanopticHelper.Leg({
+            TokenIdHelper.Leg memory _Leg = TokenIdHelper.Leg({
                 poolId: poolId,
                 UniswapV3Pool: address(pool),
                 optionRatio: optionRatio,
@@ -1090,7 +989,7 @@ contract PanopticHelperTest is PositionUtils {
         }
 
         tokenId.validate();
-        PanopticHelper.Leg[] memory unwrappedLeg = ph.unwrapTokenId(tokenId);
+        TokenIdHelper.Leg[] memory unwrappedLeg = th.unwrapTokenId(tokenId);
 
         uint256 keccakIn = uint256(keccak256(abi.encode(inputLeg)));
 
@@ -1100,14 +999,19 @@ contract PanopticHelperTest is PositionUtils {
     }
 
     /// forge-config: default.fuzz.runs = 100
-    function test_Success_optimizePartners(uint256 x, uint256 seed) public {
+    function test_Success_optimizePartners(
+        uint256 x,
+        uint256 seed,
+        int256 strikeSeed,
+        uint256 widthSeed
+    ) public {
         _initPool(x);
 
         seed = uint256(keccak256(abi.encode(seed)));
         console2.log("seed", seed);
         uint256 numberOfLegs = ((seed >> 222) % 4) + 1;
 
-        PanopticHelper.Leg[] memory inputLeg = new PanopticHelper.Leg[](numberOfLegs);
+        TokenIdHelper.Leg[] memory inputLeg = new TokenIdHelper.Leg[](numberOfLegs);
 
         TokenId tokenId = TokenId.wrap(0).addPoolId(poolId);
 
@@ -1141,24 +1045,17 @@ contract PanopticHelperTest is PositionUtils {
                 tokenId = tokenId.addAsset(asset, i);
             }
             // add strike
-            uint256 strikeTemp = uint256((seed >> 10) % 2 ** 20);
-            uint256 strikeSign = uint256((seed >> 30) % 2);
-            int24 strike = strikeTemp > 887272
-                ? int24(uint24(strikeTemp / 2))
-                : int24(uint24(strikeTemp));
-            strike = strikeSign == 0 ? -strike : strike;
-            strike = (strike / pool.tickSpacing()) * pool.tickSpacing();
+            int24 strike = (int24(bound(strikeSeed, -500_000, 500_000)) / pool.tickSpacing()) *
+                pool.tickSpacing();
             tokenId = tokenId.addStrike(strike, i);
 
             // add width
-            int24 width = int24(uint24(uint256((seed >> 31) % 2 ** 12)));
-            width = (width / 2) * 2;
-            width = width == 0 ? int24(2) : width;
+            int24 width = int24(uint24(2 * bound(widthSeed, 1, 100)));
 
             tokenId = tokenId.addWidth(width, i);
 
             // add to input array of legs
-            PanopticHelper.Leg memory _Leg = PanopticHelper.Leg({
+            TokenIdHelper.Leg memory _Leg = TokenIdHelper.Leg({
                 poolId: poolId,
                 UniswapV3Pool: address(pool),
                 optionRatio: optionRatio,
@@ -1172,127 +1069,10 @@ contract PanopticHelperTest is PositionUtils {
             inputLeg[i] = _Leg;
         }
 
-        uint256 requiredBefore = ph.getRequiredBase(pp, tokenId, currentTick);
-        TokenId optimizedTokenId = ph.optimizeRiskPartners(pp, currentTick, tokenId);
-        uint256 requiredAfter = ph.getRequiredBase(pp, optimizedTokenId, currentTick);
+        uint256 requiredBefore = th.getRequiredBase(pp, tokenId, currentTick);
+        TokenId optimizedTokenId = th.optimizeRiskPartners(pp, currentTick, tokenId);
+        uint256 requiredAfter = th.getRequiredBase(pp, optimizedTokenId, currentTick);
         console2.log("tokenIds", TokenId.unwrap(tokenId), TokenId.unwrap(optimizedTokenId));
         assertTrue(requiredAfter <= requiredBefore);
-    }
-
-    function test_Success_checkCollateral_OTMandITMShortCall(
-        uint256 x,
-        uint256[2] memory widthSeeds,
-        int256[2] memory strikeSeeds,
-        uint256[2] memory positionSizeSeeds,
-        int256 atTickSeed,
-        bool returnTokenType
-    ) public {
-        _initPool(x);
-
-        ($width, $strike) = PositionUtils.getOTMSW(
-            widthSeeds[0],
-            strikeSeeds[0],
-            uint24(tickSpacing),
-            currentTick,
-            0
-        );
-
-        ($width2, $strike2) = PositionUtils.getITMSW(
-            widthSeeds[1],
-            strikeSeeds[1],
-            uint24(tickSpacing),
-            currentTick,
-            1
-        );
-        vm.assume($width2 != $width || $strike2 != $strike);
-
-        populatePositionData([$width, $width2], [$strike, $strike2], positionSizeSeeds);
-
-        atTick = int24(bound(atTickSeed, TickMath.MIN_TICK, TickMath.MAX_TICK));
-
-        /// position size is denominated in the opposite of asset, so we do it in the token that is not WETH
-        // leg 1
-        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
-            0,
-            1,
-            isWETH,
-            0,
-            0,
-            0,
-            $strike,
-            $width
-        );
-        // leg 2
-        TokenId tokenId2 = TokenId.wrap(0).addPoolId(poolId).addLeg(
-            0,
-            1,
-            isWETH,
-            0,
-            1,
-            0,
-            $strike2,
-            $width2
-        );
-        {
-            TokenId[] memory posIdList = new TokenId[](1);
-            posIdList[0] = tokenId;
-
-            pp.mintOptions(
-                posIdList,
-                positionSizes[0],
-                0,
-                Constants.MAX_V3POOL_TICK,
-                Constants.MIN_V3POOL_TICK
-            );
-        }
-
-        {
-            TokenId[] memory posIdList = new TokenId[](2);
-            posIdList[0] = tokenId;
-            posIdList[1] = tokenId2;
-
-            pp.mintOptions(
-                posIdList,
-                positionSizes[1],
-                0,
-                Constants.MAX_V3POOL_TICK,
-                Constants.MIN_V3POOL_TICK
-            );
-
-            (
-                LeftRightUnsigned shortPremium,
-                LeftRightUnsigned longPremium,
-                uint256[2][] memory posBalanceArray
-            ) = pp.calculateAccumulatedFeesBatch(Alice, false, posIdList);
-
-            tokenData0 = ct0.getAccountMarginDetails(
-                Alice,
-                atTick,
-                posBalanceArray,
-                shortPremium.rightSlot(),
-                longPremium.rightSlot()
-            );
-            tokenData1 = ct1.getAccountMarginDetails(
-                Alice,
-                atTick,
-                posBalanceArray,
-                shortPremium.leftSlot(),
-                longPremium.leftSlot()
-            );
-
-            (calculatedCollateralBalance, calculatedRequiredCollateral) = PanopticMath
-                .getCrossBalances(tokenData0, tokenData1, Math.getSqrtRatioAtTick(atTick));
-
-            // these are the balance/required cross, reusing variables to save stack space
-            (collateralBalance, requiredCollateral) = ph.checkCollateral(
-                pp,
-                Alice,
-                atTick,
-                posIdList
-            );
-
-            assertEq(collateralBalance, calculatedCollateralBalance);
-            assertEq(requiredCollateral, calculatedRequiredCollateral);
-        }
     }
 }

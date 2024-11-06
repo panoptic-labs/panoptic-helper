@@ -794,7 +794,6 @@ contract UniswapHelper {
         IUniswapV3Pool univ3pool = IUniswapV3Pool(pool);
 
         (, int24 currentTick, , , , , ) = univ3pool.slot0();
-        uint256 decimals0 = ERC20(univ3pool.token0()).decimals();
 
         (int256[] memory tickData, int256[] memory liquidityData) = getTickNets(univ3pool);
 
