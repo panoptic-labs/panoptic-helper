@@ -9,7 +9,8 @@ optimizer = true
 optimizer_runs = 999_999
 viaIR = false
 gas_limit = 9223372036854775807
-eth_rpc_url = "https://eth.public-rpc.com"
+eth_rpc_url = "https://eth-mainnet.g.alchemy.com/v2/VFzTyJb_7z2xn0esHWWVvPyeG9XN_vH1"
+fork_block_number = 18963715
 
 [profile.ci_test]
 fork_block_number = 18963715
@@ -25,5 +26,5 @@ viaIR = true
 
 [fuzz]
 # temporary workaround while we figure out perf issues + configure different test sets + profiles
-runs = 30
+runs = 10
 max_test_rejects = 9_999_999

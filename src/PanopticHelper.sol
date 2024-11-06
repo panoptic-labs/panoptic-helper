@@ -333,101 +333,248 @@ contract PanopticHelper {
 
     /// @notice Estimated the final sqrtPrice and the amount received for an "exact input" swap
     /// @param pool the Panoptic pool on top of that trade
-    /// @param amountIn the amount of tokens to be traded (amountIn < 0 means token0-for-token1, amountIn > 0 means token1-for-token0)
+    /// @param zeroForOne (true means token0-for-token1, false means token1-for-token0)
+    /// @param amountToQuery the amount of tokens to be traded (amountIn < 0 means exact output, amountIn > 0 means exact input)
     /// @return finalSqrtPrice the final price after that trade
-    /// @return amountOut the amount of tokens received for that trade
+    /// @return resultantAmount the amount of tokens needed to be input to the swap or received (depending on exact input or exact output)
     function quoteFinalPrice(
         PanopticPool pool,
-        int256 amountIn
-    ) public view returns (uint160 finalSqrtPrice, uint256 amountOut) {
+        bool zeroForOne,
+        int256 amountToQuery
+    ) public view returns (uint160 finalSqrtPrice, uint256 resultantAmount) {
         IUniswapV3Pool univ3pool = pool.univ3pool();
 
         (uint160 currentPriceX96, int24 currentTick, , , , , ) = univ3pool.slot0();
         int24 tickSpacing = univ3pool.tickSpacing();
         uint256 fee = uint256(univ3pool.fee());
-        int256 scaledTick = int256((currentTick / tickSpacing) * tickSpacing);
 
         uint256 currentLiquidity = univ3pool.liquidity();
 
         bool stop;
+        int24 nextTick = (currentTick / tickSpacing) * tickSpacing;
 
-        // if amountIn is positive, amount sent to the smart contract is token1 and price goes up
-        if (amountIn > 0) {
-            uint256 amount = (uint256(amountIn) * (1e6 - fee)) / 1e6;
-            int24 nextTick = (currentTick / tickSpacing) * tickSpacing + tickSpacing;
-            uint160 highPriceX96 = Math.getSqrtRatioAtTick(nextTick);
+        // exact input if positive
+        if (amountToQuery > 0) {
+            uint256 amount = (uint256(amountToQuery) * (1e6 - fee)) / 1e6;
 
-            while (!stop) {
-                uint256 amountAll = Math.mulDiv96(currentLiquidity, highPriceX96 - currentPriceX96);
+            // if amountIn is positive, amount sent to the smart contract is token1 and price goes up
+            if (zeroForOne) {
+                // if amountIn is negative, amount sent to the smart contract is token0 and price goes down
+                uint160 lowPriceX96 = Math.getSqrtRatioAtTick(nextTick);
 
-                if (amount < amountAll) {
-                    finalSqrtPrice =
-                        currentPriceX96 +
-                        uint160(Math.mulDiv(amount, 2 ** 96, currentLiquidity));
-                    {
-                        uint160 _f = finalSqrtPrice;
-                        amountOut +=
-                            Math.mulDiv(currentLiquidity << 96, _f - currentPriceX96, _f) /
-                            currentPriceX96;
+                while (!stop) {
+                    uint256 amountAll = Math.mulDiv(
+                        currentLiquidity << 96,
+                        currentPriceX96 - lowPriceX96,
+                        lowPriceX96
+                    ) / currentPriceX96;
+
+                    if (amount < amountAll) {
+                        finalSqrtPrice = uint160(
+                            Math.mulDiv(
+                                currentLiquidity << 96,
+                                currentPriceX96,
+                                (currentLiquidity << 96) + amount * currentPriceX96
+                            )
+                        );
+                        resultantAmount += Math.mulDiv96(
+                            currentLiquidity,
+                            currentPriceX96 - finalSqrtPrice
+                        );
+                        stop = true;
+                    } else {
+                        amount -= amountAll;
+                        resultantAmount += Math.mulDiv96(
+                            currentLiquidity,
+                            currentPriceX96 - lowPriceX96
+                        );
+
+                        (, int128 liquidityNet, , , , , , ) = univ3pool.ticks(nextTick);
+
+                        currentLiquidity = liquidityNet > 0
+                            ? currentLiquidity - uint128(liquidityNet)
+                            : currentLiquidity + uint128(-liquidityNet);
+                        currentTick = nextTick;
+                        nextTick = nextTick - tickSpacing;
+                        currentPriceX96 = Math.getSqrtRatioAtTick(currentTick);
+                        lowPriceX96 = Math.getSqrtRatioAtTick(nextTick);
                     }
-                    stop = true;
-                } else {
-                    amount -= amountAll;
-                    amountOut +=
-                        Math.mulDiv(
-                            currentLiquidity << 96,
-                            highPriceX96 - currentPriceX96,
-                            highPriceX96
-                        ) /
-                        currentPriceX96;
+                }
+            } else {
+                nextTick += tickSpacing; // look at the next valid tick to query
+                uint160 highPriceX96 = Math.getSqrtRatioAtTick(nextTick);
 
-                    (, int128 liquidityNet, , , , , , ) = univ3pool.ticks(nextTick);
-                    currentLiquidity = liquidityNet > 0
-                        ? currentLiquidity + uint128(liquidityNet)
-                        : currentLiquidity - uint128(-liquidityNet);
-                    currentTick = nextTick;
-                    nextTick = nextTick + tickSpacing;
-                    currentPriceX96 = Math.getSqrtRatioAtTick(currentTick);
-                    highPriceX96 = Math.getSqrtRatioAtTick(nextTick);
+                while (!stop) {
+                    uint256 amountAll = Math.mulDiv96(
+                        currentLiquidity,
+                        highPriceX96 - currentPriceX96
+                    );
+
+                    console2.log("amountAll", amountAll);
+
+                    if (amount < amountAll) {
+                        finalSqrtPrice =
+                            currentPriceX96 +
+                            uint160(Math.mulDiv(amount, 2 ** 96, currentLiquidity));
+                        {
+                            uint160 _f = finalSqrtPrice;
+                            resultantAmount +=
+                                Math.mulDiv(currentLiquidity << 96, _f - currentPriceX96, _f) /
+                                currentPriceX96;
+                        }
+                        stop = true;
+                    } else {
+                        amount -= amountAll;
+                        resultantAmount +=
+                            Math.mulDiv(
+                                currentLiquidity << 96,
+                                highPriceX96 - currentPriceX96,
+                                highPriceX96
+                            ) /
+                            currentPriceX96;
+
+                        (, int128 liquidityNet, , , , , , ) = univ3pool.ticks(nextTick);
+                        currentLiquidity = liquidityNet > 0
+                            ? currentLiquidity + uint128(liquidityNet)
+                            : currentLiquidity - uint128(-liquidityNet);
+                        currentTick = nextTick;
+                        nextTick = nextTick + tickSpacing;
+                        currentPriceX96 = Math.getSqrtRatioAtTick(currentTick);
+                        highPriceX96 = Math.getSqrtRatioAtTick(nextTick);
+                    }
                 }
             }
-        } else if (amountIn < 0) {
-            // if amountIn is negative, amount sent to the smart contract is token0 and price goes down
-            uint256 amount = (uint256(-amountIn) * (1e6 - fee)) / 1e6;
-            int24 nextTick = (currentTick / tickSpacing) * tickSpacing;
-            uint160 lowPriceX96 = Math.getSqrtRatioAtTick(nextTick);
+        } else {
+            // we pass value in terms of token 1 to get what token 0 input to swap in
+            // resultant amount in terms of token 0
+            // 1 <- 0
+            if (zeroForOne) {
+                // if amountIn is negative, amount sent to the smart contract is token0 and price goes down
+                uint160 lowPriceX96 = Math.getSqrtRatioAtTick(nextTick);
 
-            while (!stop) {
-                uint256 amountAll = Math.mulDiv(
-                    currentLiquidity << 96,
-                    currentPriceX96 - lowPriceX96,
-                    lowPriceX96
-                ) / currentPriceX96;
+                // the exact amount we want at the end of a (0 -> 1) swap
+                uint256 expectedOutPut = uint256(-amountToQuery);
 
-                if (amount < amountAll) {
-                    finalSqrtPrice = uint160(
-                        Math.mulDiv(
-                            currentLiquidity << 96,
-                            currentPriceX96,
-                            (currentLiquidity << 96) + amount * currentPriceX96
-                        )
-                    );
-                    amountOut += Math.mulDiv96(currentLiquidity, currentPriceX96 - finalSqrtPrice);
-                    stop = true;
-                } else {
-                    amount -= amountAll;
-                    amountOut += Math.mulDiv96(currentLiquidity, currentPriceX96 - lowPriceX96);
+                // assume an input of the max swap amount
+                // the starting - ending delta is the true amountIn for a (0 -> 1) swap
+                uint256 runningAmount = type(uint256).max;
 
-                    (, int128 liquidityNet, , , , , , ) = univ3pool.ticks(nextTick);
+                uint256 _resultantAmount = resultantAmount;
 
-                    currentLiquidity = liquidityNet > 0
-                        ? currentLiquidity - uint128(liquidityNet)
-                        : currentLiquidity + uint128(-liquidityNet);
-                    currentTick = nextTick;
-                    nextTick = nextTick - tickSpacing;
-                    currentPriceX96 = Math.getSqrtRatioAtTick(currentTick);
-                    lowPriceX96 = Math.getSqrtRatioAtTick(nextTick);
+                while (!stop) {
+                    // amount of token 0 at this step of the swap
+                    uint256 amountAll = Math.mulDiv(
+                        currentLiquidity << 96,
+                        currentPriceX96 - lowPriceX96,
+                        lowPriceX96
+                    ) / currentPriceX96;
+
+                    console2.log("_resultantAmount", _resultantAmount);
+                    console2.log("runningAmount", type(uint256).max - runningAmount);
+                    console2.log("amountAll", amountAll);
+                    console2.log("expectedOutPut", expectedOutPut);
+
+                    // if the ending result of token1 swapped out is greater or equal to expected then end
+                    if (_resultantAmount >= expectedOutPut) {
+                        // if the resultant amount is greater than the expected output
+
+                        // get the ending delta to use as the final amount (the required amountIn to satisfy the out)
+                        _resultantAmount = type(uint256).max - runningAmount;
+
+                        uint160 _finalSqrtPrice = uint160(
+                            Math.mulDiv(
+                                currentLiquidity << 96,
+                                currentPriceX96,
+                                (currentLiquidity << 96) + _resultantAmount * currentPriceX96
+                            )
+                        );
+
+                        _resultantAmount += Math.mulDiv96(
+                            currentLiquidity,
+                            currentPriceX96 - _finalSqrtPrice
+                        );
+
+                        stop = true;
+                    } else {
+                        // adjust the amountIn by the amount computed at this swap step
+                        runningAmount -= amountAll;
+
+                        // in terms of token1 out for (0 -> 1) swap
+                        _resultantAmount += Math.mulDiv96(
+                            currentLiquidity,
+                            currentPriceX96 - lowPriceX96
+                        );
+
+                        (, int128 liquidityNet, , , , , , ) = univ3pool.ticks(nextTick);
+                        console2.log("liquidityNet", liquidityNet);
+
+                        currentLiquidity = liquidityNet > 0
+                            ? currentLiquidity - uint128(liquidityNet)
+                            : currentLiquidity + uint128(-liquidityNet);
+                        currentTick = nextTick;
+                        nextTick = nextTick - tickSpacing;
+                        currentPriceX96 = Math.getSqrtRatioAtTick(currentTick);
+                        lowPriceX96 = Math.getSqrtRatioAtTick(nextTick);
+                    }
                 }
+                // set return val
+                resultantAmount = _resultantAmount;
+            } else {
+                // we pass value in terms of token 0 to get what token 1 input to swap in
+                // resultant amount in terms of token 1
+                // 0 <- 1
+                uint256 exactOutPut = uint256(-amountToQuery);
+                nextTick += tickSpacing; // look at the next valid tick to query
+                uint160 highPriceX96 = Math.getSqrtRatioAtTick(nextTick);
+
+                while (!stop) {
+                    // get swap amount for the current step in terms of
+                    // token 1
+                    uint256 amountAll = Math.mulDiv(
+                        currentLiquidity << 96,
+                        highPriceX96 - currentPriceX96,
+                        highPriceX96
+                    ) / currentPriceX96;
+
+                    console2.log("amountAll", amountAll);
+
+                    if (exactOutPut < amountAll) {
+                        finalSqrtPrice = uint160(
+                            Math.mulDiv(
+                                currentLiquidity << 96,
+                                currentPriceX96,
+                                (currentLiquidity << 96) + exactOutPut * currentPriceX96
+                            )
+                        );
+
+                        resultantAmount += Math.mulDiv96(
+                            currentLiquidity,
+                            currentPriceX96 - finalSqrtPrice
+                        );
+                        stop = true;
+                    } else {
+                        // adjust the initial desired output by the computed output
+                        // for this step for the nex iteration
+                        exactOutPut -= amountAll;
+
+                        // in terms of token 1 (the amount in)
+                        resultantAmount += Math.mulDiv96(
+                            currentLiquidity,
+                            highPriceX96 - currentPriceX96
+                        );
+
+                        (, int128 liquidityNet, , , , , , ) = univ3pool.ticks(nextTick);
+                        currentLiquidity = liquidityNet > 0
+                            ? currentLiquidity + uint128(liquidityNet)
+                            : currentLiquidity - uint128(-liquidityNet);
+                        currentTick = nextTick;
+                        nextTick = nextTick + tickSpacing;
+                        currentPriceX96 = Math.getSqrtRatioAtTick(currentTick);
+                        highPriceX96 = Math.getSqrtRatioAtTick(nextTick);
+                    }
+                }
+
+                resultantAmount *= (1e6 - fee) / 1e6; // account for fee
             }
         }
     }

@@ -1179,26 +1179,26 @@ contract PanopticHelperTest is PositionUtils {
         assertTrue(requiredAfter <= requiredBefore);
     }
 
-    function test_quotePrice(uint256 x) public {
+    function test_quotePriceIn(uint256 x, bool zeroForOne) public {
         _initPool(0);
 
         (currentSqrtPriceX96, currentTick, , , , , ) = pool.slot0();
 
         int256 amountIn = x % 2 == 0
-            ? -int256(bound(x, 1, 150 * 45167111806))
+            ? int256(bound(x, 1, 150 * 45167111806))
             : int256(bound(x, 1, 150 * 108916089235601463162));
-        (uint160 finalPrice, uint256 amountOut) = ph.quoteFinalPrice(pp, amountIn);
+        (uint160 finalPrice, uint256 amountOut) = ph.quoteFinalPrice(pp, zeroForOne, amountIn);
 
         vm.startPrank(Swapper);
 
         uint256 amountOutSwap = router.exactInputSingle(
             ISwapRouter.ExactInputSingleParams(
-                amountIn < 0 ? token0 : token1,
-                amountIn > 0 ? token0 : token1,
+                zeroForOne ? token0 : token1,
+                zeroForOne ? token1 : token0,
                 fee,
                 Bob,
                 block.timestamp,
-                amountIn > 0 ? uint256(amountIn) : uint256(-amountIn),
+                uint256(amountIn),
                 0,
                 0
             )
@@ -1206,8 +1206,49 @@ contract PanopticHelperTest is PositionUtils {
 
         (uint160 finalSwapPriceX96, , , , , , ) = pool.slot0();
 
+        // tolerance as we're not considering rounding directions
         assertApproxEqRel(finalPrice, finalSwapPriceX96, 1e9, "final prices");
         assertApproxEqRel(amountOut, amountOutSwap, 1e9, "amounts out");
+    }
+
+    function test_quotePriceOut(uint256 x, bool zeroForOne) public {
+        _initPool(0);
+        (currentSqrtPriceX96, currentTick, , , , , ) = pool.slot0();
+        int256 amountOut = x % 2 == 0
+            ? int256(bound(x, 1, 150 * 45167111806))
+            : int256(bound(x, 1, 150 * 108916089235601463162));
+
+        (uint160 finalPrice, uint256 resultantAmount) = ph.quoteFinalPrice(
+            pp,
+            zeroForOne,
+            -type(int64).max // flip to signify exact output
+        );
+
+        console2.log("pool", address(pool));
+        console2.log("zero for one", bool(zeroForOne));
+
+        vm.startPrank(Swapper);
+        uint256 amountOutSwap = router.exactOutputSingle(
+            ISwapRouter.ExactOutputSingleParams(
+                zeroForOne ? token0 : token1,
+                zeroForOne ? token1 : token0,
+                fee,
+                Bob,
+                block.timestamp,
+                //uint256(amountOut),
+                uint64(type(int64).max),
+                type(uint256).max,
+                0
+            )
+        );
+        (uint160 finalSwapPriceX96, , , , , , ) = pool.slot0();
+
+        console2.log("finalPrice", finalPrice);
+        console2.log("finalSwapPriceX96", finalSwapPriceX96);
+        console2.log("pool fee", pool.fee());
+
+        assertApproxEqRel(finalPrice, finalSwapPriceX96, 1e9, "final prices");
+        assertApproxEqRel(resultantAmount, amountOutSwap, 1e9, "amounts in");
     }
 
     function test_Success_checkCollateral_OTMandITMShortCall(
