@@ -357,19 +357,22 @@ contract PanopticHelper {
         if (amountToQuery > 0) {
             uint256 amount = (uint256(amountToQuery) * (1e6 - fee)) / 1e6;
 
-            // if amountIn is positive, amount sent to the smart contract is token1 and price goes up
+            // swapping token 0 for token 1 and price goes down
             if (zeroForOne) {
-                // if amountIn is negative, amount sent to the smart contract is token0 and price goes down
                 uint160 lowPriceX96 = Math.getSqrtRatioAtTick(nextTick);
 
                 while (!stop) {
-                    uint256 amountAll = Math.mulDiv(
+                    // calculate the amount of token 0 at this swap step
+                    // so we know how much to decrement against the remaining amount in
+                    uint256 amount0Delta = Math.mulDiv(
                         currentLiquidity << 96,
                         currentPriceX96 - lowPriceX96,
                         lowPriceX96
                     ) / currentPriceX96;
 
-                    if (amount < amountAll) {
+                    // if the amount in remaining is less than what is computed for this swap step
+                    if (amount < amount0Delta) {
+                        // get the final price
                         finalSqrtPrice = uint160(
                             Math.mulDiv(
                                 currentLiquidity << 96,
@@ -377,13 +380,19 @@ contract PanopticHelper {
                                 (currentLiquidity << 96) + amount * currentPriceX96
                             )
                         );
+
+                        // return amount in
                         resultantAmount += Math.mulDiv96(
                             currentLiquidity,
                             currentPriceX96 - finalSqrtPrice
                         );
                         stop = true;
                     } else {
-                        amount -= amountAll;
+                        // decrement the remaining input amount
+                        // both represented in terms of token 0
+                        amount -= amount0Delta;
+
+                        // resultant amounts returned in terms of token 1
                         resultantAmount += Math.mulDiv96(
                             currentLiquidity,
                             currentPriceX96 - lowPriceX96
@@ -405,14 +414,12 @@ contract PanopticHelper {
                 uint160 highPriceX96 = Math.getSqrtRatioAtTick(nextTick);
 
                 while (!stop) {
-                    uint256 amountAll = Math.mulDiv96(
+                    uint256 amount1Delta = Math.mulDiv96(
                         currentLiquidity,
                         highPriceX96 - currentPriceX96
                     );
 
-                    console2.log("amountAll", amountAll);
-
-                    if (amount < amountAll) {
+                    if (amount < amount1Delta) {
                         finalSqrtPrice =
                             currentPriceX96 +
                             uint160(Math.mulDiv(amount, 2 ** 96, currentLiquidity));
@@ -424,7 +431,7 @@ contract PanopticHelper {
                         }
                         stop = true;
                     } else {
-                        amount -= amountAll;
+                        amount -= amount1Delta;
                         resultantAmount +=
                             Math.mulDiv(
                                 currentLiquidity << 96,
@@ -449,61 +456,157 @@ contract PanopticHelper {
             // resultant amount in terms of token 0
             // 1 <- 0
             if (zeroForOne) {
-                // if amountIn is negative, amount sent to the smart contract is token0 and price goes down
-                uint160 lowPriceX96 = Math.getSqrtRatioAtTick(nextTick);
-
-                // the exact amount we want at the end of a (0 -> 1) swap
-                uint256 expectedOutPut = uint256(-amountToQuery);
-
-                // assume an input of the max swap amount
-                // the starting - ending delta is the true amountIn for a (0 -> 1) swap
-                uint256 runningAmount = type(uint256).max;
-
-                uint256 _resultantAmount = resultantAmount;
+                nextTick += tickSpacing;
+                uint160 highPriceX96 = Math.getSqrtRatioAtTick(nextTick);
+                uint256 amountIn;
+                uint256 amountOut = uint256(-amountToQuery);
 
                 while (!stop) {
-                    // amount of token 0 at this step of the swap
-                    uint256 amountAll = Math.mulDiv(
+                    // calculate the amount of token 0 at this swap step
+                    // so we know how much to decrement against the remaining amount in
+                    uint256 amount0Delta = Math.mulDivRoundingUp(
                         currentLiquidity << 96,
-                        currentPriceX96 - lowPriceX96,
-                        lowPriceX96
-                    ) / currentPriceX96;
+                        highPriceX96 - currentPriceX96,
+                        highPriceX96
+                    ) / highPriceX96;
 
-                    console2.log("_resultantAmount", _resultantAmount);
-                    console2.log("runningAmount", type(uint256).max - runningAmount);
-                    console2.log("amountAll", amountAll);
-                    console2.log("expectedOutPut", expectedOutPut);
+                    // resultant amounts returned in terms of token 1
+                    uint256 amount1Delta = Math.mulDiv96(
+                        currentLiquidity,
+                        highPriceX96 - currentPriceX96
+                    );
 
-                    // if the ending result of token1 swapped out is greater or equal to expected then end
-                    if (_resultantAmount >= expectedOutPut) {
-                        // if the resultant amount is greater than the expected output
+                    console2.log("amount 0 delta", amount0Delta);
+                    console2.log("amount 1 delta", amount1Delta);
+                    console2.log("amountIn", amountIn);
+                    console2.log("amountOut", amountOut);
+                    console2.log("currentLiquidity", currentLiquidity);
 
-                        // get the ending delta to use as the final amount (the required amountIn to satisfy the out)
-                        _resultantAmount = type(uint256).max - runningAmount;
+                    uint160 _currentPriceX96 = currentPriceX96;
 
-                        uint160 _finalSqrtPrice = uint160(
-                            Math.mulDiv(
-                                currentLiquidity << 96,
-                                currentPriceX96,
-                                (currentLiquidity << 96) + _resultantAmount * currentPriceX96
-                            )
-                        );
+                    // if the amount in remaining is less than what is computed for this swap step
+                    if (amount1Delta > amountOut) {
+                        console2.log("reached final step");
 
-                        _resultantAmount += Math.mulDiv96(
-                            currentLiquidity,
-                            currentPriceX96 - _finalSqrtPrice
-                        );
+                        // get the final price
+                        finalSqrtPrice =
+                            _currentPriceX96 -
+                            uint160(Math.mulDivRoundingUp(amountOut, 2 ** 96, currentLiquidity));
+
+                        // @note optimize
+                        uint160 _f = _currentPriceX96 -
+                            uint160(Math.mulDivRoundingUp(amountOut, 2 ** 96, currentLiquidity));
+
+                        {
+                            // return amount in amount0
+                            amountIn +=
+                                Math.mulDivRoundingUp(
+                                    currentLiquidity << 96,
+                                    _currentPriceX96 - _f,
+                                    _currentPriceX96
+                                ) /
+                                _f;
+
+                            // add fee to amountIn
+                            amountIn += Math.mulDivRoundingUp(amountIn, fee, 1e6 - fee);
+
+                            console2.log("amountIn", amountIn);
+                        }
+
+                        resultantAmount = amountIn;
 
                         stop = true;
                     } else {
-                        // adjust the amountIn by the amount computed at this swap step
-                        runningAmount -= amountAll;
+                        // increment the resultant amountIn
+                        amountIn += amount0Delta;
 
-                        // in terms of token1 out for (0 -> 1) swap
-                        _resultantAmount += Math.mulDiv96(
-                            currentLiquidity,
-                            currentPriceX96 - lowPriceX96
+                        // decrement the amountOut until exhausted
+                        amountOut -= amount1Delta;
+
+                        (, int128 liquidityNet, , , , , , ) = univ3pool.ticks(nextTick);
+                        console2.log("liquidityNet", liquidityNet);
+
+                        currentLiquidity = liquidityNet > 0
+                            ? currentLiquidity - uint128(liquidityNet)
+                            : currentLiquidity + uint128(-liquidityNet);
+                        currentTick = nextTick;
+                        nextTick = nextTick + tickSpacing;
+                        currentPriceX96 = Math.getSqrtRatioAtTick(currentTick);
+                        highPriceX96 = Math.getSqrtRatioAtTick(nextTick);
+                    }
+                }
+            } else {
+                uint160 lowPriceX96 = Math.getSqrtRatioAtTick(nextTick);
+                uint256 amountIn;
+                uint256 amountOut = uint256(-amountToQuery);
+
+                while (!stop) {
+                    // calculate the amount of token 1 at this swap step
+                    // so we know how much to decrement against the remaining amount in
+                    uint256 amount1Delta = Math.mulDiv96RoundingUp(
+                        currentLiquidity,
+                        currentPriceX96 - lowPriceX96
+                    );
+
+                    // resultant amounts returned in terms of token 0
+                    uint256 amount0Delta = Math.mulDiv(
+                        currentLiquidity << 96,
+                        currentPriceX96 - lowPriceX96,
+                        lowPriceX96
+                    ) / lowPriceX96;
+
+                    console2.log("amount 0 delta", amount0Delta);
+                    console2.log("amount 1 delta", amount1Delta);
+                    console2.log("amountIn", amountIn);
+                    console2.log("amountOut", amountOut);
+                    console2.log("currentLiquidity", currentLiquidity);
+
+                    uint160 _currentPriceX96 = currentPriceX96;
+
+                    // if the amount in remaining is less than what is computed for this swap step
+                    if (amount0Delta > amountOut) {
+                        console2.log("reached final step");
+
+                        // get the final price
+                        finalSqrtPrice = uint160(
+                            Math.mulDiv(
+                                currentLiquidity << 96,
+                                currentPriceX96,
+                                (currentLiquidity << 96) + amountOut * _currentPriceX96
+                            )
                         );
+
+                        // @note optimize
+                        uint160 _f = uint160(
+                            Math.mulDiv(
+                                currentLiquidity << 96,
+                                currentPriceX96,
+                                (currentLiquidity << 96) + amountOut * _currentPriceX96
+                            )
+                        );
+
+                        {
+                            // return amount in amount1
+                            amountIn += Math.mulDiv96RoundingUp(
+                                currentLiquidity,
+                                _currentPriceX96 - _f
+                            );
+
+                            // add fee to amountIn
+                            amountIn += Math.mulDivRoundingUp(amountIn, fee, 1e6 - fee);
+
+                            console2.log("amountIn", amountIn);
+                        }
+
+                        resultantAmount = amountIn;
+
+                        stop = true;
+                    } else {
+                        // increment the resultant amountIn
+                        amountIn += amount1Delta;
+
+                        // decrement the amountOut until exhausted
+                        amountOut -= amount0Delta;
 
                         (, int128 liquidityNet, , , , , , ) = univ3pool.ticks(nextTick);
                         console2.log("liquidityNet", liquidityNet);
@@ -517,64 +620,6 @@ contract PanopticHelper {
                         lowPriceX96 = Math.getSqrtRatioAtTick(nextTick);
                     }
                 }
-                // set return val
-                resultantAmount = _resultantAmount;
-            } else {
-                // we pass value in terms of token 0 to get what token 1 input to swap in
-                // resultant amount in terms of token 1
-                // 0 <- 1
-                uint256 exactOutPut = uint256(-amountToQuery);
-                nextTick += tickSpacing; // look at the next valid tick to query
-                uint160 highPriceX96 = Math.getSqrtRatioAtTick(nextTick);
-
-                while (!stop) {
-                    // get swap amount for the current step in terms of
-                    // token 1
-                    uint256 amountAll = Math.mulDiv(
-                        currentLiquidity << 96,
-                        highPriceX96 - currentPriceX96,
-                        highPriceX96
-                    ) / currentPriceX96;
-
-                    console2.log("amountAll", amountAll);
-
-                    if (exactOutPut < amountAll) {
-                        finalSqrtPrice = uint160(
-                            Math.mulDiv(
-                                currentLiquidity << 96,
-                                currentPriceX96,
-                                (currentLiquidity << 96) + exactOutPut * currentPriceX96
-                            )
-                        );
-
-                        resultantAmount += Math.mulDiv96(
-                            currentLiquidity,
-                            currentPriceX96 - finalSqrtPrice
-                        );
-                        stop = true;
-                    } else {
-                        // adjust the initial desired output by the computed output
-                        // for this step for the nex iteration
-                        exactOutPut -= amountAll;
-
-                        // in terms of token 1 (the amount in)
-                        resultantAmount += Math.mulDiv96(
-                            currentLiquidity,
-                            highPriceX96 - currentPriceX96
-                        );
-
-                        (, int128 liquidityNet, , , , , , ) = univ3pool.ticks(nextTick);
-                        currentLiquidity = liquidityNet > 0
-                            ? currentLiquidity + uint128(liquidityNet)
-                            : currentLiquidity - uint128(-liquidityNet);
-                        currentTick = nextTick;
-                        nextTick = nextTick + tickSpacing;
-                        currentPriceX96 = Math.getSqrtRatioAtTick(currentTick);
-                        highPriceX96 = Math.getSqrtRatioAtTick(nextTick);
-                    }
-                }
-
-                resultantAmount *= (1e6 - fee) / 1e6; // account for fee
             }
         }
     }
