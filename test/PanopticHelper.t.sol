@@ -1218,7 +1218,11 @@ contract PanopticHelperTest is PositionUtils {
             ? int256(bound(x, 1, 150 * 45167111806))
             : int256(bound(x, 1, 150 * 108916089235601463162));
 
-        (uint160 finalPrice, uint256 resultantAmount) = ph.quoteFinalPrice(pp, false, -amountOut);
+        (uint160 finalPrice, uint256 resultantAmount) = ph.quoteFinalPrice(
+            pp,
+            zeroForOne,
+            -amountOut
+        );
 
         console2.log("pool", address(pool));
         console2.log("zero for one", bool(zeroForOne));
@@ -1226,8 +1230,8 @@ contract PanopticHelperTest is PositionUtils {
         vm.startPrank(Swapper);
         uint256 amountInTrue = router.exactOutputSingle(
             ISwapRouter.ExactOutputSingleParams(
-                false ? token0 : token1,
-                false ? token1 : token0,
+                zeroForOne ? token0 : token1,
+                zeroForOne ? token1 : token0,
                 fee,
                 Bob,
                 block.timestamp,
