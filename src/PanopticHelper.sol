@@ -486,7 +486,7 @@ contract PanopticHelper {
 
                     // if the amount in remaining is less than what is computed for this swap step
                     if (amount1Delta > amountOut) {
-                        console2.log("reached final step");
+                        console2.log("reached final step true");
 
                         // get the final price
                         finalSqrtPrice =
@@ -496,6 +496,9 @@ contract PanopticHelper {
                         // @note optimize
                         uint160 _f = _currentPriceX96 -
                             uint160(Math.mulDivRoundingUp(amountOut, 2 ** 96, currentLiquidity));
+
+                        console.log("finalSqrtPrice", _f);
+                        console.log("_currentPriceX96", _currentPriceX96);
 
                         {
                             // return amount in amount0
@@ -565,7 +568,7 @@ contract PanopticHelper {
 
                     // if the amount in remaining is less than what is computed for this swap step
                     if (amount0Delta > amountOut) {
-                        console2.log("reached final step");
+                        console2.log("reached final step false");
 
                         // get the final price
                         finalSqrtPrice = uint160(
