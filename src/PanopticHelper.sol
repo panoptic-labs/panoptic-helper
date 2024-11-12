@@ -551,7 +551,7 @@ contract PanopticHelper {
                     // resultant amounts returned in terms of token 0
                     uint256 amount0Delta = Math.mulDiv(
                         currentLiquidity << 96,
-                        currentPriceX96 - lowPriceX96,
+                        lowPriceX96 - currentPriceX96,
                         lowPriceX96
                     ) / lowPriceX96;
 
