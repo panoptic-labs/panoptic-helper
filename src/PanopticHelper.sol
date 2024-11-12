@@ -588,6 +588,9 @@ contract PanopticHelper {
                             )
                         );
 
+                        console.log("_f ", _f);
+                        console.log("currentPriceX96", currentPriceX96);
+
                         {
                             // return amount in amount1
                             amountIn += Math.mulDiv96RoundingUp(
