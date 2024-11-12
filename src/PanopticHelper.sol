@@ -486,7 +486,7 @@ contract PanopticHelper {
 
                     // if the amount in remaining is less than what is computed for this swap step
                     if (amount1Delta > amountOut) {
-                        console2.log("reached final step");
+                        console2.log("reached final step true");
 
                         // get the final price
                         finalSqrtPrice =
@@ -496,6 +496,9 @@ contract PanopticHelper {
                         // @note optimize
                         uint160 _f = _currentPriceX96 -
                             uint160(Math.mulDivRoundingUp(amountOut, 2 ** 96, currentLiquidity));
+
+                        console.log("finalSqrtPrice", _f);
+                        console.log("_currentPriceX96", _currentPriceX96);
 
                         {
                             // return amount in amount0
@@ -527,8 +530,8 @@ contract PanopticHelper {
                         console2.log("liquidityNet", liquidityNet);
 
                         currentLiquidity = liquidityNet > 0
-                            ? currentLiquidity + uint128(liquidityNet)
-                            : currentLiquidity - uint128(-liquidityNet);
+                            ? currentLiquidity - uint128(liquidityNet)
+                            : currentLiquidity + uint128(-liquidityNet);
                         currentTick = nextTick;
                         nextTick = nextTick + tickSpacing;
                         currentPriceX96 = Math.getSqrtRatioAtTick(currentTick);
@@ -565,7 +568,7 @@ contract PanopticHelper {
 
                     // if the amount in remaining is less than what is computed for this swap step
                     if (amount0Delta > amountOut) {
-                        console2.log("reached final step");
+                        console2.log("reached final step false");
 
                         // get the final price
                         finalSqrtPrice = uint160(
@@ -578,18 +581,21 @@ contract PanopticHelper {
 
                         // @note optimize
                         uint160 _f = uint160(
-                            Math.mulDiv(
+                            Math.mulDivRoundingUp(
                                 currentLiquidity << 96,
                                 currentPriceX96,
                                 (currentLiquidity << 96) - amountOut * _currentPriceX96
                             )
                         );
 
+                        console.log("_f ", _f);
+                        console.log("currentPriceX96", currentPriceX96);
+
                         {
                             // return amount in amount1
                             amountIn += Math.mulDiv96RoundingUp(
                                 currentLiquidity,
-                                _currentPriceX96 - _f
+                                _f - _currentPriceX96
                             );
 
                             // add fee to amountIn
@@ -612,8 +618,8 @@ contract PanopticHelper {
                         console2.log("liquidityNet", liquidityNet);
 
                         currentLiquidity = liquidityNet > 0
-                            ? currentLiquidity - uint128(liquidityNet)
-                            : currentLiquidity + uint128(-liquidityNet);
+                            ? currentLiquidity + uint128(liquidityNet)
+                            : currentLiquidity - uint128(-liquidityNet);
                         currentTick = nextTick;
                         nextTick = nextTick - tickSpacing;
                         currentPriceX96 = Math.getSqrtRatioAtTick(currentTick);
