@@ -530,8 +530,8 @@ contract PanopticHelper {
                         console2.log("liquidityNet", liquidityNet);
 
                         currentLiquidity = liquidityNet > 0
-                            ? currentLiquidity - uint128(liquidityNet)
-                            : currentLiquidity + uint128(-liquidityNet);
+                            ? currentLiquidity + uint128(liquidityNet)
+                            : currentLiquidity - uint128(-liquidityNet);
                         currentTick = nextTick;
                         nextTick = nextTick + tickSpacing;
                         currentPriceX96 = Math.getSqrtRatioAtTick(currentTick);
@@ -618,8 +618,8 @@ contract PanopticHelper {
                         console2.log("liquidityNet", liquidityNet);
 
                         currentLiquidity = liquidityNet > 0
-                            ? currentLiquidity + uint128(liquidityNet)
-                            : currentLiquidity - uint128(-liquidityNet);
+                            ? currentLiquidity - uint128(liquidityNet)
+                            : currentLiquidity + uint128(-liquidityNet);
                         currentTick = nextTick;
                         nextTick = nextTick - tickSpacing;
                         currentPriceX96 = Math.getSqrtRatioAtTick(currentTick);
