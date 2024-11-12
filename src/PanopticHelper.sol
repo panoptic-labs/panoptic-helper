@@ -578,7 +578,7 @@ contract PanopticHelper {
 
                         // @note optimize
                         uint160 _f = uint160(
-                            Math.mulDiv(
+                            Math.mulDivRoundingUp(
                                 currentLiquidity << 96,
                                 currentPriceX96,
                                 (currentLiquidity << 96) - amountOut * _currentPriceX96
