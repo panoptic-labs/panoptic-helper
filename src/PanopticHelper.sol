@@ -592,7 +592,7 @@ contract PanopticHelper {
                             // return amount in amount1
                             amountIn += Math.mulDiv96RoundingUp(
                                 currentLiquidity,
-                                _currentPriceX96 - _f
+                                _f - _currentPriceX96
                             );
 
                             // add fee to amountIn
