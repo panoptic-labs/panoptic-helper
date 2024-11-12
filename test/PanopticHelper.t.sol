@@ -1228,18 +1228,26 @@ contract PanopticHelperTest is PositionUtils {
         console2.log("zero for one", bool(zeroForOne));
 
         vm.startPrank(Swapper);
-        uint256 amountInTrue = router.exactOutputSingle(
-            ISwapRouter.ExactOutputSingleParams(
-                zeroForOne ? token0 : token1,
-                zeroForOne ? token1 : token0,
-                fee,
-                Bob,
-                block.timestamp,
-                uint256(amountOut),
-                type(uint256).max,
-                0
+        uint256 amountInTrue;
+        try
+            router.exactOutputSingle(
+                ISwapRouter.ExactOutputSingleParams(
+                    zeroForOne ? token0 : token1,
+                    zeroForOne ? token1 : token0,
+                    fee,
+                    Bob,
+                    block.timestamp,
+                    uint256(amountOut),
+                    type(uint256).max,
+                    0
+                )
             )
-        );
+        returns (uint256 result) {
+            amountInTrue = result;
+        } catch {
+            // if swap failed go to next iteration
+            return;
+        }
         (uint160 finalSwapPriceX96, , , , , , ) = pool.slot0();
 
         console2.log("finalPrice", finalPrice);
