@@ -367,8 +367,8 @@ contract PanopticHelper {
                     uint256 amount0Delta = Math.mulDiv(
                         currentLiquidity << 96,
                         currentPriceX96 - lowPriceX96,
-                        lowPriceX96
-                    ) / currentPriceX96;
+                        currentPriceX96
+                    ) / lowPriceX96;
 
                     // if the amount in remaining is less than what is computed for this swap step
                     if (amount < amount0Delta) {
@@ -468,7 +468,7 @@ contract PanopticHelper {
                         currentLiquidity << 96,
                         highPriceX96 - currentPriceX96,
                         highPriceX96
-                    ) / highPriceX96;
+                    ) / currentPriceX96;
 
                     // resultant amounts returned in terms of token 1
                     uint256 amount1Delta = Math.mulDiv96(
@@ -569,10 +569,10 @@ contract PanopticHelper {
 
                         // get the final price
                         finalSqrtPrice = uint160(
-                            Math.mulDiv(
+                            Math.mulDivRoundingUp(
                                 currentLiquidity << 96,
                                 currentPriceX96,
-                                (currentLiquidity << 96) + amountOut * _currentPriceX96
+                                (currentLiquidity << 96) - amountOut * _currentPriceX96
                             )
                         );
 
@@ -581,7 +581,7 @@ contract PanopticHelper {
                             Math.mulDiv(
                                 currentLiquidity << 96,
                                 currentPriceX96,
-                                (currentLiquidity << 96) + amountOut * _currentPriceX96
+                                (currentLiquidity << 96) - amountOut * _currentPriceX96
                             )
                         );
 
