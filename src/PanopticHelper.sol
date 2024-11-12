@@ -527,6 +527,7 @@ contract PanopticHelper {
                         amountOut -= amount1Delta;
 
                         (, int128 liquidityNet, , , , , , ) = univ3pool.ticks(nextTick);
+                        console2.log("liquidityNet", liquidityNet);
 
                         currentLiquidity = liquidityNet > 0
                             ? currentLiquidity - uint128(liquidityNet)

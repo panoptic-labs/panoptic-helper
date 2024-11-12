@@ -1218,15 +1218,6 @@ contract PanopticHelperTest is PositionUtils {
             ? int256(bound(x, 1, 150 * 45167111806))
             : int256(bound(x, 1, 150 * 108916089235601463162));
 
-        (uint160 finalPrice, uint256 resultantAmount) = ph.quoteFinalPrice(
-            pp,
-            zeroForOne,
-            -amountOut
-        );
-
-        console2.log("pool", address(pool));
-        console2.log("zero for one", bool(zeroForOne));
-
         vm.startPrank(Swapper);
         uint256 amountInTrue;
         try
@@ -1249,6 +1240,15 @@ contract PanopticHelperTest is PositionUtils {
             return;
         }
         (uint160 finalSwapPriceX96, , , , , , ) = pool.slot0();
+
+        (uint160 finalPrice, uint256 resultantAmount) = ph.quoteFinalPrice(
+            pp,
+            zeroForOne,
+            -amountOut
+        );
+
+        console2.log("pool", address(pool));
+        console2.log("zero for one", bool(zeroForOne));
 
         console2.log("finalPrice", finalPrice);
         console2.log("finalSwapPriceX96", finalSwapPriceX96);
