@@ -530,8 +530,8 @@ contract PanopticHelper {
                         console2.log("liquidityNet", liquidityNet);
 
                         currentLiquidity = liquidityNet > 0
-                            ? currentLiquidity + uint128(liquidityNet)
-                            : currentLiquidity - uint128(-liquidityNet);
+                            ? currentLiquidity - uint128(liquidityNet)
+                            : currentLiquidity + uint128(-liquidityNet);
                         currentTick = nextTick;
                         nextTick = nextTick + tickSpacing;
                         currentPriceX96 = Math.getSqrtRatioAtTick(currentTick);
@@ -588,11 +588,14 @@ contract PanopticHelper {
                             )
                         );
 
+                        console.log("_f ", _f);
+                        console.log("currentPriceX96", currentPriceX96);
+
                         {
                             // return amount in amount1
                             amountIn += Math.mulDiv96RoundingUp(
                                 currentLiquidity,
-                                _currentPriceX96 - _f
+                                _f - _currentPriceX96
                             );
 
                             // add fee to amountIn
@@ -615,8 +618,8 @@ contract PanopticHelper {
                         console2.log("liquidityNet", liquidityNet);
 
                         currentLiquidity = liquidityNet > 0
-                            ? currentLiquidity - uint128(liquidityNet)
-                            : currentLiquidity + uint128(-liquidityNet);
+                            ? currentLiquidity + uint128(liquidityNet)
+                            : currentLiquidity - uint128(-liquidityNet);
                         currentTick = nextTick;
                         nextTick = nextTick - tickSpacing;
                         currentPriceX96 = Math.getSqrtRatioAtTick(currentTick);
