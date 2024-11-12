@@ -304,8 +304,8 @@ contract PanopticHelperTest is PositionUtils {
         IERC20Partial(token0).approve(address(router), type(uint256).max);
         IERC20Partial(token1).approve(address(router), type(uint256).max);
 
-        deal(token0, Swapper, type(uint104).max);
-        deal(token1, Swapper, type(uint104).max);
+        deal(token0, Swapper, type(uint128).max);
+        deal(token1, Swapper, type(uint128).max);
 
         vm.startPrank(Charlie);
 
