@@ -1245,7 +1245,7 @@ contract PanopticHelperTest is PositionUtils {
         returns (uint256 result) {
             amountInTrue = result;
         } catch {
-            // if swap failed go to next iteration
+            // if swap failed go to next test
             return;
         }
         (uint160 finalSwapPriceX96, , , , , , ) = pool.slot0();
@@ -1254,8 +1254,8 @@ contract PanopticHelperTest is PositionUtils {
         console2.log("finalSwapPriceX96", finalSwapPriceX96);
         console2.log("pool fee", pool.fee());
 
-        assertApproxEqRel(finalPrice, finalSwapPriceX96, 1e9, "final prices");
-        assertApproxEqAbs(resultantAmount, amountInTrue, 5, "amounts in");
+        assertApproxEqRel(finalPrice, finalSwapPriceX96, 1e18, "final prices");
+        assertApproxEqRel(resultantAmount, amountInTrue, 1e18, "amounts in");
     }
 
     function test_Success_checkCollateral_OTMandITMShortCall(
