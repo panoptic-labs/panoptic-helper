@@ -401,8 +401,8 @@ contract PanopticHelper {
                         (, int128 liquidityNet, , , , , , ) = univ3pool.ticks(nextTick);
 
                         currentLiquidity = liquidityNet > 0
-                            ? currentLiquidity + uint128(liquidityNet)
-                            : currentLiquidity - uint128(-liquidityNet);
+                            ? currentLiquidity - uint128(liquidityNet)
+                            : currentLiquidity + uint128(-liquidityNet);
                         currentTick = nextTick;
                         nextTick = nextTick - tickSpacing;
                         currentPriceX96 = Math.getSqrtRatioAtTick(currentTick);
@@ -441,7 +441,6 @@ contract PanopticHelper {
                             currentPriceX96;
 
                         (, int128 liquidityNet, , , , , , ) = univ3pool.ticks(nextTick);
-
                         currentLiquidity = liquidityNet > 0
                             ? currentLiquidity + uint128(liquidityNet)
                             : currentLiquidity - uint128(-liquidityNet);
@@ -528,14 +527,10 @@ contract PanopticHelper {
                         amountOut -= amount1Delta;
 
                         (, int128 liquidityNet, , , , , , ) = univ3pool.ticks(nextTick);
-                        console2.log("liquidityNet", liquidityNet);
-
-                        // if we're moving leftward, we interpret liquidityNet as the opposite sign
-                        liquidityNet = -liquidityNet;
 
                         currentLiquidity = liquidityNet > 0
-                            ? currentLiquidity + uint128(liquidityNet)
-                            : currentLiquidity - uint128(-liquidityNet);
+                            ? currentLiquidity - uint128(liquidityNet)
+                            : currentLiquidity + uint128(-liquidityNet);
                         currentTick = nextTick;
                         nextTick = nextTick + tickSpacing;
                         currentPriceX96 = Math.getSqrtRatioAtTick(currentTick);
