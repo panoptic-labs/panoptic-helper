@@ -28,7 +28,7 @@ import {UniPoolPriceMock} from "lib/panoptic-v1-core/test/foundry/testUtils/Pric
 import {Pointer} from "@types/Pointer.sol";
 
 contract SemiFungiblePositionManagerHarness is SemiFungiblePositionManager {
-    constructor(IUniswapV3Factory _factory) SemiFungiblePositionManager(_factory) {}
+    constructor(IUniswapV3Factory _factory) SemiFungiblePositionManager(_factory, 10 ** 13, 0) {}
 
     function addrToPoolId(address pool) public view returns (uint256) {
         return s_AddrToPoolIdData[pool];
@@ -168,7 +168,7 @@ contract UniswapHelperTest is PositionUtils {
 
     function _cacheWorldState(IUniswapV3Pool _pool) internal {
         pool = _pool;
-        poolId = PanopticMath.getPoolId(address(_pool));
+        poolId = PanopticMath.getPoolId(address(_pool), _pool.tickSpacing());
         token0 = _pool.token0();
         token1 = _pool.token1();
         isWETH = token0 == address(WETH) ? 0 : 1;
