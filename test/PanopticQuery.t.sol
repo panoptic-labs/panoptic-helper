@@ -770,7 +770,7 @@ contract PanopticQueryTest is PositionUtils {
             LeftRightUnsigned shortPremium,
             LeftRightUnsigned longPremium,
             uint256[2][] memory posBalanceArray
-        ) = pp.calculateAccumulatedFeesBatch(Alice, false, posIdList);
+        ) = pp.getAccumulatedFeesAndPositionsData(Alice, false, posIdList);
 
         tokenData0 = ct0.getAccountMarginDetails(
             Alice,
