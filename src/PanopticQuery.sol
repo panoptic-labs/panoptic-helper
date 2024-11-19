@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
+import "forge-std/Test.sol";
 
 // Interfaces
 import {IUniswapV3Pool} from "univ3-core/interfaces/IUniswapV3Pool.sol";
@@ -330,22 +331,6 @@ contract PanopticQuery {
         uint128 positionSize
     ) internal view returns (uint128 utilizations) {
         (, int24 currentTick, , , , , ) = PanopticPool(pool).univ3pool().slot0();
-        int256 deltaA0;
-        int256 deltaA1;
-        {
-            (int256 itm0, int256 itm1) = inTheMoneyAmounts(tokenId, positionSize, currentTick);
-            (int256 net0, int256 net1) = getTokenFlow(tokenId, positionSize, currentTick);
-            (deltaA0, deltaA1) = itm0 < 0
-                ? (
-                    net0 + itm0,
-                    net1 + PanopticMath.convert0to1(-itm0, Math.getSqrtRatioAtTick(currentTick))
-                )
-                : (
-                    net0 + PanopticMath.convert1to0(-itm1, Math.getSqrtRatioAtTick(currentTick)),
-                    net1 + itm1
-                );
-        }
-
         (uint256 poolAssets0, uint256 insideAMM0, ) = pool.collateralToken0().getPoolData();
 
         (uint256 poolAssets1, uint256 insideAMM1, ) = pool.collateralToken1().getPoolData();
@@ -357,10 +342,18 @@ contract PanopticQuery {
         int256 moved0 = int256(netMoved.rightSlot());
         int256 moved1 = int256(netMoved.leftSlot());
 
+        (int256 net0, int256 net1) = getTokenFlow(tokenId, positionSize, currentTick);
+
         int256 newPoolUtilization0 = (10000 * (int256(insideAMM0) + moved0)) /
-            (int256(poolAssets0) - deltaA0 + moved0);
+            (int256(poolAssets0) - net0 + moved0);
         int256 newPoolUtilization1 = (10000 * (int256(insideAMM1) + moved1)) /
-            (int256(poolAssets1) - deltaA1 + moved1);
+            (int256(poolAssets1) - net1 + moved1);
+
+        console2.log(
+            "new utilizations",
+            uint256(newPoolUtilization0),
+            uint256(newPoolUtilization1)
+        );
         utilizations =
             uint128(uint256(newPoolUtilization0)) +
             uint128(uint256(newPoolUtilization1) << 16);
@@ -483,6 +476,7 @@ contract PanopticQuery {
 
         // scales size by: maximum amount of available liquidity for longs. Scaled coveredSize so that it's never larger than nakedSize
         nakedSize = uint128(Math.min(maxAvailableLong, nakedSize));
+
         coveredSize = uint128(Math.min(nakedSize, coveredSize));
     }
 
@@ -604,7 +598,7 @@ contract PanopticQuery {
             ) = checkCollateral(pool, account, currentTick, positionIdList);
 
             uint256 balanceCross = currentTick < 0 ? balance0 : balance1;
-            uint256 requiredCross = currentTick < 0 ? required0 : balance1;
+            uint256 requiredCross = currentTick < 0 ? required0 : required1;
             availableCross = balanceCross - (4 * requiredCross) / 3;
         }
 
