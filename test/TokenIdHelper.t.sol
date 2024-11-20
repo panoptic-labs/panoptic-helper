@@ -1225,11 +1225,7 @@ contract TokenIdHelperTest is PositionUtils {
             .addLeg(0, originalOptionRatio1, 0, 1, 0, 0, 100, 10)
             .addLeg(1, originalOptionRatio2, 0, 1, 0, 0, 100, 10);
 
-        TokenId scaledUpPosition = th.scaledPosition(
-            originalPosition,
-            scaleFactor,
-            true
-        );
+        TokenId scaledUpPosition = th.scaledPosition(originalPosition, scaleFactor, true);
 
         assertEq(
             scaledUpPosition.optionRatio(0),
@@ -1268,11 +1264,7 @@ contract TokenIdHelperTest is PositionUtils {
             .addPoolId(1234)
             .addLeg(0, originalOptionRatio1, 0, 1, 0, 0, 100, 10)
             .addLeg(1, originalOptionRatio2, 0, 1, 0, 0, 100, 10);
-        TokenId scaledDownPosition = th.scaledPosition(
-            originalPosition,
-            scaleFactor,
-            false
-        );
+        TokenId scaledDownPosition = th.scaledPosition(originalPosition, scaleFactor, false);
         assertEq(
             scaledDownPosition.optionRatio(0),
             originalOptionRatio1 / scaleFactor,

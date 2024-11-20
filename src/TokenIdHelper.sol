@@ -398,10 +398,10 @@ contract TokenIdHelper {
             uint256 lowestOldPositionSizeFactor = _lowestNonIdentityFactor(oldPositionSize);
             for (uint256 i = 0; i < optionRatios.length; i++) {
                 if (
-                  // break early if lowestOldPositionSizeFactor * optionsRatios[i] overflows:
-                  lowestOldPositionSizeFactor > type(uint256).max / optionRatios[i] ||
-                  // or if it exceeds the max option ratio:
-                  lowestOldPositionSizeFactor * optionRatios[i] > MAX_OPTION_RATIO
+                    // break early if lowestOldPositionSizeFactor * optionsRatios[i] overflows:
+                    lowestOldPositionSizeFactor > type(uint256).max / optionRatios[i] ||
+                    // or if it exceeds the max option ratio:
+                    lowestOldPositionSizeFactor * optionRatios[i] > MAX_OPTION_RATIO
                 ) {
                     scalingUpwardFailed = true;
                     break;
@@ -429,11 +429,9 @@ contract TokenIdHelper {
         uint256 lcdAmongOptionRatios = _findLeastCommonDivisor(optionRatios);
         if (
             lcdAmongOptionRatios > 1 &&
-            (
-              // can oldPositionSize be multiplied by lcdAmongOptionRatios, w/o overflowing, and stay below MAX_POSITION_SIZE?
-              oldPositionSize < type(uint128).max / uint128(lcdAmongOptionRatios) &&
-              oldPositionSize *  uint128(lcdAmongOptionRatios) < MAX_POSITION_SIZE
-            )
+            (// can oldPositionSize be multiplied by lcdAmongOptionRatios, w/o overflowing, and stay below MAX_POSITION_SIZE?
+            oldPositionSize < type(uint128).max / uint128(lcdAmongOptionRatios) &&
+                oldPositionSize * uint128(lcdAmongOptionRatios) < MAX_POSITION_SIZE)
         ) {
             for (uint256 i = 0; i < optionRatios.length; i++) {
                 newPosition = overwriteOptionRatio(
