@@ -4,6 +4,8 @@ pragma solidity ^0.8.0;
 // Interfaces
 import {IUniswapV3Pool} from "univ3-core/interfaces/IUniswapV3Pool.sol";
 import {PanopticPool} from "@contracts/PanopticPool.sol";
+import {SemiFungiblePositionManager} from "@contracts/SemiFungiblePositionManager.sol";
+import {TokenIdHelper} from "@helper/TokenIdHelper.sol";
 // Libraries
 import {Constants} from "@libraries/Constants.sol";
 import {PanopticMath} from "@libraries/PanopticMath.sol";
@@ -12,10 +14,22 @@ import {Math} from "@libraries/Math.sol";
 import {LeftRightUnsigned} from "@types/LeftRight.sol";
 import {LiquidityChunk} from "@types/LiquidityChunk.sol";
 import {TokenId, TokenIdLibrary} from "@types/TokenId.sol";
+import {PositionBalance, PositionBalanceLibrary} from "@types/PositionBalance.sol";
 
 /// @title Utility contract for token ID construction and advanced queries.
 /// @author Axicon Labs Limited
 contract PanopticQuery {
+    SemiFungiblePositionManager internal immutable SFPM;
+    TokenIdHelper internal immutable tokenIdHelper;
+
+    /// @notice Construct the PanopticHelper contract
+    /// @param SFPM_ address of the SemiFungiblePositionManager
+    /// @param tokenIdHelper_ address of the TokenIdHelper to leverage
+    constructor(SemiFungiblePositionManager SFPM_, TokenIdHelper tokenIdHelper_) payable {
+        SFPM = SFPM_;
+        tokenIdHelper = tokenIdHelper_;
+    }
+
     /// @notice Compute the total amount of collateral needed to cover the existing list of active positions in positionIdList.
     /// @param pool The PanopticPool instance to check collateral on
     /// @param account Address of the user that owns the positions
@@ -240,5 +254,116 @@ contract PanopticQuery {
                 ++k;
             }
         }
+    }
+
+    /// @notice Evaluates if the supplied position has enough liquidity to be burnt successfully
+    ///         if it does, returns the supplied position size
+    ///         if not, returns what the max position size would be
+    /// @notice account The address of the account to evaluate
+    /// @notice tokenId The TokenId to reduce the size of
+    /// @notice netLiquidityUsageLimitBPS When readusting, the proportion of net liquidity to limit
+    ///                                   the new position size to using, in bps - For example, use
+    ///                                   90_000 to avoid any leg needing >90% of the net liquidity
+    /// @return newPositionSize The updated size of the new position
+    function reduceSizeIfNecessary(
+        PanopticPool pool,
+        address account,
+        TokenId tokenId,
+        uint128 netLiquidityUsageLimitBPS
+    ) external view returns (uint128 newPositionSize) {
+        TokenIdHelper.Leg[] memory legs = tokenIdHelper.unwrapTokenId(tokenId);
+
+        TokenId[] memory accountsPositionsToGetSizesFor = new TokenId[](1);
+        accountsPositionsToGetSizesFor[0] = tokenId;
+        (, , uint256[2][] memory existingPositions) = pool.getAccumulatedFeesAndPositionsData(
+            account,
+            false,
+            accountsPositionsToGetSizesFor
+        );
+        uint128 oldPositionSize = PositionBalance
+            .wrap(
+                // The only position in the list's second item,
+                // which should be the PositionBalance
+                // (first item is the corresponding tokenId)
+                existingPositions[0][1]
+            )
+            .positionSize();
+
+        // If there are are no longs; sell as much as you're currently selling.
+        // (TODO: could be more sophisticated and return the
+        // actual limit on how much you can sell for this case, even above oldPositionSize)
+        // Else, we'll start with the current position size as a max to reduce as need be.
+        newPositionSize = oldPositionSize;
+        if (tokenId.countLongs() > 0) {
+            // Iterate over each leg and determine if there is enough netLiquidity to burn it.
+            for (uint256 i = 0; i < tokenId.countLegs(); ) {
+                if (legs[i].isLong == 1) {
+                    LeftRightUnsigned liquidityData = SFPM.getAccountLiquidity(
+                        legs[i].UniswapV3Pool,
+                        account,
+                        legs[i].tokenType,
+                        legs[i].strike - (legs[i].width / 2),
+                        legs[i].strike + (legs[i].width / 2)
+                    );
+                    uint128 netLiquidity = liquidityData.rightSlot();
+
+                    if (newPositionSize * legs[i].optionRatio > netLiquidity) {
+                        // If not enough liquidity, lower position size to keep util at
+                        // requested limit
+                        newPositionSize = uint128(
+                            (netLiquidity * netLiquidityUsageLimitBPS) /
+                                uint128(10_000) /
+                                legs[i].optionRatio
+                        );
+                    }
+                }
+                unchecked {
+                    ++i;
+                }
+            }
+        }
+    }
+
+    /// @notice Fetch data about chunks in a positionIdList.
+    /// @param account The address of the account to retrieve liquidity data for
+    /// @param positionIdList List of TokenIds to evaluate
+    /// @return chunkData A memory array of [positionIdList.length][4][2] containing netLiquidity and removedLiquidity for each leg
+    function getChunkData(
+        address account,
+        TokenId[] memory positionIdList
+    ) external view returns (uint256[][][] memory) {
+        uint256[][][] memory chunkData = new uint256[][][](positionIdList.length);
+
+        for (uint256 i; i < positionIdList.length; ) {
+            uint256[][] memory ithPositionLiquidities = new uint256[][](4);
+
+            for (uint256 j; j < positionIdList[i].countLegs(); ) {
+                LeftRightUnsigned liquidityData = SFPM.getAccountLiquidity(
+                    address(SFPM.getUniswapV3PoolFromId(positionIdList[i].poolId())),
+                    account,
+                    positionIdList[i].tokenType(j),
+                    positionIdList[i].strike(j) - (positionIdList[i].width(j) / 2),
+                    positionIdList[i].strike(j) + (positionIdList[i].width(j) / 2)
+                );
+
+                uint256[] memory liquidityDataArr = new uint256[](2);
+                // net liquidity:
+                liquidityDataArr[0] = liquidityData.rightSlot();
+                // removed liquidity:
+                liquidityDataArr[1] = liquidityData.leftSlot();
+                ithPositionLiquidities[j] = liquidityDataArr;
+
+                unchecked {
+                    ++j;
+                }
+            }
+
+            chunkData[i] = ithPositionLiquidities;
+            unchecked {
+                ++i;
+            }
+        }
+
+        return chunkData;
     }
 }

@@ -1075,4 +1075,213 @@ contract TokenIdHelperTest is PositionUtils {
         console2.log("tokenIds", TokenId.unwrap(tokenId), TokenId.unwrap(optimizedTokenId));
         assertTrue(requiredAfter <= requiredBefore);
     }
+
+    function test_equivalentPosition_preservesOriginalScale() public {
+        TokenId originalPosition = TokenId
+            .wrap(0)
+            .addPoolId(1234)
+            .addLeg(
+                0,
+                2, // optionRatio = 2
+                0,
+                1,
+                0,
+                0,
+                100,
+                10
+            )
+            .addLeg(
+                1,
+                3, // optionRatio = 3
+                0,
+                1,
+                0,
+                0,
+                100,
+                10
+            );
+        uint128 originalSize = 1000;
+
+        (TokenId newPosition, uint128 newSize) = th.equivalentPosition(
+            originalPosition,
+            originalSize
+        );
+
+        uint256 originalScaleLeg0 = originalSize * originalPosition.optionRatio(0);
+        uint256 newScaleLeg0 = newSize * newPosition.optionRatio(0);
+        uint256 originalScaleLeg1 = originalSize * originalPosition.optionRatio(1);
+        uint256 newScaleLeg1 = newSize * newPosition.optionRatio(1);
+
+        {
+            TokenIdHelper.Leg[] memory legs;
+            legs = th.unwrapTokenId(originalPosition);
+        }
+
+        {
+            TokenIdHelper.Leg[] memory legs;
+            legs = th.unwrapTokenId(newPosition);
+        }
+
+        assertEq(originalScaleLeg0, newScaleLeg0, "Scale of the position not preserved on leg 0");
+        assertEq(originalScaleLeg1, newScaleLeg1, "Scale of the position not preserved on leg 1");
+    }
+
+    // TODO: Wish-list for the future: fuzz the number of legs too
+
+    /// Must limit the gas on this test, as it involves a factorisation helper
+
+    /// @custom:fuzz-runs 50
+    /// @custom:fuzz-max-local-rejects 100
+    /// @custom:fuzz-run-limit 30000000
+    function testFuzz_equivalentPosition_preservesOriginalScale(
+        uint128 positionSize,
+        uint8 optionRatio
+    ) public {
+        vm.assume(
+            positionSize > 0 &&
+                optionRatio > 0 &&
+                optionRatio < 128 &&
+                type(uint256).max / positionSize > optionRatio &&
+                type(uint256).max / optionRatio > positionSize
+        );
+        TokenId originalPosition = TokenId.wrap(0).addPoolId(1234).addLeg(
+            0,
+            optionRatio,
+            0,
+            1,
+            0,
+            0,
+            100,
+            10
+        );
+
+        (TokenId newPosition, uint128 newSize) = th.equivalentPosition(
+            originalPosition,
+            positionSize
+        );
+
+        if (newSize > 0) {
+            uint256 originalPayoff = uint256(positionSize) * optionRatio;
+            uint256 newPayoff = uint256(newSize) * newPosition.optionRatio(0);
+            assertEq(originalPayoff, newPayoff, "Fuzzed payoff should be preserved");
+        }
+    }
+
+    function test_scaledPosition_preservesOriginalScale() public {
+        TokenId originalPosition = TokenId.wrap(0).addPoolId(1234).addLeg(
+            0,
+            2,
+            0,
+            1,
+            0,
+            0,
+            100,
+            10
+        );
+
+        uint128 scaleFactor = 2;
+
+        TokenId scaledPosition = th.scaledPosition(originalPosition, scaleFactor, true);
+
+        assertEq(
+            scaledPosition.optionRatio(0),
+            originalPosition.optionRatio(0) * scaleFactor,
+            "Option ratio should be scaled up by factor"
+        );
+
+        assertEq(scaledPosition.poolId(), originalPosition.poolId(), "Pool ID should not change");
+        assertEq(scaledPosition.strike(0), originalPosition.strike(0), "Strike should not change");
+        assertEq(scaledPosition.width(0), originalPosition.width(0), "Width should not change");
+        assertEq(scaledPosition.isLong(0), originalPosition.isLong(0), "isLong should not change");
+        assertEq(
+            scaledPosition.tokenType(0),
+            originalPosition.tokenType(0),
+            "Token type should not change"
+        );
+    }
+
+    // TODO: Make these 2 fuzz the # of legs
+    function testFuzz_scaledPosition_up_preservesOriginalScale(
+        uint128 scaleFactor,
+        uint8 originalOptionRatio1,
+        uint8 originalOptionRatio2
+    ) public {
+        // Assume non-zero / non-identity values, as well as bounded values, for meaningful test
+        vm.assume(originalOptionRatio1 > 0 && originalOptionRatio2 > 0);
+        vm.assume(
+            scaleFactor > 1 &&
+                scaleFactor < type(uint128).max / originalOptionRatio1 &&
+                scaleFactor < type(uint128).max / originalOptionRatio2
+        );
+
+        // Keep ratios within bounds to avoid overflow
+        vm.assume(originalOptionRatio1 < 128 && originalOptionRatio2 < 128);
+        vm.assume(scaleFactor * uint128(originalOptionRatio1) < 128);
+        vm.assume(scaleFactor * uint128(originalOptionRatio2) < 128);
+
+        TokenId originalPosition = TokenId
+            .wrap(0)
+            .addPoolId(1234)
+            .addLeg(0, originalOptionRatio1, 0, 1, 0, 0, 100, 10)
+            .addLeg(1, originalOptionRatio2, 0, 1, 0, 0, 100, 10);
+
+        TokenId scaledUpPosition = th.scaledPosition(
+            originalPosition,
+            scaleFactor,
+            true
+        );
+
+        assertEq(
+            scaledUpPosition.optionRatio(0),
+            originalOptionRatio1 * scaleFactor,
+            "First leg ratio should be scaled up correctly"
+        );
+        assertEq(
+            scaledUpPosition.optionRatio(1),
+            originalOptionRatio2 * scaleFactor,
+            "Second leg ratio should be scaled up correctly"
+        );
+    }
+
+    function testFuzz_scaledPosition_down_preservesOriginalScale(
+        uint128 scaleFactor,
+        uint8 originalOptionRatio1,
+        uint8 originalOptionRatio2
+    ) public {
+        // Assume non-zero / non-identity values, as well as divisible values, for meaningful test
+        vm.assume(
+            originalOptionRatio1 > 0 &&
+                originalOptionRatio1 < 128 &&
+                originalOptionRatio2 > 0 &&
+                originalOptionRatio2 < 128
+        );
+        vm.assume(
+            scaleFactor > 1 &&
+                scaleFactor < originalOptionRatio1 &&
+                originalOptionRatio1 % scaleFactor == 0 &&
+                scaleFactor < originalOptionRatio2 &&
+                originalOptionRatio2 % scaleFactor == 0
+        );
+
+        TokenId originalPosition = TokenId
+            .wrap(0)
+            .addPoolId(1234)
+            .addLeg(0, originalOptionRatio1, 0, 1, 0, 0, 100, 10)
+            .addLeg(1, originalOptionRatio2, 0, 1, 0, 0, 100, 10);
+        TokenId scaledDownPosition = th.scaledPosition(
+            originalPosition,
+            scaleFactor,
+            false
+        );
+        assertEq(
+            scaledDownPosition.optionRatio(0),
+            originalOptionRatio1 / scaleFactor,
+            "First leg ratio should be scaled down correctly"
+        );
+        assertEq(
+            scaledDownPosition.optionRatio(1),
+            originalOptionRatio2 / scaleFactor,
+            "Second leg ratio should be scaled down correctly"
+        );
+    }
 }

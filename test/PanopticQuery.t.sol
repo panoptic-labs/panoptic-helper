@@ -24,6 +24,7 @@ import {PanopticPool} from "@contracts/PanopticPool.sol";
 import {CollateralTracker} from "@contracts/CollateralTracker.sol";
 import {PanopticFactory} from "@contracts/PanopticFactory.sol";
 import {PanopticQuery} from "../src/PanopticQuery.sol";
+import {TokenIdHelper} from "../src/TokenIdHelper.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {PositionUtils} from "lib/panoptic-v1-core/test/foundry/testUtils/PositionUtils.sol";
 import {UniPoolPriceMock} from "lib/panoptic-v1-core/test/foundry/testUtils/PriceMocks.sol";
@@ -116,6 +117,7 @@ contract PanopticQueryTest is PositionUtils {
     PanopticFactory factory;
     PanopticPoolHarness pp;
     PanopticQuery pq;
+    TokenIdHelper tih;
     CollateralTracker ct0;
     CollateralTracker ct1;
 
@@ -371,7 +373,8 @@ contract PanopticQueryTest is PositionUtils {
 
     function setUp() public {
         sfpm = new SemiFungiblePositionManagerHarness(V3FACTORY);
-        pq = new PanopticQuery();
+        tih = new TokenIdHelper(sfpm);
+        pq = new PanopticQuery(SemiFungiblePositionManager(sfpm), tih);
 
         // deploy reference pool and collateral token
         poolReference = address(new PanopticPoolHarness(sfpm));
@@ -671,5 +674,41 @@ contract PanopticQueryTest is PositionUtils {
 
             pq.checkCollateral(pp, Alice, posIdList);
         }
+    }
+
+    function test_reduceSizeIfNecessary_returns_same_size_if_no_change() public {
+        // TODO:
+        // - mint a call to purchase token0 at max size (TODO: how to get max size?),
+        // - then immediately call reduceSizeIfNecessary
+        // it should return same positionSize as you originally minted with,
+        // as the liquidities have not changed since you minted
+    }
+
+    function test_reduceSizeIfNecessary_returns_lower_size_if_necessary() public {
+        // TODO:
+        // - PLP via the SFPM with token0,
+        // - mint a call to purchase token0 at max size (TODO: how to get max size?),
+        // - then remove liquidity from the SFPM with the PLPing account,
+        // - then immediately call reduceSizeIfNecessary
+        // it should return a smaller positionSize than what you originally minted with,
+        // as there is less liquidity
+    }
+
+    function test_reduceSizeIfNecessary_returns_same_size_if_unnecessary() public {
+        // TODO:
+        // - PLP via the SFPM with token0,
+        // - mint a call to purchase token0 at max size (TODO: how to get max size?),
+        // - then immediately call reduceSizeIfNecessary
+        // it should return same positionSize as you originally minted with,
+        // even despite the extra liquidity that could let you increase size
+    }
+
+    function test_getChunkData_returns_correct_liquidities() public {
+        // TODO:
+        // - PLP via the SFPM with token0,
+        // - mint a call to purchase token0 at max size (TODO: how to get max size?),
+        // - then immediately call reduceSizeIfNecessary
+        // it should return same positionSize as you originally minted with,
+        // even despite the extra liquidity that could let you increase size
     }
 }
