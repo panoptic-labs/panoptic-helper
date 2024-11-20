@@ -509,7 +509,6 @@ contract TokenIdHelper {
                     i
                 );
             } else {
-                // TODO: convert to error message var
                 revert PeripheryErrors.BadScaleFactor();
             }
         }
@@ -732,8 +731,6 @@ contract TokenIdHelper {
         return true;
     }
 
-    /// TODO: Wish-list - make a version of this that doesn't query the pool address from the SFPM,
-    ///       so that this can be declared pure, and equivalentPosition / scaledPosition can be too
     /// @notice Unwraps the contents of the tokenId into its legs.
     /// @param tokenId the input tokenId
     /// @return legs an array of leg structs
