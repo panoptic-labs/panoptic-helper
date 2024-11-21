@@ -256,15 +256,15 @@ contract PanopticQuery {
         }
     }
 
-    /// @notice Evaluates if the supplied position has enough liquidity to be burnt successfully
-    ///         if it does, returns the supplied position size
-    ///         if not, returns what the max position size would be
-    /// @notice account The address of the account to evaluate
-    /// @notice tokenId The TokenId to reduce the size of
-    /// @notice netLiquidityUsageLimitBPS When readusting, the proportion of net liquidity to limit
-    ///                                   the new position size to using, in bps - For example, use
-    ///                                   90_000 to avoid any leg needing >90% of the net liquidity
-    /// @return newPositionSize The updated size of the new position
+    /// @notice Evaluates if the supplied position has enough liquidity to be burnt successfully:
+    /// - if it does, returns the supplied position size
+    /// - if not, returns a new position size that keeps usage of net liquidity under a supplied limit
+    /// @param account The address of the account to evaluate
+    /// @param pool The PanopticPool the supplied position exists on
+    /// @param tokenId The TokenId to reduce the size of
+    /// @param netLiquidityUsageLimitBPS When readusting, the proportion of net liquidity to limit
+    /// the new position size to using
+    /// @return newPositionSize A position size that ensures you don't exceed the supplied net liquidity usage limit
     function reduceSizeIfNecessary(
         PanopticPool pool,
         address account,

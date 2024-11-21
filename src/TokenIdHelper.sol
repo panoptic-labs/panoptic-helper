@@ -28,9 +28,14 @@ contract TokenIdHelper {
         int24 width;
     }
 
+    /// @notice The SemiFungiblePositionManager of the Panoptic instance this TokenIdHelper is intended for.
     SemiFungiblePositionManager internal immutable SFPM;
+    /// @notice The maximum quantity of a given Panoptic position one may hold.
+    uint128 public constant MAX_POSITION_SIZE = type(uint128).max;
+    /// @notice The maximum option ratio of a leg of a Panoptic position.
+    uint256 public constant MAX_OPTION_RATIO = 127;
 
-    /// @notice Construct the PanopticHelper contract
+    /// @notice Construct the TokenIdHelper contract
     /// @param _SFPM address of the SemiFungiblePositionManager
     /// @dev the SFPM is used to get the pool ID for a given address
     constructor(SemiFungiblePositionManager _SFPM) payable {
@@ -258,7 +263,7 @@ contract TokenIdHelper {
     }
 
     /*//////////////////////////////////////////////////////////////
-       Expose original helpers from the library and add new ones:
+                Expose original helpers from the library:
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Flip all the `isLong` positions in the legs in the `tokenId` option position.
@@ -364,18 +369,15 @@ contract TokenIdHelper {
         return overwrittenTokenId.addOptionRatio(newOptionRatio, legIndex);
     }
 
-    uint128 public constant MAX_POSITION_SIZE = type(uint128).max;
-    uint256 public constant MAX_OPTION_RATIO = 127;
-
-    /// @notice generates a tokenID and positionSize that represents the same position as the supplied
-    ///         tokenID and positionSize, but with the optionRatios of each leg scaled upward/downward
-    ///         (and positionSize scaled inversely)
-    /// @dev this is useful if you want to effectively hold the same position but need to avoid minting
-    ///      the same tokenID twice in a row
+    /// @notice Generate a tokenID and positionSize that represents the same position as the supplied
+    /// tokenID and positionSize, but with the optionRatios of each leg scaled upward/downward
+    /// (and positionSize scaled inversely).
+    /// @dev This is useful if you want to effectively hold the same position but need to avoid minting
+    /// the same tokenID twice in a row.
     /// @param oldPosition The original TokenId
     /// @param oldPositionSize The original position size
     /// @return newPosition The new TokenId with adjusted optionRatios
-    /// @return newPositionSize The new position size, inversely scaled to the optionRatio changes. 0 if no valid alteration found.
+    /// @return newPositionSize The new position size, inversely scaled to the optionRatio changes. 0 if no valid alteration found
     function equivalentPosition(
         TokenId oldPosition,
         uint128 oldPositionSize
@@ -473,10 +475,10 @@ contract TokenIdHelper {
         return 1;
     }
 
-    /// @notice generates a tokenID that represents the same position as the supplied tokenID, but
-    ///         with the optionRatios of each leg scaled upward/downward
-    /// @dev this is useful if you want to effectively hold the same position but need to avoid
-    ///      minting the same tokenID twice in a row
+    /// @notice Generate a tokenID that represents the same position as the supplied tokenID, but
+    /// with the optionRatios of each leg scaled upward/downward.
+    /// @dev This is useful if you want to effectively hold the same position but need to avoid
+    /// minting the same tokenID twice in a row.
     /// @param oldPosition The original TokenId
     /// @param scaleFactor The factor to scale up/down by
     /// @param scalingUp Whether we're increasing or decreasing each leg.optionRatio
