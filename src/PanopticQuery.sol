@@ -19,12 +19,14 @@ import {PositionBalance, PositionBalanceLibrary} from "@types/PositionBalance.so
 /// @title Utility contract for token ID construction and advanced queries.
 /// @author Axicon Labs Limited
 contract PanopticQuery {
+    /// @notice The SemiFungiblePositionManager of the Panoptic instance this querying helper is intended for.
     SemiFungiblePositionManager internal immutable SFPM;
+    /// @notice A TokenIdHelper used to unwrap TokenIds into the leg data they represent.
     TokenIdHelper internal immutable tokenIdHelper;
 
-    /// @notice Construct the PanopticHelper contract
-    /// @param SFPM_ address of the SemiFungiblePositionManager
-    /// @param tokenIdHelper_ address of the TokenIdHelper to leverage
+    /// @notice Construct the PanopticQuery and store the SFPM and TokenIdHelper addresses.
+    /// @param SFPM_ The canonical SFPM address for the Panoptic instance this helper queries
+    /// @param tokenIdHelper_ A TokenIdHelper that can unwrap tokenIds into legs
     constructor(SemiFungiblePositionManager SFPM_, TokenIdHelper tokenIdHelper_) payable {
         SFPM = SFPM_;
         tokenIdHelper = tokenIdHelper_;
@@ -275,7 +277,7 @@ contract PanopticQuery {
 
         TokenId[] memory accountsPositionsToGetSizesFor = new TokenId[](1);
         accountsPositionsToGetSizesFor[0] = tokenId;
-        (, , uint256[2][] memory existingPositions) = pool.getAccumulatedFeesAndPositionsData(
+        (, , uint256[2][] memory suppliedTokenIdData) = pool.getAccumulatedFeesAndPositionsData(
             account,
             false,
             accountsPositionsToGetSizesFor
@@ -285,7 +287,7 @@ contract PanopticQuery {
                 // The only position in the list's second item,
                 // which should be the PositionBalance
                 // (first item is the corresponding tokenId)
-                existingPositions[0][1]
+                suppliedTokenIdData[0][1]
             )
             .positionSize();
 
@@ -327,7 +329,7 @@ contract PanopticQuery {
     /// @notice Fetch data about chunks in a positionIdList.
     /// @param account The address of the account to retrieve liquidity data for
     /// @param positionIdList List of TokenIds to evaluate
-    /// @return chunkData A memory array of [positionIdList.length][4][2] containing netLiquidity and removedLiquidity for each leg
+    /// @return chunkData A [positionIdList.length][4][2] array containing netLiquidity and removedLiquidity for each leg
     function getChunkData(
         address account,
         TokenId[] memory positionIdList

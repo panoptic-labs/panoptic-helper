@@ -509,7 +509,7 @@ contract TokenIdHelper {
                     i
                 );
             } else {
-                revert PeripheryErrors.BadScaleFactor();
+                revert PeripheryErrors.InvalidScaleFactor();
             }
         }
     }
