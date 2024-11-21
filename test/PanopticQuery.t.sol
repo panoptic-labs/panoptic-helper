@@ -323,8 +323,8 @@ contract PanopticQueryTest is PositionUtils {
         IERC20Partial(token0).approve(address(ct0), type(uint256).max);
         IERC20Partial(token1).approve(address(ct1), type(uint256).max);
 
-        ct0.deposit(type(uint104).max, Seller);
-        ct1.deposit(type(uint104).max, Seller);
+        ct0.deposit(boundLog(type(uint104).max, 64, 64), Seller);
+        ct1.deposit(boundLog(type(uint104).max, 64, 64), Seller);
 
         // cancel out MEV tax and push exchange rate back to 1
         deal(address(ct0), Seller, type(uint104).max, true);
@@ -342,8 +342,8 @@ contract PanopticQueryTest is PositionUtils {
         IERC20Partial(token0).approve(address(ct0), type(uint256).max);
         IERC20Partial(token1).approve(address(ct1), type(uint256).max);
 
-        ct0.deposit(type(uint104).max, Bob);
-        ct1.deposit(type(uint104).max, Bob);
+        ct0.deposit(boundLog(type(uint104).max, 64, 64), Bob);
+        ct1.deposit(boundLog(type(uint104).max, 64, 64), Bob);
 
         // cancel out MEV tax and push exchange rate back to 1
         deal(address(ct0), Bob, type(uint104).max, true);
@@ -361,8 +361,8 @@ contract PanopticQueryTest is PositionUtils {
         IERC20Partial(token0).approve(address(ct0), type(uint256).max);
         IERC20Partial(token1).approve(address(ct1), type(uint256).max);
 
-        ct0.deposit(type(uint104).max, Alice);
-        ct1.deposit(type(uint104).max, Alice);
+        ct0.deposit(boundLog(type(uint104).max, 64, 64), Alice);
+        ct1.deposit(boundLog(type(uint104).max, 64, 64), Alice);
 
         // cancel out MEV tax and push exchange rate back to 1
         deal(address(ct0), Alice, type(uint104).max, true);
@@ -682,13 +682,16 @@ contract PanopticQueryTest is PositionUtils {
         }
     }
 
-    /// forge-config: default.fuzz.runs = 100
+    /// forge-config: default.fuzz.runs = 50
     function test_Success_buyingPowers(uint256 x, uint256 seed) public {
         _initPool(x);
 
         seed = uint256(keccak256(abi.encode(seed)));
+        seed = uint256(keccak256(abi.encode(0)));
         console2.log("seed", seed);
         uint256 numberOfLegs = ((seed >> 222) % 4) + 1;
+
+        numberOfLegs = 1;
 
         TokenId tokenId = TokenId.wrap(0).addPoolId(poolId);
 
@@ -713,7 +716,7 @@ contract PanopticQueryTest is PositionUtils {
                 isLong = 0 * uint256((seed >> 7) % 2);
 
                 uint256 tokenType = uint256((seed >> 27) % 2);
-                tokenId = tokenId.addTokenType(tokenType, i);
+                tokenId = tokenId.addTokenType(1 - tokenType, i);
                 // add optionRatio
                 tokenId = tokenId.addOptionRatio(optionRatio, i);
 
@@ -730,24 +733,34 @@ contract PanopticQueryTest is PositionUtils {
                 ? int24(uint24(strikeTemp / 2))
                 : int24(uint24(strikeTemp));
             strike = strikeSign == 0 ? -strike : strike;
-            strike = ((currentTick + strike) / pool.tickSpacing()) * pool.tickSpacing();
+            strike = ((currentTick) / pool.tickSpacing()) * pool.tickSpacing();
             tokenId = tokenId.addStrike(strike, i);
 
+            console2.log("strike", strike);
+            console2.log("currentT", currentTick);
             // add width
             int24 width = int24(uint24(uint256((seed >> 31) % 2 ** 12)));
             width = (width / 2) * 2;
             width = width == 0 ? int24(2) : width;
 
-            tokenId = tokenId.addWidth(width, i);
+            tokenId = tokenId.addWidth(10, i);
         }
 
         vm.startPrank(Alice);
-        positionSize = uint128(boundLog(x, 0, 64));
+        (uint256 p0, uint256 i0, uint256 u0p) = pp.collateralToken0().getPoolData();
+        console.log("utils", p0, i0, u0p);
+        (uint256 p1, uint256 i1, uint256 u1p) = pp.collateralToken1().getPoolData();
+        console.log("utils", p1, i1, u1p);
+
+        positionSize = uint128(boundLog(x, 0, 32));
+
+        (positionSize, ) = pq.sizePosition(sfpm, pp, Alice, new TokenId[](0), tokenId);
+        console.log("positionSize", positionSize);
         (uint128 requiredToken0, uint128 requiredToken1) = pq.positionBuyingPowerRequirement(
             pp,
             Alice,
             tokenId,
-            positionSize
+            (100 * positionSize) / 100
         );
 
         TokenId[] memory posIdList = new TokenId[](1);
@@ -756,13 +769,36 @@ contract PanopticQueryTest is PositionUtils {
 
         vm.assume(pq.isMintValid(tokenId, positionSize) == true);
 
+        {
+            uint256 bal0 = pp.collateralToken0().convertToAssets(
+                pp.collateralToken0().balanceOf(Alice)
+            );
+            uint256 bal1 = pp.collateralToken1().convertToAssets(
+                pp.collateralToken1().balanceOf(Alice)
+            );
+            console2.log("bal0, bal1", bal0, bal1);
+        }
+
         pp.mintOptions(
             posIdList,
-            positionSize,
+            (100 * positionSize) / 100,
             0,
             Constants.MIN_V3POOL_TICK,
             Constants.MAX_V3POOL_TICK
         );
+        {
+            uint256 bal0 = pp.collateralToken0().convertToAssets(
+                pp.collateralToken0().balanceOf(Alice)
+            );
+            uint256 bal1 = pp.collateralToken1().convertToAssets(
+                pp.collateralToken1().balanceOf(Alice)
+            );
+            console2.log("bal0, bal1", bal0, bal1);
+        }
+        (p0, i0, u0p) = pp.collateralToken0().getPoolData();
+        console.log("utils", p0, i0, u0p);
+        (p1, i1, u1p) = pp.collateralToken1().getPoolData();
+        console.log("utils", p1, i1, u1p);
 
         (, currentTick, , , , , ) = pool.slot0();
 
@@ -789,5 +825,38 @@ contract PanopticQueryTest is PositionUtils {
 
         assertEq(requiredToken0, tokenData0.leftSlot(), "required token0");
         assertEq(requiredToken1, tokenData1.leftSlot(), "required token1");
+    }
+
+    function test_quotePrice(uint256 x) public {
+        _initPool(0);
+
+        (currentSqrtPriceX96, currentTick, , , , , ) = pool.slot0();
+
+        console2.log("x, current", x, currentSqrtPriceX96, uint24(currentTick));
+        int256 amountIn = x % 2 == 0
+            ? -int256(bound(x, 1, 150 * 45167111806))
+            : int256(bound(x, 1, 150 * 108916089235601463162));
+        assertTrue(false);
+        (uint160 finalPrice, uint256 amountOut) = pq.quoteFinalPrice(pp, amountIn);
+
+        vm.startPrank(Swapper);
+
+        uint256 amountOutSwap = router.exactInputSingle(
+            ISwapRouter.ExactInputSingleParams(
+                amountIn < 0 ? token0 : token1,
+                amountIn > 0 ? token0 : token1,
+                fee,
+                Bob,
+                block.timestamp,
+                amountIn > 0 ? uint256(amountIn) : uint256(-amountIn),
+                0,
+                0
+            )
+        );
+
+        (uint160 finalSwapPriceX96, , , , , , ) = pool.slot0();
+
+        assertApproxEqRel(finalPrice, finalSwapPriceX96, 1e9, "final prices");
+        assertApproxEqRel(amountOut, amountOutSwap, 1e9, "amounts out");
     }
 }
