@@ -258,72 +258,51 @@ contract PanopticQuery {
         }
     }
 
-    /// @notice Evaluates if the supplied position has enough liquidity to be burnt successfully:
-    /// - if it does, returns the supplied position size
-    /// - if not, returns a new position size that keeps usage of net liquidity under a supplied limit
+    /// @notice Calculates the minimum legal position size that the account could be holding for the supplied position.
+    /// @dev The only constraint this method currently considers is that the notional amount purchased in the chunk
+    /// remains <= 90% of the notional amount being sold (from all sellers, not just `account`).
     /// @param account The address of the account to evaluate
     /// @param pool The PanopticPool the supplied position exists on
-    /// @param tokenId The TokenId to reduce the size of
-    /// @param netLiquidityUsageLimitBPS When readusting, the proportion of net liquidity to limit
-    /// the new position size to using
-    /// @return newPositionSize A position size that ensures you don't exceed the supplied net liquidity usage limit
+    /// @param tokenId The position to reduce the size of
+    /// @return minPositionSize The minimum position size that account could reduce to
     function reduceSizeIfNecessary(
         PanopticPool pool,
         address account,
-        TokenId tokenId,
-        uint128 netLiquidityUsageLimitBPS
-    ) external view returns (uint128 newPositionSize) {
+        TokenId tokenId
+    ) external view returns (uint128 minPositionSize) {
+        // If there are are no short legs, you can hold as much of this position as you like.
+        // TODO: maybe more gas efficient to reuse minNetLiquidity as return val here?
+        if (tokenId.countLongs() == tokenId.countLegs()) return type(uint128).max;
+
+        uint128 minNetLiquidity = type(uint128).max;
+        // TODO: shorter var name
+        uint256 legIndexOnChunkWithSmallestNetLiquidity = 0;
         TokenIdHelper.Leg[] memory legs = tokenIdHelper.unwrapTokenId(tokenId);
+        for (uint256 i = 0; i < tokenId.countLegs(); ) {
+            if (legs[i].isLong == 0) {
+                LeftRightUnsigned liquidityData = SFPM.getAccountLiquidity(
+                    legs[i].UniswapV3Pool,
+                    account,
+                    legs[i].tokenType,
+                    legs[i].strike - (legs[i].width / 2),
+                    legs[i].strike + (legs[i].width / 2)
+                );
+                uint128 netLiquidity = liquidityData.rightSlot();
 
-        TokenId[] memory accountsPositionsToGetSizesFor = new TokenId[](1);
-        accountsPositionsToGetSizesFor[0] = tokenId;
-        (, , uint256[2][] memory suppliedTokenIdData) = pool.getAccumulatedFeesAndPositionsData(
-            account,
-            false,
-            accountsPositionsToGetSizesFor
-        );
-        uint128 oldPositionSize = PositionBalance
-            .wrap(
-                // The only position in the list's second item,
-                // which should be the PositionBalance
-                // (first item is the corresponding tokenId)
-                suppliedTokenIdData[0][1]
-            )
-            .positionSize();
-
-        // If there are are no longs; sell as much as you're currently selling.
-        // (TODO: could be more sophisticated and return the
-        // actual limit on how much you can sell for this case, even above oldPositionSize)
-        // Else, we'll start with the current position size as a max to reduce as need be.
-        newPositionSize = oldPositionSize;
-        if (tokenId.countLongs() > 0) {
-            // Iterate over each leg and determine if there is enough netLiquidity to burn it.
-            for (uint256 i = 0; i < tokenId.countLegs(); ) {
-                if (legs[i].isLong == 1) {
-                    LeftRightUnsigned liquidityData = SFPM.getAccountLiquidity(
-                        legs[i].UniswapV3Pool,
-                        account,
-                        legs[i].tokenType,
-                        legs[i].strike - (legs[i].width / 2),
-                        legs[i].strike + (legs[i].width / 2)
-                    );
-                    uint128 netLiquidity = liquidityData.rightSlot();
-
-                    if (newPositionSize * legs[i].optionRatio > netLiquidity) {
-                        // If not enough liquidity, lower position size to keep util at
-                        // requested limit
-                        newPositionSize = uint128(
-                            (netLiquidity * netLiquidityUsageLimitBPS) /
-                                uint128(10_000) /
-                                legs[i].optionRatio
-                        );
-                    }
-                }
-                unchecked {
-                    ++i;
+                if (netLiquidity < minNetLiquidity) {
+                    legIndexOnChunkWithSmallestNetLiquidity = i;
                 }
             }
+            unchecked {
+                ++i;
+            }
         }
+
+        // TODO:
+        // take the long liquidity of that leg’s chunk and divide by 90% to get an amount-to-sell, in “liquidity units”
+        // long liquidity == removedLiquidity (aka liquidityData above's .leftSlot())? or something else
+
+        // TODO: then, convert the above to position size units (probably using new also-public helper)
     }
 
     /// @notice Fetch data about chunks in a positionIdList.
