@@ -309,15 +309,14 @@ contract PanopticQuery {
         // And therefore, your position size can be reduced to:
         // the minimum sell-side volume, minus the amount others were selling pre-reduction
         // First, we get the amount others were selling:
-        int24 mostConstrainedLegTickLower = mostConstrainedLeg.strike - (mostConstrainedLeg.width / 2);
-        int24 mostConstrainedLegTickUpper = mostConstrainedLeg.strike + (mostConstrainedLeg.width / 2);
+        int24 mostConstrainedLegTickLower = mostConstrainedLeg.strike -
+            (mostConstrainedLeg.width / 2);
+        int24 mostConstrainedLegTickUpper = mostConstrainedLeg.strike +
+            (mostConstrainedLeg.width / 2);
         TokenId[] memory suppliedPositions = new TokenId[](1);
         suppliedPositions[0] = tokenId;
-        (, , uint256[2][] memory positionDataForSuppliedPositions) = pool.getAccumulatedFeesAndPositionsData(
-            account,
-            false,
-            suppliedPositions
-        );
+        (, , uint256[2][] memory positionDataForSuppliedPositions) = pool
+            .getAccumulatedFeesAndPositionsData(account, false, suppliedPositions);
         uint128 preReductionPositionSize = PositionBalance
             .wrap(
                 // The only position in the list's second item,
@@ -326,11 +325,25 @@ contract PanopticQuery {
                 positionDataForSuppliedPositions[0][1]
             )
             .positionSize();
-        uint128 preReductionSellSideLiquidityFromOthers = mostContrainedLegsChunkLiquidityData.rightSlot() - (
-          mostConstrainedLeg.asset == 0 ?
-              Math.getLiquidityForAmount0(mostConstrainedLegTickLower, mostConstrainedLegTickUpper, preReductionPositionSize).liquidity() :
-              Math.getLiquidityForAmount1(mostConstrainedLegTickLower, mostConstrainedLegTickUpper, preReductionPositionSize).liquidity()
-        );
+        uint128 preReductionSellSideLiquidityFromOthers = mostContrainedLegsChunkLiquidityData
+            .rightSlot() -
+            (
+                mostConstrainedLeg.asset == 0
+                    ? Math
+                        .getLiquidityForAmount0(
+                            mostConstrainedLegTickLower,
+                            mostConstrainedLegTickUpper,
+                            preReductionPositionSize
+                        )
+                        .liquidity()
+                    : Math
+                        .getLiquidityForAmount1(
+                            mostConstrainedLegTickLower,
+                            mostConstrainedLegTickUpper,
+                            preReductionPositionSize
+                        )
+                        .liquidity()
+            );
 
         // Then, we get the minimum total sell-side liquidity in this chunk, and subtract that amount:
         uint128 liquidityToSell = uint128(
