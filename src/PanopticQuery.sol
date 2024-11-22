@@ -264,16 +264,15 @@ contract PanopticQuery {
     /// @param account The address of the account to evaluate
     /// @param pool The PanopticPool the supplied position exists on
     /// @param tokenId The position to reduce the size of
-    /// @return The minimum position size that `account` could hold `tokenId` in
+    /// @return minPositionSize The minimum position size that `account` could hold `tokenId` in
     function reduceSize(
         PanopticPool pool,
         address account,
         TokenId tokenId
-    ) external view returns (uint128) {
+    ) external view returns (uint128 minPositionSize) {
         // If there are are no short legs, you can hold as much of this position as you like.
         if (tokenId.countLongs() == tokenId.countLegs()) return type(uint128).max;
 
-        uint128 maxOfMinPositionSizes = 0;
         TokenIdHelper.Leg[] memory legs = tokenIdHelper.unwrapTokenId(tokenId);
 
         TokenId[] memory suppliedPositions = new TokenId[](1);
@@ -342,8 +341,8 @@ contract PanopticQuery {
                     ? uint128(Math.getAmount0ForLiquidity(reducedSizeChunk))
                     : uint128(Math.getAmount1ForLiquidity(reducedSizeChunk));
 
-                if (thisLegsMinPositionSize > maxOfMinPositionSizes) {
-                    maxOfMinPositionSizes = thisLegsMinPositionSize;
+                if (thisLegsMinPositionSize > minPositionSize) {
+                    minPositionSize = thisLegsMinPositionSize;
                 }
             }
             unchecked {
