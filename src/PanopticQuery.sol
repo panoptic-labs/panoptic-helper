@@ -307,7 +307,8 @@ contract PanopticQuery {
                 // And therefore, your position size can be reduced to:
                 // the minimum sell-side volume *minus* the amount others were selling pre-reduction
                 // First, we get the amount others were selling:
-                uint128 preReductionSellSideLiquidityFromOthers = legsChunkLiquidityData.rightSlot() -
+                uint128 preReductionSellSideLiquidityFromOthers = legsChunkLiquidityData
+                    .rightSlot() -
                     (
                         legs[i].asset == 0
                             ? Math
