@@ -9,6 +9,6 @@ library PeripheryErrors {
     error UnauthorizedMigration();
 
     /// @notice Caller supplied a factor to scale an option ratio down by,
-    ///         but the ratio is not divisible by that factor
+    /// but the ratio is not divisible by that factor
     error InvalidScaleFactor();
 }

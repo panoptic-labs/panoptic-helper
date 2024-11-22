@@ -676,39 +676,35 @@ contract PanopticQueryTest is PositionUtils {
         }
     }
 
-    function test_reduceSizeIfNecessary_returns_same_size_if_no_change() public {
+    function test_reduceSize_returns_zero_if_no_purchase() public {
         // TODO:
-        // - mint a call to purchase token0 at max size (TODO: how to get max size?),
-        // - then immediately call reduceSizeIfNecessary
-        // it should return same positionSize as you originally minted with,
-        // as the liquidities have not changed since you minted
+        // - mint a call to sell token0 at some size
+        // - then immediately call reduceSize
+        // it should return 0: no one has bought from you
     }
 
-    function test_reduceSizeIfNecessary_returns_lower_size_if_necessary() public {
+    function test_reduceSize_returns_lower_size_if_small_purchase_made() public {
         // TODO:
-        // - PLP via the SFPM with token0,
-        // - mint a call to purchase token0 at max size (TODO: how to get max size?),
-        // - then remove liquidity from the SFPM with the PLPing account,
-        // - then immediately call reduceSizeIfNecessary
-        // it should return a smaller positionSize than what you originally minted with,
-        // as there is less liquidity
+        // - alice mints a call to sell token0 at some size
+        // - bob mints a call purchase, to purchase < 90% (fuzzed proportion ideally)
+        // - then call reduceSize
+        // it should return bobsSize / .9
     }
 
-    function test_reduceSizeIfNecessary_returns_same_size_if_unnecessary() public {
+    function test_reduceSize_returns_same_size_if_large_purchase_made() public {
         // TODO:
-        // - PLP via the SFPM with token0,
-        // - mint a call to purchase token0 at max size (TODO: how to get max size?),
-        // - then immediately call reduceSizeIfNecessary
-        // it should return same positionSize as you originally minted with,
-        // even despite the extra liquidity that could let you increase size
+        // - alice mints a call to sell token0 at some size
+        // - bob mints a call purchase, to purchase exactly 90%
+        // - then call reduceSize
+        // it should return the original size you minted with
     }
 
     function test_getChunkData_returns_correct_liquidities() public {
         // TODO:
         // - PLP via the SFPM with token0,
-        // - mint a call to purchase token0 at max size (TODO: how to get max size?),
-        // - then immediately call reduceSizeIfNecessary
-        // it should return same positionSize as you originally minted with,
-        // even despite the extra liquidity that could let you increase size
+        // - mint a call-purchase at some fuzzed proportion of the sold volume
+        // - call getChunkData
+        // it should return a netLiquidity of originalSize - purchaseSize, and removedLiquidity of purchaseSize
+        // (both converted to liquidity units)
     }
 }
