@@ -275,26 +275,26 @@ contract PanopticQuery {
         if (tokenId.countLongs() == tokenId.countLegs()) return type(uint128).max;
 
         // TODO: shorter var name
-        LeftRightUnsigned liquidityDataForChunkWithSmallestNetLiquidity;
-        TokenIdHelper.Leg[] memory legs = tokenIdHelper.unwrapTokenId(tokenId);
+        LeftRightUnsigned mostContrainedLegsChunkLiquidityData;
         TokenIdHelper.Leg memory mostConstrainedLeg;
+        TokenIdHelper.Leg[] memory legs = tokenIdHelper.unwrapTokenId(tokenId);
         for (uint256 i = 0; i < tokenId.countLegs(); ) {
             if (legs[i].isLong == 0) {
-                LeftRightUnsigned liquidityDataForLegsChunk = SFPM.getAccountLiquidity(
+                LeftRightUnsigned legsChunkLiquidityData = SFPM.getAccountLiquidity(
                     legs[i].UniswapV3Pool,
-                    account,
+                    address(pool),
                     legs[i].tokenType,
                     legs[i].strike - (legs[i].width / 2),
                     legs[i].strike + (legs[i].width / 2)
                 );
 
-                // liquidityDataForLegsChunk.rightSlot() = netLiquidity
                 if (
-                    liquidityDataForLegsChunk.rightSlot() <
-                    liquidityDataForChunkWithSmallestNetLiquidity.rightSlot() ||
+                    // this is netLiquidity
+                    legsChunkLiquidityData.rightSlot() <
+                    mostContrainedLegsChunkLiquidityData.rightSlot() ||
                     i == 0
                 ) {
-                    liquidityDataForChunkWithSmallestNetLiquidity = liquidityDataForLegsChunk;
+                    mostContrainedLegsChunkLiquidityData = legsChunkLiquidityData;
                     mostConstrainedLeg = legs[i];
                 }
             }
@@ -303,25 +303,47 @@ contract PanopticQuery {
             }
         }
 
-        // removedLiquidity is equivalent to the amount of long demand
-        // Therefore, our min position size is that long demand divided by 90%
+        // removedLiquidity is equivalent to the amount of buy-side demand
+        // Therefore, the minimum total sell-side supply is that buy-side demand divided by 90%
         // (Panoptic requires 10% cushion of seller volume to buyer volume)
-        // TODO: I believe we could also calculate how much is currently being sold by other sellers
-        // in the chunk, somewhere above, and then subtract that from liquidityToSell too and reduce
-        // size even further. For now, proceeding with a version that assumes you're the only seller.
-        uint128 liquidityToSell = uint128(
-            Math.mulDivRoundingUp(liquidityDataForChunkWithSmallestNetLiquidity.leftSlot(), 10, 9)
+        // And therefore, your position size can be reduced to:
+        // minimumSellSideVolume - theAmountPeopleWereSellingPreReduction
+        int24 mostConstrainedLegTickLower = mostConstrainedLeg.strike - (mostConstrainedLeg.width / 2);
+        int24 mostConstrainedLegTickUpper = mostConstrainedLeg.strike + (mostConstrainedLeg.width / 2);
+        TokenId[] memory suppliedPositions = new TokenId[](1);
+        suppliedPositions[0] = tokenId;
+        (, , uint256[2][] memory positionDataForSuppliedPositions) = pool.getAccumulatedFeesAndPositionsData(
+            account,
+            false,
+            suppliedPositions
         );
+        uint128 preReductionPositionSize = PositionBalance
+            .wrap(
+                // The only position in the list's second item,
+                // which should be the PositionBalance
+                // (first item is the corresponding tokenId)
+                positionDataForSuppliedPositions[0][1]
+            )
+            .positionSize();
+        uint128 preReductionSellSideLiquidityFromOthers = mostContrainedLegsChunkLiquidityData.rightSlot() - (
+          mostConstrainedLeg.asset == 0 ?
+              Math.getLiquidityForAmount0(mostConstrainedLegTickLower, mostConstrainedLegTickUpper, preReductionPositionSize).liquidity() :
+              Math.getLiquidityForAmount1(mostConstrainedLegTickLower, mostConstrainedLegTickUpper, preReductionPositionSize).liquidity()
+        );
+        uint128 liquidityToSell = uint128(
+            Math.mulDivRoundingUp(mostContrainedLegsChunkLiquidityData.leftSlot(), 10, 9)
+        ) - preReductionSellSideLiquidityFromOthers;
+
         // Convert to asset-token denomination to return a position size
-        LiquidityChunk liquidityChunk = LiquidityChunkLibrary.createChunk(
-            mostConstrainedLeg.strike - (mostConstrainedLeg.width / 2),
-            mostConstrainedLeg.strike + (mostConstrainedLeg.width / 2),
+        LiquidityChunk mostConstrainedLegsChunk = LiquidityChunkLibrary.createChunk(
+            mostConstrainedLegTickLower,
+            mostConstrainedLegTickUpper,
             liquidityToSell
         );
         return
             mostConstrainedLeg.asset == 0
-                ? uint128(Math.getAmount0ForLiquidity(liquidityChunk))
-                : uint128(Math.getAmount1ForLiquidity(liquidityChunk));
+                ? uint128(Math.getAmount0ForLiquidity(mostConstrainedLegsChunk))
+                : uint128(Math.getAmount1ForLiquidity(mostConstrainedLegsChunk));
     }
 
     /// @notice Fetch data about chunks in a positionIdList.
