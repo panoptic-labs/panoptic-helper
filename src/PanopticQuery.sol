@@ -275,7 +275,7 @@ contract PanopticQuery {
         if (tokenId.countLongs() == tokenId.countLegs()) return type(uint128).max;
 
         // TODO: shorter var name
-        LeftRightUnsigned liquidityDataForChunkWithSmallestNetLiquidity = 0;
+        LeftRightUnsigned liquidityDataForChunkWithSmallestNetLiquidity;
         TokenIdHelper.Leg[] memory legs = tokenIdHelper.unwrapTokenId(tokenId);
         TokenIdHelper.Leg memory mostConstrainedLeg;
         for (uint256 i = 0; i < tokenId.countLegs(); ) {
@@ -289,7 +289,7 @@ contract PanopticQuery {
                 );
 
                 // liquidityDataForLegsChunk.rightSlot() = netLiquidity
-                if (liquidityDataForLegsChunk.rightSlot() < liquidityDataForChunkWithSmallestNetLiquidity.rightSlot() || i = 0) {
+                if (liquidityDataForLegsChunk.rightSlot() < liquidityDataForChunkWithSmallestNetLiquidity.rightSlot() || i == 0) {
                     liquidityDataForChunkWithSmallestNetLiquidity = liquidityDataForLegsChunk;
                     mostConstrainedLeg = legs[i];
                 }
@@ -305,11 +305,11 @@ contract PanopticQuery {
         // TODO: I believe we could also calculate how much is currently being sold by other sellers
         // in the chunk, somewhere above, and then subtract that from liquidityToSell too and reduce
         // size even further. For now, proceeding with a version that assumes you're the only seller.
-        uint128 liquidityToSell = Math.mulDivRoundingUp(
+        uint128 liquidityToSell = uint128(Math.mulDivRoundingUp(
             liquidityDataForChunkWithSmallestNetLiquidity.leftSlot(),
             10,
             9
-        );
+        ));
         // Convert to asset-token denomination to return a position size
         LiquidityChunk liquidityChunk = LiquidityChunkLibrary.createChunk(
             mostConstrainedLeg.strike - (mostConstrainedLeg.width / 2),
@@ -318,8 +318,8 @@ contract PanopticQuery {
         );
         return
             mostConstrainedLeg.asset == 0
-                ? Math.getAmount0ForLiquidity(liquidityChunk)
-                : Math.getAmount1ForLiquidity(liquidityChunk);
+                ? uint128(Math.getAmount0ForLiquidity(liquidityChunk))
+                : uint128(Math.getAmount1ForLiquidity(liquidityChunk));
     }
 
     /// @notice Fetch data about chunks in a positionIdList.
