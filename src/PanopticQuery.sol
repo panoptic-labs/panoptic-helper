@@ -264,7 +264,7 @@ contract PanopticQuery {
     /// @param account The address of the account to evaluate
     /// @param pool The PanopticPool the supplied position exists on
     /// @param tokenId The position to reduce the size of
-    /// @return The minimum position size that account could reduce to
+    /// @return The minimum position size that `account` could hold `tokenId` in
     function reduceSizeIfNecessary(
         PanopticPool pool,
         address account,
