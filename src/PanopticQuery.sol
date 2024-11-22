@@ -271,48 +271,11 @@ contract PanopticQuery {
         TokenId tokenId
     ) external view returns (uint128) {
         // If there are are no short legs, you can hold as much of this position as you like.
-        // TODO: maybe more gas efficient to reuse minNetLiquidity as return val here?
         if (tokenId.countLongs() == tokenId.countLegs()) return type(uint128).max;
 
-        // TODO: shorter var name
-        LeftRightUnsigned mostContrainedLegsChunkLiquidityData;
-        TokenIdHelper.Leg memory mostConstrainedLeg;
+        uint128 maxOfMinPositionSizes = 0;
         TokenIdHelper.Leg[] memory legs = tokenIdHelper.unwrapTokenId(tokenId);
-        for (uint256 i = 0; i < tokenId.countLegs(); ) {
-            if (legs[i].isLong == 0) {
-                LeftRightUnsigned legsChunkLiquidityData = SFPM.getAccountLiquidity(
-                    legs[i].UniswapV3Pool,
-                    address(pool),
-                    legs[i].tokenType,
-                    legs[i].strike - (legs[i].width / 2),
-                    legs[i].strike + (legs[i].width / 2)
-                );
 
-                if (
-                    // this is netLiquidity
-                    legsChunkLiquidityData.rightSlot() <
-                    mostContrainedLegsChunkLiquidityData.rightSlot() ||
-                    i == 0
-                ) {
-                    mostContrainedLegsChunkLiquidityData = legsChunkLiquidityData;
-                    mostConstrainedLeg = legs[i];
-                }
-            }
-            unchecked {
-                ++i;
-            }
-        }
-
-        // removedLiquidity is equivalent to the amount of buy-side demand
-        // Therefore, the minimum total sell-side supply is that buy-side demand divided by 90%
-        // (Panoptic requires 10% cushion of seller volume to buyer volume)
-        // And therefore, your position size can be reduced to:
-        // the minimum sell-side volume, minus the amount others were selling pre-reduction
-        // First, we get the amount others were selling:
-        int24 mostConstrainedLegTickLower = mostConstrainedLeg.strike -
-            (mostConstrainedLeg.width / 2);
-        int24 mostConstrainedLegTickUpper = mostConstrainedLeg.strike +
-            (mostConstrainedLeg.width / 2);
         TokenId[] memory suppliedPositions = new TokenId[](1);
         suppliedPositions[0] = tokenId;
         (, , uint256[2][] memory positionDataForSuppliedPositions) = pool
@@ -325,41 +288,68 @@ contract PanopticQuery {
                 positionDataForSuppliedPositions[0][1]
             )
             .positionSize();
-        uint128 preReductionSellSideLiquidityFromOthers = mostContrainedLegsChunkLiquidityData
-            .rightSlot() -
-            (
-                mostConstrainedLeg.asset == 0
-                    ? Math
-                        .getLiquidityForAmount0(
-                            mostConstrainedLegTickLower,
-                            mostConstrainedLegTickUpper,
-                            preReductionPositionSize
-                        )
-                        .liquidity()
-                    : Math
-                        .getLiquidityForAmount1(
-                            mostConstrainedLegTickLower,
-                            mostConstrainedLegTickUpper,
-                            preReductionPositionSize
-                        )
-                        .liquidity()
-            );
 
-        // Then, we get the minimum total sell-side liquidity in this chunk, and subtract that amount:
-        uint128 liquidityToSell = uint128(
-            Math.mulDivRoundingUp(mostContrainedLegsChunkLiquidityData.leftSlot(), 10, 9)
-        ) - preReductionSellSideLiquidityFromOthers;
+        for (uint256 i = 0; i < tokenId.countLegs(); ) {
+            if (legs[i].isLong == 0) {
+                int24 legTickLower = legs[i].strike - (legs[i].width / 2);
+                int24 legTickUpper = legs[i].strike + (legs[i].width / 2);
 
-        // Finally, convert to asset-token denomination to return a minimum position size
-        LiquidityChunk mostConstrainedLegsChunk = LiquidityChunkLibrary.createChunk(
-            mostConstrainedLegTickLower,
-            mostConstrainedLegTickUpper,
-            liquidityToSell
-        );
-        return
-            mostConstrainedLeg.asset == 0
-                ? uint128(Math.getAmount0ForLiquidity(mostConstrainedLegsChunk))
-                : uint128(Math.getAmount1ForLiquidity(mostConstrainedLegsChunk));
+                LeftRightUnsigned legsChunkLiquidityData = SFPM.getAccountLiquidity(
+                    legs[i].UniswapV3Pool,
+                    address(pool),
+                    legs[i].tokenType,
+                    legTickLower,
+                    legTickUpper
+                );
+
+                // removedLiquidity is equivalent to the amount of buy-side demand
+                // Therefore, the minimum total sell-side supply is that buy-side demand divided by 90%
+                // (Panoptic requires 10% cushion of seller volume to buyer volume)
+                // And therefore, your position size can be reduced to:
+                // the minimum sell-side volume *minus* the amount others were selling pre-reduction
+                // First, we get the amount others were selling:
+                uint128 preReductionSellSideLiquidityFromOthers = legsChunkLiquidityData.rightSlot() -
+                    (
+                        legs[i].asset == 0
+                            ? Math
+                                .getLiquidityForAmount0(
+                                    legTickLower,
+                                    legTickUpper,
+                                    preReductionPositionSize
+                                )
+                                .liquidity()
+                            : Math
+                                .getLiquidityForAmount1(
+                                    legTickLower,
+                                    legTickUpper,
+                                    preReductionPositionSize
+                                )
+                                .liquidity()
+                    );
+
+                // Then, we get the minimum total sell-side liquidity in this chunk, and subtract that amount:
+                uint128 liquidityToSell = uint128(
+                    Math.mulDivRoundingUp(legsChunkLiquidityData.leftSlot(), 10, 9)
+                ) - preReductionSellSideLiquidityFromOthers;
+
+                // Finally, convert to asset-token denomination to get a minimum position size:
+                LiquidityChunk reducedSizeChunk = LiquidityChunkLibrary.createChunk(
+                    legTickLower,
+                    legTickUpper,
+                    liquidityToSell
+                );
+                uint128 thisLegsMinPositionSize = legs[i].asset == 0
+                    ? uint128(Math.getAmount0ForLiquidity(reducedSizeChunk))
+                    : uint128(Math.getAmount1ForLiquidity(reducedSizeChunk));
+
+                if (thisLegsMinPositionSize > maxOfMinPositionSizes) {
+                    maxOfMinPositionSizes = thisLegsMinPositionSize;
+                }
+            }
+            unchecked {
+                ++i;
+            }
+        }
     }
 
     /// @notice Fetch data about chunks in a positionIdList.
