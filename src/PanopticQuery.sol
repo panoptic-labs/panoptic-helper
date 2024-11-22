@@ -274,11 +274,10 @@ contract PanopticQuery {
         // TODO: maybe more gas efficient to reuse minNetLiquidity as return val here?
         if (tokenId.countLongs() == tokenId.countLegs()) return type(uint128).max;
 
-        uint128 minNetLiquidity = type(uint128).max;
         // TODO: shorter var name
         LeftRightUnsigned liquidityDataForChunkWithSmallestNetLiquidity = 0;
-        uint256 assetOfLegWithSmallestNetLiquidity = 0;
         TokenIdHelper.Leg[] memory legs = tokenIdHelper.unwrapTokenId(tokenId);
+        TokenIdHelper.Leg mostConstrainedLeg;
         for (uint256 i = 0; i < tokenId.countLegs(); ) {
             if (legs[i].isLong == 0) {
                 LeftRightUnsigned liquidityDataForLegsChunk = SFPM.getAccountLiquidity(
@@ -290,10 +289,9 @@ contract PanopticQuery {
                 );
 
                 // liquidityDataForLegsChunk.rightSlot() = netLiquidity
-                if (liquidityDataForLegsChunk.rightSlot() < minNetLiquidity) {
-                    minNetLiquidity = liquidityDataForLegsChunk.rightSlot();
+                if (liquidityDataForLegsChunk.rightSlot() < liquidityDataForChunkWithSmallestNetLiquidity.rightSlot() || legIndex = 0) {
                     liquidityDataForChunkWithSmallestNetLiquidity = liquidityDataForLegsChunk;
-                    assetOfLegWithSmallestNetLiquidity = legs[i].asset;
+                    mostConstrainedLeg = legs[i];
                 }
             }
             unchecked {
@@ -314,14 +312,14 @@ contract PanopticQuery {
         );
         // Convert to asset-token denomination to return a position size
         LiquidityChunk liquidityChunk = LiquidityChunkLibrary.createChunk(
-            legs[i].strike - (legs[i].width / 2),
-            legs[i].strike + (legs[i].width / 2),
-            amountToSellInLiquidityUnits
+            mostConstrainedLeg.strike - (mostConstrainedLeg.width / 2),
+            mostConstrainedLeg.strike + (mostConstrainedLeg.width / 2),
+            liquidityToSell
         );
         return
-            assetOfLegWithSmallestNetLiquidity == 0
+            mostConstrainedLeg.asset == 0
                 ? Math.getAmount0ForLiquidity(liquidityChunk)
-                : LiquidityAmounts.getAmount1ForLiquidity(liquidityChunk);
+                : Math.getAmount1ForLiquidity(liquidityChunk);
     }
 
     /// @notice Fetch data about chunks in a positionIdList.
