@@ -307,7 +307,8 @@ contract PanopticQuery {
         // Therefore, the minimum total sell-side supply is that buy-side demand divided by 90%
         // (Panoptic requires 10% cushion of seller volume to buyer volume)
         // And therefore, your position size can be reduced to:
-        // minimumSellSideVolume - theAmountPeopleWereSellingPreReduction
+        // the minimum sell-side volume, minus the amount others were selling pre-reduction
+        // First, we get the amount others were selling:
         int24 mostConstrainedLegTickLower = mostConstrainedLeg.strike - (mostConstrainedLeg.width / 2);
         int24 mostConstrainedLegTickUpper = mostConstrainedLeg.strike + (mostConstrainedLeg.width / 2);
         TokenId[] memory suppliedPositions = new TokenId[](1);
@@ -330,11 +331,13 @@ contract PanopticQuery {
               Math.getLiquidityForAmount0(mostConstrainedLegTickLower, mostConstrainedLegTickUpper, preReductionPositionSize).liquidity() :
               Math.getLiquidityForAmount1(mostConstrainedLegTickLower, mostConstrainedLegTickUpper, preReductionPositionSize).liquidity()
         );
+
+        // Then, we get the minimum total sell-side liquidity in this chunk, and subtract that amount:
         uint128 liquidityToSell = uint128(
             Math.mulDivRoundingUp(mostContrainedLegsChunkLiquidityData.leftSlot(), 10, 9)
         ) - preReductionSellSideLiquidityFromOthers;
 
-        // Convert to asset-token denomination to return a position size
+        // Finally, convert to asset-token denomination to return a minimum position size
         LiquidityChunk mostConstrainedLegsChunk = LiquidityChunkLibrary.createChunk(
             mostConstrainedLegTickLower,
             mostConstrainedLegTickUpper,
