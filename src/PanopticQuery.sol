@@ -277,7 +277,7 @@ contract PanopticQuery {
         // TODO: shorter var name
         LeftRightUnsigned liquidityDataForChunkWithSmallestNetLiquidity = 0;
         TokenIdHelper.Leg[] memory legs = tokenIdHelper.unwrapTokenId(tokenId);
-        TokenIdHelper.Leg mostConstrainedLeg;
+        TokenIdHelper.Leg memory mostConstrainedLeg;
         for (uint256 i = 0; i < tokenId.countLegs(); ) {
             if (legs[i].isLong == 0) {
                 LeftRightUnsigned liquidityDataForLegsChunk = SFPM.getAccountLiquidity(
