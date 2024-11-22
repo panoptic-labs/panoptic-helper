@@ -1,17 +1,21 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
+import "forge-std/Test.sol";
 
 // Interfaces
 import {IUniswapV3Pool} from "univ3-core/interfaces/IUniswapV3Pool.sol";
 import {PanopticPool} from "@contracts/PanopticPool.sol";
+import {SemiFungiblePositionManager} from "@contracts/SemiFungiblePositionManager.sol";
+
 // Libraries
 import {Constants} from "@libraries/Constants.sol";
 import {PanopticMath} from "@libraries/PanopticMath.sol";
 import {Math} from "@libraries/Math.sol";
 // Custom types
-import {LeftRightUnsigned} from "@types/LeftRight.sol";
+import {LeftRightSigned, LeftRightUnsigned} from "@types/LeftRight.sol";
 import {LiquidityChunk} from "@types/LiquidityChunk.sol";
 import {TokenId, TokenIdLibrary} from "@types/TokenId.sol";
+import {PositionBalance} from "@types/PositionBalance.sol";
 
 /// @title Utility contract for token ID construction and advanced queries.
 /// @author Axicon Labs Limited
@@ -116,6 +120,696 @@ contract PanopticQuery {
                 collateralBalances1[i],
                 requiredCollaterals1[i]
             ) = checkCollateral(pool, account, ticks[i], positionIdList);
+        }
+    }
+
+    /// @notice Compute the buying power requirement of positions in an account on a PanopticPool.
+    /// @param pool The PanopticPool instance to return buying power requirement within
+    /// @param account Address of the user that owns the positions
+    /// @param positionIdList List of positions. Written as [tokenId1, tokenId2, ...]
+    /// @return buyingPowerRequirement0 The buying power requirement of the account in terms of token0 at the current price
+    /// @return buyingPowerRequirement1 The buying power requirement of the account in terms of token1 at the current price
+    function buyingPowerRequirement(
+        PanopticPool pool,
+        address account,
+        TokenId[] calldata positionIdList
+    ) public view returns (uint256 buyingPowerRequirement0, uint256 buyingPowerRequirement1) {
+        (uint160 sqrtPriceX96, int24 tick, , , , , ) = pool.univ3pool().slot0();
+
+        (, buyingPowerRequirement0, , buyingPowerRequirement1) = checkCollateral(
+            pool,
+            account,
+            tick,
+            positionIdList
+        );
+    }
+
+    /// @notice Compute the buying power of positions in an account on a PanopticPool.
+    /// @param pool The PanopticPool instance to return buying power within
+    /// @param account Address of the user that owns the positions
+    /// @param positionIdList List of positions. Written as [tokenId1, tokenId2, ...]
+    /// @return buyingPower0 The buying power of the account in terms of token0 at the current price
+    /// @return buyingPower1 The buying power of the account in terms of token1 at the current price
+    function buyingPower(
+        PanopticPool pool,
+        address account,
+        TokenId[] calldata positionIdList
+    ) public view returns (int256 buyingPower0, int256 buyingPower1) {
+        (uint160 sqrtPriceX96, int24 tick, , , , , ) = pool.univ3pool().slot0();
+
+        (
+            uint256 balance0,
+            uint256 required0,
+            uint256 balance1,
+            uint256 required1
+        ) = checkCollateral(pool, account, tick, positionIdList);
+
+        buyingPower0 = int256(balance0) - int256(required0);
+        buyingPower1 = int256(balance1) - int256(required1);
+    }
+
+    /// @notice Compute the buying power utilisation of positions in an account on a PanopticPool.
+    /// @param pool The PanopticPool instance to return buying power within
+    /// @param account Address of the user that owns the positions
+    /// @param positionIdList List of positions. Written as [tokenId1, tokenId2, ...]
+    /// @return utilization The buying power utilization (= required/balance) of the account as a X10000 number
+    function buyingPowerUtilization(
+        PanopticPool pool,
+        address account,
+        TokenId[] calldata positionIdList
+    ) public view returns (uint256 utilization) {
+        (, int24 tick, , , , , ) = pool.univ3pool().slot0();
+        (
+            uint256 balance0,
+            uint256 required0,
+            uint256 balance1,
+            uint256 required1
+        ) = checkCollateral(pool, account, tick, positionIdList);
+        if (tick < 0) {
+            utilization = (required0 * 10000) / balance0;
+        } else {
+            utilization = (required1 * 10000) / balance1;
+        }
+    }
+
+    /// @notice Compute the buying power requirement of positions in an account on a PanopticPool.
+    /// @param pool The PanopticPool instance to return buying power within
+    /// @param account Address of the user that owns the positions
+    /// @param positionIdList List of positions. Written as [tokenId1, tokenId2, ...]
+    /// @return memory A two-dimensional array, consisting of one 3-item array per position, which contains:
+    ///                [position balance, threshold for margin call in token0, threshold for margin call in token1]
+    function buyingPowerRequirements(
+        PanopticPool pool,
+        address account,
+        TokenId[] calldata positionIdList
+    ) public view returns (uint256[3][] memory) {
+        (, int24 tick, , , , , ) = pool.univ3pool().slot0();
+
+        (
+            LeftRightUnsigned shortPremium,
+            LeftRightUnsigned longPremium,
+            uint256[2][] memory positionBalanceArray
+        ) = pool.getAccumulatedFeesAndPositionsData(account, false, positionIdList);
+
+        uint256[3][] memory buyingPowerPerPosition = new uint256[3][](positionIdList.length);
+
+        for (uint256 i; i < positionIdList.length; ++i) {
+            uint256[2][] memory positionBalance = new uint256[2][](1);
+            positionBalance[0] = positionBalanceArray[i];
+            LeftRightUnsigned tokenData0 = pool.collateralToken0().getAccountMarginDetails(
+                account,
+                tick,
+                positionBalance,
+                shortPremium.rightSlot(),
+                longPremium.rightSlot()
+            );
+            LeftRightUnsigned tokenData1 = pool.collateralToken1().getAccountMarginDetails(
+                account,
+                tick,
+                positionBalance,
+                shortPremium.leftSlot(),
+                longPremium.leftSlot()
+            );
+            buyingPowerPerPosition[i][0] = positionBalance[0][0];
+            buyingPowerPerPosition[i][1] = tokenData0.leftSlot();
+            buyingPowerPerPosition[i][2] = tokenData1.leftSlot();
+        }
+
+        return buyingPowerPerPosition;
+    }
+
+    /// @notice Compute the buying power requirement for a position an account may take (or may already have) on a PanopticPool.
+    /// @param pool The PanopticPool instance the position would be within
+    /// @param account Address of the user that would take the position
+    /// @param tokenId A TokenId describing the position
+    /// @param positionSize The size of the position
+    /// @return the threshold for margin call in token0
+    /// @return the threshold for margin call in token1
+    function positionBuyingPowerRequirement(
+        PanopticPool pool,
+        address account,
+        TokenId tokenId,
+        uint128 positionSize
+    ) public view returns (uint128, uint128) {
+        uint128 utilizations = getNewUtilizations(pool, tokenId, positionSize);
+
+        uint256[2][] memory positionBalance = new uint256[2][](1);
+        {
+            positionBalance[0][0] = TokenId.unwrap(tokenId);
+            positionBalance[0][1] = uint256(positionSize) + (uint256(utilizations) << 128);
+        }
+        {
+            (, int24 tick, , , , , ) = pool.univ3pool().slot0();
+
+            // compute single position BPR using new pool utilizations
+            LeftRightUnsigned tokenData0 = pool.collateralToken0().getAccountMarginDetails(
+                account,
+                tick,
+                positionBalance,
+                0,
+                0
+            );
+            LeftRightUnsigned tokenData1 = pool.collateralToken1().getAccountMarginDetails(
+                account,
+                tick,
+                positionBalance,
+                0,
+                0
+            );
+
+            return (tokenData0.leftSlot(), tokenData1.leftSlot());
+        }
+    }
+
+    function getNewUtilizations(
+        PanopticPool pool,
+        TokenId tokenId,
+        uint128 positionSize
+    ) internal view returns (uint128 utilizations) {
+        (, int24 currentTick, , , , , ) = PanopticPool(pool).univ3pool().slot0();
+        (uint256 poolAssets0, uint256 insideAMM0, ) = pool.collateralToken0().getPoolData();
+
+        (uint256 poolAssets1, uint256 insideAMM1, ) = pool.collateralToken1().getPoolData();
+
+        (LeftRightSigned longAmounts, LeftRightSigned shortAmounts) = PanopticMath
+            .computeExercisedAmounts(tokenId, positionSize);
+        LeftRightSigned netMoved = shortAmounts.sub(longAmounts);
+
+        int256 moved0 = int256(netMoved.rightSlot());
+        int256 moved1 = int256(netMoved.leftSlot());
+
+        (int256 net0, int256 net1) = getTokenFlow(tokenId, positionSize, currentTick);
+
+        int256 newPoolUtilization0 = (10000 * (int256(insideAMM0) + moved0)) /
+            (int256(poolAssets0) - net0 + moved0);
+        int256 newPoolUtilization1 = (10000 * (int256(insideAMM1) + moved1)) /
+            (int256(poolAssets1) - net1 + moved1);
+
+        console2.log("net0", net0);
+        console2.log("net1", net1);
+        console2.log(
+            "new utilizations",
+            uint256(newPoolUtilization0),
+            uint256(newPoolUtilization1)
+        );
+        utilizations =
+            uint128(uint256(newPoolUtilization0)) +
+            uint128(uint256(newPoolUtilization1) << 16);
+    }
+
+    function inTheMoneyAmounts(
+        TokenId tokenId,
+        uint128 positionSize,
+        int24 atTick
+    ) public pure returns (int256, int256) {
+        (int256 net0, int256 net1) = getTokenFlow(tokenId, positionSize, atTick);
+
+        (LeftRightSigned longAmounts, LeftRightSigned shortAmounts) = PanopticMath
+            .computeExercisedAmounts(tokenId, positionSize);
+
+        LeftRightSigned netMoved = shortAmounts.sub(longAmounts);
+
+        return (int256((netMoved.rightSlot())) - net0, int256((netMoved.leftSlot())) - net1);
+    }
+
+    /// @notice Get amount of token0 and token1 that would move within a liquidity chunk if a position was minted.
+    /// @param tokenId A TokenId describing the position to mint
+    /// @param positionSize The size of the position
+    /// @param atTick The tick between token0 and token1 on the underlying Uniswap pool
+    /// @return netFlow0 How many token0s would move if the position was minted
+    /// @return netFlow1 How many token1s would move if the position was minted
+    function getTokenFlow(
+        TokenId tokenId,
+        uint128 positionSize,
+        int24 atTick
+    ) internal pure returns (int256 netFlow0, int256 netFlow1) {
+        for (uint256 leg; leg < tokenId.countLegs(); ++leg) {
+            LiquidityChunk liquidityChunk = PanopticMath.getLiquidityChunk(
+                tokenId,
+                leg,
+                positionSize
+            );
+
+            (uint256 amount0, uint256 amount1) = Math.getAmountsForLiquidity(
+                atTick,
+                liquidityChunk
+            );
+
+            if (tokenId.isLong(leg) == 0) {
+                netFlow0 += int256(amount0);
+                netFlow1 += int256(amount1);
+            } else {
+                netFlow0 -= int256(amount0);
+                netFlow1 -= int256(amount1);
+            }
+        }
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                          SIZING CALCULATIONS
+    //////////////////////////////////////////////////////////////*/
+
+    function getCoveredAmounts(
+        TokenId tokenId,
+        uint128 positionSize
+    ) internal pure returns (int256 covered0, int256 covered1) {
+        for (uint256 legIndex; legIndex < tokenId.countLegs(); ) {
+            uint256 amount0;
+            uint256 amount1;
+
+            (int24 tickLower, int24 tickUpper) = tokenId.asTicks(legIndex);
+
+            // effective strike price of the option (avg. price over LP range)
+            // geometric mean of two numbers = √(x1 * x2) = √x1 * √x2
+            uint256 geometricMeanPriceX96 = Math.mulDiv(
+                Math.getSqrtRatioAtTick(tickLower),
+                Math.getSqrtRatioAtTick(tickUpper),
+                2 ** 96
+            );
+
+            if (tokenId.asset(legIndex) == 0) {
+                amount0 = positionSize * uint128(tokenId.optionRatio(legIndex));
+                amount1 = Math.mulDiv(amount0, geometricMeanPriceX96, 2 ** 96);
+            } else {
+                amount1 = positionSize * uint128(tokenId.optionRatio(legIndex));
+                amount0 = Math.mulDiv(amount1, 2 ** 96, geometricMeanPriceX96);
+            }
+
+            if (tokenId.tokenType(legIndex) == tokenId.isLong(legIndex)) {
+                // if option is a short call or a long put, add amountsMoved0 to right slot and subtract amountsMoved1 from left slot
+                covered0 += int256(amount0);
+                covered1 -= int256(amount1);
+            } else {
+                // if option is a short put or a long call, add amountsMoved1 to left slot and subtract amountsMoved0 from right slot
+                covered0 -= int256(amount0);
+                covered1 += int256(amount1);
+            }
+
+            unchecked {
+                ++legIndex;
+            }
+        }
+    }
+
+    /// @notice Finds the maximum position size for a given positionIdList and a new tokenId
+    /// @dev returns the max position size if the position is 1) covered or 2) naked.
+    function sizePosition(
+        SemiFungiblePositionManager SFPM,
+        PanopticPool pool,
+        address account,
+        TokenId[] calldata positionIdList,
+        TokenId newTokenId
+    ) external view returns (uint128 coveredSize, uint128 nakedSize) {
+        // get the max size for long legs: maxAvailableSize is bounded by available liquidity to purchase if there are any long legs
+        uint256 maxAvailableLong = getAvailableLongSize(SFPM, pool, newTokenId);
+
+        // get the max size from the available pool assets
+        uint128 startSize = getStartSize(pool, account, newTokenId);
+
+        // get the max size for covered minting: coveredSize is bounded by the maximum amount of tokens in the user's account to mint a covered position
+        coveredSize = getCoveredSize(pool, account, newTokenId, startSize);
+
+        // get the max size for naked minting: nakedSize is bounded by the collateral requirement of the new mint (with swapAtMint), where newCollateralRequirement = 3/4 * balance
+        nakedSize = getNakedSize(pool, account, newTokenId, positionIdList, startSize);
+
+        // scales size by: maximum amount of available liquidity for longs. Scaled coveredSize so that it's never larger than nakedSize
+        nakedSize = uint128(Math.min(maxAvailableLong, nakedSize));
+
+        coveredSize = uint128(Math.min(nakedSize, coveredSize));
+    }
+
+    /// @notice finds the absolute maximum size of the position, based on the amounts of tokens that need to be moved to Uniswap
+    function getStartSize(
+        PanopticPool pool,
+        address account,
+        TokenId newTokenId
+    ) internal view returns (uint128 startSize) {
+        (LeftRightSigned longAmounts, LeftRightSigned shortAmounts) = PanopticMath
+            .computeExercisedAmounts(newTokenId, 2 ** 64);
+        LeftRightSigned netMoved = shortAmounts.sub(longAmounts);
+
+        uint256 net0 = uint256(Math.max(netMoved.rightSlot(), 1));
+        uint256 net1 = uint256(Math.max(netMoved.leftSlot(), 1));
+
+        (uint256 balance0, , ) = pool.collateralToken0().getPoolData();
+        (uint256 balance1, , ) = pool.collateralToken1().getPoolData();
+
+        startSize = uint128(Math.min((balance0 * 2 ** 64) / net0, (balance1 * 2 ** 64) / net1));
+
+        startSize = uint128(Math.min(startSize, 2 ** 64));
+    }
+
+    function getAvailableLongSize(
+        SemiFungiblePositionManager SFPM,
+        PanopticPool pool,
+        TokenId newTokenId
+    ) internal view returns (uint128 maxAvailableSize) {
+        maxAvailableSize = type(uint128).max;
+        if (newTokenId.countLongs() > 0) {
+            for (uint256 i; i < newTokenId.countLegs(); ++i) {
+                if (newTokenId.isLong(i) == 1) {
+                    (
+                        uint256 totalLiquidity,
+                        uint256 netLiquidity,
+                        uint256 removedLiquidity
+                    ) = _getLiquidities(SFPM, pool, newTokenId, i);
+
+                    uint256 availableLiquidity = (totalLiquidity * 9) / 10 - removedLiquidity - 1;
+
+                    (int24 tickLower, int24 tickUpper) = newTokenId.asTicks(i);
+                    if (newTokenId.asset(i) == 0) {
+                        uint160 lowPriceX96 = Math.getSqrtRatioAtTick(tickLower);
+                        uint160 highPriceX96 = Math.getSqrtRatioAtTick(tickUpper);
+                        uint256 _max;
+                        unchecked {
+                            _max =
+                                Math.mulDiv(
+                                    uint256(availableLiquidity) << 96,
+                                    highPriceX96 - lowPriceX96,
+                                    highPriceX96
+                                ) /
+                                lowPriceX96;
+                        }
+
+                        if (_max < maxAvailableSize) {
+                            maxAvailableSize = uint128(_max);
+                        }
+                    } else if (newTokenId.asset(i) == 1) {
+                        uint160 lowPriceX96 = Math.getSqrtRatioAtTick(tickLower);
+                        uint160 highPriceX96 = Math.getSqrtRatioAtTick(tickUpper);
+                        uint256 _max;
+
+                        unchecked {
+                            _max = Math.mulDiv96(availableLiquidity, highPriceX96 - lowPriceX96);
+                        }
+                        if (_max < maxAvailableSize) {
+                            maxAvailableSize = uint128(_max);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    function getCoveredSize(
+        PanopticPool pool,
+        address account,
+        TokenId newTokenId,
+        uint128 startSize
+    ) internal view returns (uint128 coveredSize) {
+        coveredSize = startSize;
+        (uint160 sqrtPriceX96, int24 currentTick, , , , , ) = pool.univ3pool().slot0();
+        uint256 balance0 = pool.collateralToken0().convertToAssets(
+            pool.collateralToken0().balanceOf(account)
+        );
+        uint256 balance1 = pool.collateralToken1().convertToAssets(
+            pool.collateralToken1().balanceOf(account)
+        );
+
+        (int256 net0, int256 net1) = inTheMoneyAmounts(newTokenId, startSize, currentTick);
+
+        if (net0 < 0) {
+            coveredSize = uint128((balance0 * startSize) / uint256(-net0));
+        } else if (net1 < 0) {
+            coveredSize = uint128((balance1 * startSize) / uint256(-net1));
+        }
+    }
+
+    function getNakedSize(
+        PanopticPool pool,
+        address account,
+        TokenId newTokenId,
+        TokenId[] calldata positionIdList,
+        uint128 startSize
+    ) internal view returns (uint128) {
+        // get the max size for naked mints, ITM amounts are swapped
+
+        (uint160 sqrtPriceX96, int24 currentTick, , , , , ) = pool.univ3pool().slot0();
+
+        uint256 availableCross;
+        {
+            (
+                uint256 balance0,
+                uint256 required0,
+                uint256 balance1,
+                uint256 required1
+            ) = checkCollateral(pool, account, currentTick, positionIdList);
+
+            uint256 balanceCross = currentTick < 0 ? balance0 : balance1;
+            uint256 requiredCross = currentTick < 0 ? required0 : required1;
+            availableCross = balanceCross - (4 * requiredCross) / 3;
+        }
+
+        uint128 left = 1;
+        uint128 right = startSize;
+
+        PanopticPool _pool = pool;
+        address _account = account;
+        TokenId _newTokenId = newTokenId;
+        int24 _currentTick = currentTick;
+        uint160 _sqrtPriceX96 = sqrtPriceX96;
+        while (left <= right) {
+            uint128 mid = left + (right - left) / 2;
+            uint128 value;
+
+            {
+                (uint128 required0, uint128 required1) = positionBuyingPowerRequirement(
+                    _pool,
+                    _account,
+                    _newTokenId,
+                    mid
+                );
+
+                int256 deltaB;
+                int256 deltaR;
+                (int256 itm0, int256 itm1) = inTheMoneyAmounts(_newTokenId, mid, _currentTick);
+
+                if (_currentTick < 0) {
+                    deltaR = int256(required0 + PanopticMath.convert1to0(required1, _sqrtPriceX96));
+                    deltaB = itm0 + PanopticMath.convert1to0(itm1, _sqrtPriceX96);
+                } else {
+                    deltaR = int256(required1 + PanopticMath.convert0to1(required0, _sqrtPriceX96));
+                    deltaB = itm1 + PanopticMath.convert0to1(itm0, _sqrtPriceX96);
+                }
+                int256 delta = ((4 * deltaR) / 3 - deltaB);
+                //int256 delta = int256(availableCross * startSize) / ((4 * deltaR) / 3 - deltaB);
+
+                value = delta > 0 ? uint128(uint256(delta)) : 0;
+            }
+
+            // Check if we found the target within tolerance
+            if (
+                value <= (availableCross * (10000 + 1)) / 10000 &&
+                value >= (availableCross * (10000 - 1)) / 10000
+            ) {
+                return mid;
+            }
+
+            // If we didn't find it, continue searching
+            if (value < availableCross) {
+                // Prevent overflow
+                if (mid == right) return mid;
+                left = mid + 1;
+            } else {
+                // Prevent underflow
+                if (mid == left) return mid;
+                right = mid - 1;
+            }
+        }
+    }
+
+    /// @notice Query the total amount of liquidity sold in the corresponding chunk for a position leg.
+    /// @dev totalLiquidity (total sold) = removedLiquidity + netLiquidity (in AMM).
+    /// @param tokenId The option position
+    /// @param leg The leg of the option position to get `totalLiquidity` for
+    /// @return totalLiquidity The total amount of liquidity sold in the corresponding chunk for a position leg
+    /// @return netLiquidity The amount of liquidity available in the corresponding chunk for a position leg
+    /// @return removedLiquidity The amount of liquidity removed through buying in the corresponding chunk for a position leg
+    function _getLiquidities(
+        SemiFungiblePositionManager SFPM,
+        PanopticPool pool,
+        TokenId tokenId,
+        uint256 leg
+    )
+        internal
+        view
+        returns (uint256 totalLiquidity, uint128 netLiquidity, uint128 removedLiquidity)
+    {
+        (int24 tickLower, int24 tickUpper) = tokenId.asTicks(leg);
+
+        address univ3pool = address(SFPM.getUniswapV3PoolFromId(tokenId.poolId()));
+
+        LeftRightUnsigned accountLiquidities = SFPM.getAccountLiquidity(
+            univ3pool,
+            address(pool),
+            tokenId.tokenType(leg),
+            tickLower,
+            tickUpper
+        );
+
+        netLiquidity = accountLiquidities.rightSlot();
+        removedLiquidity = accountLiquidities.leftSlot();
+
+        unchecked {
+            totalLiquidity = netLiquidity + removedLiquidity;
+        }
+    }
+
+    /// @notice Checks whether a prospective position to mint is valid.
+    /// @dev will return false if the position's liquidity and/or notional value is too small or too large.
+    /// @param tokenId A TokenId describing the position to mint
+    /// @param positionSize The size of the position
+    /// @return True if position is validly mintable; false if not.
+    function isMintValid(TokenId tokenId, uint128 positionSize) external pure returns (bool) {
+        uint256 amount0;
+        uint256 amount1;
+
+        for (uint256 leg; leg < tokenId.countLegs(); ++leg) {
+            (int24 tickLower, int24 tickUpper) = tokenId.asTicks(leg);
+            uint256 amount = uint256(positionSize) * tokenId.optionRatio(leg);
+            uint160 lowPriceX96 = Math.getSqrtRatioAtTick(tickLower);
+            uint160 highPriceX96 = Math.getSqrtRatioAtTick(tickUpper);
+
+            if (tokenId.asset(leg) == 0) {
+                uint256 liquidity = Math.mulDiv(
+                    amount,
+                    Math.mulDiv96(highPriceX96, lowPriceX96),
+                    highPriceX96 - lowPriceX96
+                );
+
+                if (liquidity > type(uint128).max) return false;
+            } else {
+                uint256 liquidity = Math.mulDiv(amount1, 2 ** 96, highPriceX96 - lowPriceX96);
+                if (liquidity > type(uint128).max) return false;
+            }
+            LiquidityChunk liquidityChunk = PanopticMath.getLiquidityChunk(
+                tokenId,
+                leg,
+                positionSize
+            );
+
+            if (liquidityChunk.liquidity() == 0) {
+                return false;
+            }
+
+            unchecked {
+                // increment accumulators of the upper bound on tokens contained across all legs of the position at any given tick
+                amount0 += uint256(Math.getAmount0ForLiquidity(liquidityChunk));
+
+                amount1 += uint256(Math.getAmount1ForLiquidity(liquidityChunk));
+            }
+        }
+        if (
+            amount0 > uint256(uint128(type(int128).max - 4)) ||
+            amount1 > uint256(uint128(type(int128).max - 4))
+        ) return false;
+
+        if (
+            amount0 > uint256(uint104(type(int104).max - 4)) ||
+            amount1 > uint256(uint104(type(int104).max - 4))
+        ) return false;
+
+        return true;
+    }
+
+    /// @notice Estimated the final sqrtPrice and the amount received for an "exact input" swap
+    /// @param pool the Panoptic pool on top of that trade
+    /// @param amountIn the amount of tokens to be traded (amountIn < 0 means token0-for-token1, amountIn > 0 means token1-for-token0)
+    /// @return finalSqrtPrice the final price after that trade
+    /// @return amountOut the amount of tokens received for that trade
+    function quoteFinalPrice(
+        PanopticPool pool,
+        int256 amountIn
+    ) public view returns (uint160 finalSqrtPrice, uint256 amountOut) {
+        IUniswapV3Pool univ3pool = pool.univ3pool();
+
+        (uint160 currentPriceX96, int24 currentTick, , , , , ) = univ3pool.slot0();
+        int24 tickSpacing = univ3pool.tickSpacing();
+        uint256 fee = uint256(univ3pool.fee());
+        int256 scaledTick = int256((currentTick / tickSpacing) * tickSpacing);
+
+        uint256 currentLiquidity = univ3pool.liquidity();
+
+        bool stop;
+
+        // if amountIn is positive, amount sent to the smart contract is token1 and price goes up
+        if (amountIn > 0) {
+            uint256 amount = (uint256(amountIn) * (1e6 - fee)) / 1e6;
+            int24 nextTick = (currentTick / tickSpacing) * tickSpacing + tickSpacing;
+            uint160 highPriceX96 = Math.getSqrtRatioAtTick(nextTick);
+
+            while (!stop) {
+                uint256 amountAll = Math.mulDiv96(currentLiquidity, highPriceX96 - currentPriceX96);
+
+                if (amount < amountAll) {
+                    finalSqrtPrice =
+                        currentPriceX96 +
+                        uint160(Math.mulDiv(amount, 2 ** 96, currentLiquidity));
+                    {
+                        uint160 _f = finalSqrtPrice;
+                        amountOut +=
+                            Math.mulDiv(currentLiquidity << 96, _f - currentPriceX96, _f) /
+                            currentPriceX96;
+                    }
+                    stop = true;
+                } else {
+                    amount -= amountAll;
+                    amountOut +=
+                        Math.mulDiv(
+                            currentLiquidity << 96,
+                            highPriceX96 - currentPriceX96,
+                            highPriceX96
+                        ) /
+                        currentPriceX96;
+
+                    (, int128 liquidityNet, , , , , , ) = univ3pool.ticks(nextTick);
+                    currentLiquidity = liquidityNet > 0
+                        ? currentLiquidity + uint128(liquidityNet)
+                        : currentLiquidity - uint128(-liquidityNet);
+                    currentTick = nextTick;
+                    nextTick = nextTick + tickSpacing;
+                    currentPriceX96 = Math.getSqrtRatioAtTick(currentTick);
+                    highPriceX96 = Math.getSqrtRatioAtTick(nextTick);
+                }
+            }
+        } else if (amountIn < 0) {
+            // if amountIn is negative, amount sent to the smart contract is token0 and price goes down
+            uint256 amount = (uint256(-amountIn) * (1e6 - fee)) / 1e6;
+            int24 nextTick = (currentTick / tickSpacing) * tickSpacing;
+            uint160 lowPriceX96 = Math.getSqrtRatioAtTick(nextTick);
+
+            while (!stop) {
+                uint256 amountAll = Math.mulDiv(
+                    currentLiquidity << 96,
+                    currentPriceX96 - lowPriceX96,
+                    lowPriceX96
+                ) / currentPriceX96;
+
+                if (amount < amountAll) {
+                    finalSqrtPrice = uint160(
+                        Math.mulDiv(
+                            currentLiquidity << 96,
+                            currentPriceX96,
+                            (currentLiquidity << 96) + amount * currentPriceX96
+                        )
+                    );
+                    amountOut += Math.mulDiv96(currentLiquidity, currentPriceX96 - finalSqrtPrice);
+                    stop = true;
+                } else {
+                    amount -= amountAll;
+                    amountOut += Math.mulDiv96(currentLiquidity, currentPriceX96 - lowPriceX96);
+
+                    (, int128 liquidityNet, , , , , , ) = univ3pool.ticks(nextTick);
+
+                    currentLiquidity = liquidityNet > 0
+                        ? currentLiquidity - uint128(liquidityNet)
+                        : currentLiquidity + uint128(-liquidityNet);
+                    currentTick = nextTick;
+                    nextTick = nextTick - tickSpacing;
+                    currentPriceX96 = Math.getSqrtRatioAtTick(currentTick);
+                    lowPriceX96 = Math.getSqrtRatioAtTick(nextTick);
+                }
+            }
         }
     }
 

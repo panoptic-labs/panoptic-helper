@@ -323,8 +323,8 @@ contract PanopticQueryTest is PositionUtils {
         IERC20Partial(token0).approve(address(ct0), type(uint256).max);
         IERC20Partial(token1).approve(address(ct1), type(uint256).max);
 
-        ct0.deposit(type(uint104).max, Seller);
-        ct1.deposit(type(uint104).max, Seller);
+        ct0.deposit(boundLog(type(uint104).max, 64, 64), Seller);
+        ct1.deposit(boundLog(type(uint104).max, 64, 64), Seller);
 
         // cancel out MEV tax and push exchange rate back to 1
         deal(address(ct0), Seller, type(uint104).max, true);
@@ -342,8 +342,8 @@ contract PanopticQueryTest is PositionUtils {
         IERC20Partial(token0).approve(address(ct0), type(uint256).max);
         IERC20Partial(token1).approve(address(ct1), type(uint256).max);
 
-        ct0.deposit(type(uint104).max, Bob);
-        ct1.deposit(type(uint104).max, Bob);
+        ct0.deposit(boundLog(type(uint104).max, 64, 64), Bob);
+        ct1.deposit(boundLog(type(uint104).max, 64, 64), Bob);
 
         // cancel out MEV tax and push exchange rate back to 1
         deal(address(ct0), Bob, type(uint104).max, true);
@@ -361,8 +361,8 @@ contract PanopticQueryTest is PositionUtils {
         IERC20Partial(token0).approve(address(ct0), type(uint256).max);
         IERC20Partial(token1).approve(address(ct1), type(uint256).max);
 
-        ct0.deposit(type(uint104).max, Alice);
-        ct1.deposit(type(uint104).max, Alice);
+        ct0.deposit(boundLog(type(uint104).max, 64, 64), Alice);
+        ct1.deposit(boundLog(type(uint104).max, 64, 64), Alice);
 
         // cancel out MEV tax and push exchange rate back to 1
         deal(address(ct0), Alice, type(uint104).max, true);
@@ -378,6 +378,15 @@ contract PanopticQueryTest is PositionUtils {
         collateralReference = address(
             new CollateralTracker(10, 2_000, 1_000, -1_024, 5_000, 9_000, 20_000)
         );
+    }
+
+    // bounds the input value between 2**min and 2**(max+1)-1
+    function boundLog(uint256 value, uint8 min, uint8 max) internal pure returns (uint256) {
+        uint256 range = uint256(max) - uint256(min) + 1;
+        uint256 m0 = min + (value % range);
+        value = uint256(keccak256(abi.encode(value)));
+        uint256 m1 = value % 2 ** max;
+        return 2 ** m0 + (m1 >> (max - m0));
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -671,5 +680,182 @@ contract PanopticQueryTest is PositionUtils {
 
             pq.checkCollateral(pp, Alice, posIdList);
         }
+    }
+
+    /// forge-config: default.fuzz.runs = 50
+    function test_Success_buyingPowers(uint256 x, uint256 seed) public {
+        _initPool(x);
+
+        seed = uint256(keccak256(abi.encode(seed)));
+        seed = uint256(keccak256(abi.encode(0)));
+        console2.log("seed", seed);
+        uint256 numberOfLegs = ((seed >> 222) % 4) + 1;
+
+        numberOfLegs = 1;
+
+        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId);
+
+        // keep unpaired
+        for (uint256 leg; leg < numberOfLegs; ++leg) {
+            tokenId = tokenId.addRiskPartner(leg, leg);
+        }
+
+        // keep option ratio same for all
+        uint256 optionRatio = uint256(seed % 2 ** 7);
+        optionRatio = optionRatio == 0 ? 1 : optionRatio;
+
+        // keep asset same for all
+        uint256 asset = uint256((seed >> 9) % 2);
+
+        for (uint256 i; i < numberOfLegs; ++i) {
+            // update seed
+            seed = uint256(keccak256(abi.encode(seed)));
+            uint256 isLong;
+            {
+                // only short options
+                isLong = 0 * uint256((seed >> 7) % 2);
+
+                uint256 tokenType = uint256((seed >> 27) % 2);
+                tokenId = tokenId.addTokenType(1 - tokenType, i);
+                // add optionRatio
+                tokenId = tokenId.addOptionRatio(optionRatio, i);
+
+                // add isLong
+                tokenId = tokenId.addIsLong(isLong, i);
+
+                // add asset
+                tokenId = tokenId.addAsset(asset, i);
+            }
+            // add strike
+            uint256 strikeTemp = uint256((seed >> 10) % 2 ** 20) / 100;
+            uint256 strikeSign = uint256((seed >> 30) % 2);
+            int24 strike = strikeTemp > 887272
+                ? int24(uint24(strikeTemp / 2))
+                : int24(uint24(strikeTemp));
+            strike = strikeSign == 0 ? -strike : strike;
+            strike = ((currentTick) / pool.tickSpacing()) * pool.tickSpacing();
+            tokenId = tokenId.addStrike(strike, i);
+
+            console2.log("strike", strike);
+            console2.log("currentT", currentTick);
+            // add width
+            int24 width = int24(uint24(uint256((seed >> 31) % 2 ** 12)));
+            width = (width / 2) * 2;
+            width = width == 0 ? int24(2) : width;
+
+            tokenId = tokenId.addWidth(10, i);
+        }
+
+        vm.startPrank(Alice);
+        (uint256 p0, uint256 i0, uint256 u0p) = pp.collateralToken0().getPoolData();
+        console.log("utils", p0, i0, u0p);
+        (uint256 p1, uint256 i1, uint256 u1p) = pp.collateralToken1().getPoolData();
+        console.log("utils", p1, i1, u1p);
+
+        positionSize = uint128(boundLog(x, 0, 32));
+
+        (positionSize, ) = pq.sizePosition(sfpm, pp, Alice, new TokenId[](0), tokenId);
+        console.log("positionSize", positionSize);
+        (uint128 requiredToken0, uint128 requiredToken1) = pq.positionBuyingPowerRequirement(
+            pp,
+            Alice,
+            tokenId,
+            (100 * positionSize) / 100
+        );
+
+        TokenId[] memory posIdList = new TokenId[](1);
+
+        posIdList[0] = tokenId;
+
+        vm.assume(pq.isMintValid(tokenId, positionSize) == true);
+
+        {
+            uint256 bal0 = pp.collateralToken0().convertToAssets(
+                pp.collateralToken0().balanceOf(Alice)
+            );
+            uint256 bal1 = pp.collateralToken1().convertToAssets(
+                pp.collateralToken1().balanceOf(Alice)
+            );
+            console2.log("bal0, bal1", bal0, bal1);
+        }
+
+        pp.mintOptions(
+            posIdList,
+            (100 * positionSize) / 100,
+            0,
+            Constants.MIN_V3POOL_TICK,
+            Constants.MAX_V3POOL_TICK
+        );
+        {
+            uint256 bal0 = pp.collateralToken0().convertToAssets(
+                pp.collateralToken0().balanceOf(Alice)
+            );
+            uint256 bal1 = pp.collateralToken1().convertToAssets(
+                pp.collateralToken1().balanceOf(Alice)
+            );
+            console2.log("bal0, bal1", bal0, bal1);
+        }
+        (p0, i0, u0p) = pp.collateralToken0().getPoolData();
+        console.log("utils", p0, i0, u0p);
+        (p1, i1, u1p) = pp.collateralToken1().getPoolData();
+        console.log("utils", p1, i1, u1p);
+
+        (, currentTick, , , , , ) = pool.slot0();
+
+        (
+            LeftRightUnsigned shortPremium,
+            LeftRightUnsigned longPremium,
+            uint256[2][] memory posBalanceArray
+        ) = pp.getAccumulatedFeesAndPositionsData(Alice, false, posIdList);
+
+        tokenData0 = ct0.getAccountMarginDetails(
+            Alice,
+            currentTick,
+            posBalanceArray,
+            shortPremium.rightSlot(),
+            longPremium.rightSlot()
+        );
+        tokenData1 = ct1.getAccountMarginDetails(
+            Alice,
+            currentTick,
+            posBalanceArray,
+            shortPremium.leftSlot(),
+            longPremium.leftSlot()
+        );
+
+        assertEq(requiredToken0, tokenData0.leftSlot(), "required token0");
+        assertEq(requiredToken1, tokenData1.leftSlot(), "required token1");
+    }
+
+    function test_quotePrice(uint256 x) public {
+        _initPool(0);
+
+        (currentSqrtPriceX96, currentTick, , , , , ) = pool.slot0();
+
+        console2.log("x, current", x, currentSqrtPriceX96, uint24(currentTick));
+        int256 amountIn = x % 2 == 0
+            ? -int256(bound(x, 1, 150 * 45167111806))
+            : int256(bound(x, 1, 150 * 108916089235601463162));
+        (uint160 finalPrice, uint256 amountOut) = pq.quoteFinalPrice(pp, 1e7);
+
+        vm.startPrank(Swapper);
+
+        uint256 amountOutSwap = router.exactInputSingle(
+            ISwapRouter.ExactInputSingleParams(
+                amountIn < 0 ? token0 : token1,
+                amountIn > 0 ? token0 : token1,
+                fee,
+                Bob,
+                block.timestamp,
+                amountIn > 0 ? uint256(amountIn) : uint256(-amountIn),
+                0,
+                0
+            )
+        );
+
+        (uint160 finalSwapPriceX96, , , , , , ) = pool.slot0();
+
+        assertApproxEqRel(finalPrice, finalSwapPriceX96, 1e9, "final prices");
+        assertApproxEqRel(amountOut, amountOutSwap, 1e9, "amounts out");
     }
 }
