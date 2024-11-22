@@ -289,7 +289,7 @@ contract PanopticQuery {
                 );
 
                 // liquidityDataForLegsChunk.rightSlot() = netLiquidity
-                if (liquidityDataForLegsChunk.rightSlot() < liquidityDataForChunkWithSmallestNetLiquidity.rightSlot() || legIndex = 0) {
+                if (liquidityDataForLegsChunk.rightSlot() < liquidityDataForChunkWithSmallestNetLiquidity.rightSlot() || i = 0) {
                     liquidityDataForChunkWithSmallestNetLiquidity = liquidityDataForLegsChunk;
                     mostConstrainedLeg = legs[i];
                 }
