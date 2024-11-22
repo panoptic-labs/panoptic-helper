@@ -1,4 +1,5 @@
 [profile.default]
+solc_version = '0.8.28'
 src = 'src'
 test = 'test'
 out = 'out'
@@ -27,3 +28,5 @@ viaIR = true
 # temporary workaround while we figure out perf issues + configure different test sets + profiles
 runs = 30
 max_test_rejects = 9_999_999
+[rpc_endpoints]
+sepolia = 'https://sepolia.infura.io/v3/c5fc9ed5bfae494f9cac22bce8fb3b47'

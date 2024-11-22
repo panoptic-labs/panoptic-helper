@@ -6,6 +6,7 @@ import "forge-std/Test.sol";
 import {IUniswapV3Pool} from "univ3-core/interfaces/IUniswapV3Pool.sol";
 import {PanopticPool} from "@contracts/PanopticPool.sol";
 import {SemiFungiblePositionManager} from "@contracts/SemiFungiblePositionManager.sol";
+
 // Libraries
 import {Constants} from "@libraries/Constants.sol";
 import {PanopticMath} from "@libraries/PanopticMath.sol";
@@ -19,45 +20,6 @@ import {PositionBalance} from "@types/PositionBalance.sol";
 /// @title Utility contract for token ID construction and advanced queries.
 /// @author Axicon Labs Limited
 contract PanopticQuery {
-    /*//////////////////////////////////////////////////////////////
-                          POSITION INFO
-    //////////////////////////////////////////////////////////////*/
-
-    /// @notice Returns the total number of contracts owned by `account` and the pool utilization at mint for a specified `tokenId.
-    /// @param pool The PanopticPool instance corresponding to the pool specified in `TokenId`
-    /// @param account The address of the account on which to retrieve `balance` and `poolUtilization`
-    /// @return balance Number of contracts of `tokenId` owned by the user
-    /// @return poolUtilization0 The utilization of token0 in the Panoptic pool at mint
-    /// @return poolUtilization1 The utilization of token1 in the Panoptic pool at mint
-    function optionPositionInfo(
-        PanopticPool pool,
-        address account,
-        TokenId tokenId
-    ) external view returns (uint128, uint64, uint64) {
-        TokenId[] memory tokenIdList = new TokenId[](1);
-        tokenIdList[0] = tokenId;
-
-        (, , uint256[2][] memory positionBalanceArray) = pool.getAccumulatedFeesAndPositionsData(
-            account,
-            false,
-            tokenIdList
-        );
-
-        LeftRightUnsigned balanceAndUtilization = LeftRightUnsigned.wrap(
-            positionBalanceArray[0][1]
-        );
-
-        return (
-            balanceAndUtilization.rightSlot(),
-            uint64(balanceAndUtilization.leftSlot()),
-            uint64(balanceAndUtilization.leftSlot() >> 64)
-        );
-    }
-
-    /*//////////////////////////////////////////////////////////////
-                          COLLATERAL QUERIES
-    //////////////////////////////////////////////////////////////*/
-
     /// @notice Compute the total amount of collateral needed to cover the existing list of active positions in positionIdList.
     /// @param pool The PanopticPool instance to check collateral on
     /// @param account Address of the user that owns the positions

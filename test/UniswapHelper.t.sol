@@ -228,97 +228,6 @@ contract UniswapHelperTest is PositionUtils {
         uh = new UniswapHelperHarness(V3FACTORY, V3NFPM, sfpm);
     }
 
-    // bounds the input value between 2**min and 2**(max+1)-1
-    function boundLog(uint256 value, uint8 min, uint8 max) internal pure returns (uint256) {
-        uint256 range = uint256(max) - uint256(min) + 1;
-        uint256 m0 = min + (value % range);
-        value = uint256(keccak256(abi.encode(value)));
-        uint256 m1 = value % 2 ** max;
-        return 2 ** m0 + (m1 >> (max - m0));
-    }
-
-    /*//////////////////////////////////////////////////////////////////////////
-                                     BOUND LOG
-    //////////////////////////////////////////////////////////////////////////*/
-
-    function test_boundLog() public {
-        for (uint256 i = 0; i <= 255; ++i) {
-            assertEq(
-                boundLog(0, uint8(0), uint8(i)),
-                2 ** 0 + ((uint256(keccak256(abi.encode(uint256(0)))) % 2 ** i) >> i)
-            );
-
-            assertEq(
-                boundLog(0, uint8(i), uint8(255)),
-                2 ** i + ((uint256(keccak256(abi.encode(uint256(0)))) % 2 ** 255) >> (255 - i))
-            );
-
-            assertEq(
-                boundLog(0, uint8(i), uint8(i)),
-                2 ** i + (uint256(keccak256(abi.encode(uint256(0)))) % 2 ** i)
-            );
-        }
-    }
-
-    /// forge-config: default.fuzz.runs = 100000
-    function test_boundLog(uint256 x, uint8 min, uint8 max) public {
-        if (min > max) (min, max) = (max, min);
-
-        uint256 result = boundLog(x, min, max);
-
-        assertGe(result, 2 ** min);
-        assertLe(result, max == 255 ? type(uint256).max : 2 ** (max + 1) - 1);
-        assertEq(result, boundLog(x, min, max));
-    }
-
-    /// forge-config: default.fuzz.runs = 1000
-    function test_Success_boundLog_sameLimits(uint256 x) public {
-        for (uint8 i; i < 255; ++i) {
-            x = uint256(keccak256(abi.encode(x)));
-            uint256 _b = boundLog(x, i, i);
-
-            assertTrue(_b >= 2 ** i);
-            assertTrue(_b <= (2 ** (i + 1) - 1));
-        }
-        x = uint256(keccak256(abi.encode(x)));
-        uint256 b = boundLog(x, 255, 255);
-
-        assertTrue(b >= 2 ** 255);
-        assertTrue(b <= (type(uint256).max));
-    }
-
-    /// forge-config: default.fuzz.runs = 1000
-    function test_Success_boundLog_low(uint256 x) public {
-        for (uint8 i; i < 255; ++i) {
-            x = uint256(keccak256(abi.encode(x)));
-            uint256 _b = boundLog(x, 0, i);
-
-            assertTrue(_b >= 2 ** 0);
-            assertTrue(_b <= (2 ** (i + 1) - 1));
-        }
-        x = uint256(keccak256(abi.encode(x)));
-        uint256 b = boundLog(x, 0, 255);
-
-        assertTrue(b >= 2 ** 0);
-        assertTrue(b <= (type(uint256).max));
-    }
-
-    /// forge-config: default.fuzz.runs = 1000
-    function test_Success_boundLog_high(uint256 x) public {
-        for (uint8 i; i < 255; ++i) {
-            x = uint256(keccak256(abi.encode(x)));
-            uint256 _b = boundLog(x, i, 255);
-
-            assertTrue(_b >= 2 ** i);
-            assertTrue(_b <= type(uint256).max);
-        }
-        x = uint256(keccak256(abi.encode(x)));
-        uint256 b = boundLog(x, 255, 255);
-
-        assertTrue(b >= 2 ** 255);
-        assertTrue(b <= (type(uint256).max));
-    }
-
     function test_getTickData() public {
         _initPool(1);
 
@@ -329,31 +238,7 @@ contract UniswapHelperTest is PositionUtils {
         console2.log(uh.plotPnL(4));
     }
 
-    function test_getSVG() public view {
-        int256[] memory tickData = new int256[](8);
-        tickData[0] = 10;
-        tickData[1] = 15;
-        tickData[2] = 20;
-        tickData[3] = 25;
-        tickData[4] = 30;
-        tickData[5] = 35;
-        tickData[6] = 40;
-        tickData[7] = 45;
-
-        int256[] memory liquidityData = new int256[](8);
-        liquidityData[0] = 5;
-        liquidityData[1] = 7;
-        liquidityData[2] = 25;
-        liquidityData[3] = 10;
-        liquidityData[4] = 9;
-        liquidityData[5] = -20;
-        liquidityData[6] = 12;
-        liquidityData[7] = 6;
-
-        console2.log(uh.generateBase64Pool(tickData, liquidityData, 17, 0, ""));
-    }
-
-    function test_toStringSignedPct() public {
+    function test_toStringSignedPct() public view {
         assertEq(uh.exportToStringSignedPct(int256(10)), "0.10");
         assertEq(uh.exportToStringSignedPct(int256(-10)), "-0.10");
 

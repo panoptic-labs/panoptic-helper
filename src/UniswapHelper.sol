@@ -15,6 +15,23 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 /// @title Utility contract for token ID construction and advanced queries.
 /// @author Axicon Labs Limited
 contract UniswapHelper {
+    /// @dev Same as the NonfungiblePositionManager.Position struct with an additional property for the position's tokenURI
+    struct PositionWithTokenURI {
+        uint96 nonce;
+        address operator;
+        address token0;
+        address token1;
+        uint24 fee;
+        int24 tickLower;
+        int24 tickUpper;
+        uint128 liquidity;
+        uint256 feeGrowthInside0LastX128;
+        uint256 feeGrowthInside1LastX128;
+        uint128 tokensOwed0;
+        uint128 tokensOwed1;
+        string tokenURI;
+    }
+
     IUniswapV3Factory internal immutable FACTORY;
     INonfungiblePositionManager immutable NFPM;
     SemiFungiblePositionManager internal immutable SFPM;
@@ -41,7 +58,7 @@ contract UniswapHelper {
 
     function getTickNets(
         IUniswapV3Pool univ3pool
-    ) internal view returns (int256[] memory, int256[] memory) {
+    ) public view returns (int256[] memory, int256[] memory) {
         (, int24 currentTick, , , , , ) = univ3pool.slot0();
         int24 tickSpacing = univ3pool.tickSpacing();
         int256 scaledTick = int256((currentTick / tickSpacing) * tickSpacing);
@@ -777,7 +794,6 @@ contract UniswapHelper {
         IUniswapV3Pool univ3pool = IUniswapV3Pool(pool);
 
         (, int24 currentTick, , , , , ) = univ3pool.slot0();
-        uint256 decimals0 = ERC20(univ3pool.token0()).decimals();
 
         (int256[] memory tickData, int256[] memory liquidityData) = getTickNets(univ3pool);
 
@@ -1321,6 +1337,65 @@ contract UniswapHelper {
                 */
                 feeGrowthInside0X128 = univ3pool.feeGrowthGlobal0X128() - lowerOut0 - upperOut0;
                 feeGrowthInside1X128 = univ3pool.feeGrowthGlobal1X128() - lowerOut1 - upperOut1;
+            }
+        }
+    }
+
+    /// @notice Retrieves all Uniswap V3 NFT positions for a given account.
+    /// @dev Retrieves the complete Position struct and tokenURI for each NFT so that position details can be displayed alongside SVGs.
+    /// @param account The address of the account to fetch positions for
+    /// @return positionsWithTokenURI An array of PositionWithTokenURI structs containing details of each position, including its tokenURI
+    function getNfpmPositionsForAccount(
+        address account
+    ) public view returns (PositionWithTokenURI[] memory positionsWithTokenURI) {
+        uint256 balance = NFPM.balanceOf(account);
+        positionsWithTokenURI = new PositionWithTokenURI[](balance);
+
+        for (uint256 i; i < balance; ++i) {
+            uint256 tokenId = NFPM.tokenOfOwnerByIndex(account, i);
+
+            // Assign struct in multiple blocks to avoid stack too deep
+            {
+                (
+                    uint96 nonce,
+                    address operator,
+                    address token0,
+                    address token1,
+                    uint24 fee,
+                    int24 tickLower,
+                    int24 tickUpper,
+                    uint128 liquidity,
+                    uint256 feeGrowthInside0LastX128,
+                    uint256 feeGrowthInside1LastX128,
+                    ,
+
+                ) = NFPM.positions(tokenId);
+
+                positionsWithTokenURI[i] = PositionWithTokenURI({
+                    nonce: nonce,
+                    operator: operator,
+                    token0: token0,
+                    token1: token1,
+                    fee: fee,
+                    tickLower: tickLower,
+                    tickUpper: tickUpper,
+                    liquidity: liquidity,
+                    feeGrowthInside0LastX128: feeGrowthInside0LastX128,
+                    feeGrowthInside1LastX128: feeGrowthInside1LastX128,
+                    tokensOwed0: 0,
+                    tokensOwed1: 0,
+                    tokenURI: ""
+                });
+            }
+
+            // Assign remaining fields
+            {
+                (, , , , , , , , , , uint128 tokensOwed0, uint128 tokensOwed1) = NFPM.positions(
+                    tokenId
+                );
+                positionsWithTokenURI[i].tokensOwed0 = tokensOwed0;
+                positionsWithTokenURI[i].tokensOwed1 = tokensOwed1;
+                positionsWithTokenURI[i].tokenURI = NFPM.tokenURI(tokenId);
             }
         }
     }
