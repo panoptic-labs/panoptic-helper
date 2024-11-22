@@ -329,7 +329,7 @@ contract PanopticQuery {
 
                 // Then, we get the minimum total sell-side liquidity in this chunk, and subtract that amount:
                 uint128 liquidityToSell = uint128(
-                    Math.mulDivRoundingUp(legsChunkLiquidityData.leftSlot(), 10, 9)
+                    Math.mulDivRoundingUp(uint256(legsChunkLiquidityData.leftSlot()), 10, 9)
                 ) - preReductionSellSideLiquidityFromOthers;
 
                 // Finally, convert to asset-token denomination to get a minimum position size:

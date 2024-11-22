@@ -740,7 +740,7 @@ contract PanopticQueryTest is PositionUtils {
         // - then call reduceSize on Alice
         // it should return bobsSize / .9
         uint128 alicesMinPositionSize = pq.reduceSize(pp, Bob, callSaleTokenId);
-        assertEq(alicesMinPositionSize, Math.mulDiv(bobsPurchaseSize, 10, 9));
+        assertEq(alicesMinPositionSize, uint128(Math.mulDiv(uint256(bobsPurchaseSize), 10, 9)));
         // - then call reduceSize on Bob
         // it should return type(uint128).max - bob has only long legs
         uint128 bobsMinPositionSize = pq.reduceSize(pp, Bob, callPurchaseTokenId);
@@ -776,7 +776,7 @@ contract PanopticQueryTest is PositionUtils {
             10
         );
         posIdList[0] = callPurchaseTokenId;
-        uint128 bobsPurchaseSize = Math.mulDiv(alicesSaleSize, 9, 10);
+        uint128 bobsPurchaseSize = uint128(Math.mulDiv(uint256(alicesSaleSize), 9, 10));
         vm.prank(Bob);
         pp.mintOptions(
             posIdList,
