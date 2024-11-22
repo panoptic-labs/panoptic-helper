@@ -763,7 +763,7 @@ contract PanopticQueryTest is PositionUtils {
             Constants.MIN_V3POOL_TICK,
             Constants.MAX_V3POOL_TICK
         );
-        // - bob mints a call purchase, to purchase < 90% (fuzzed proportion ideally)
+        // - bob mints a call purchase, to purchase exactly 90%
         // TODO: make this a call-purchase
         TokenId callPurchaseTokenId = TokenId.wrap(0).addPoolId(1234).addLeg(
             0,
@@ -776,7 +776,7 @@ contract PanopticQueryTest is PositionUtils {
             10
         );
         posIdList[0] = callPurchaseTokenId;
-        uint128 bobsPurchaseSize = 90;
+        uint128 bobsPurchaseSize = Math.mulDiv(alicesSaleSize, 9, 10);
         vm.prank(Bob);
         pp.mintOptions(
             posIdList,
