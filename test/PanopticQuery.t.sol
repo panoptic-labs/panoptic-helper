@@ -706,7 +706,16 @@ contract PanopticQueryTest is PositionUtils {
 
         // - alice mints a call to sell token0 at some size
         // TODO: make this a call-sale
-        TokenId callSaleTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(0, 2, 0, 1, 0, 0, 100, 10);
+        TokenId callSaleTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            2,
+            0,
+            1,
+            0,
+            0,
+            100,
+            10
+        );
         TokenId[] memory posIdList = new TokenId[](1);
         posIdList[0] = callSaleTokenId;
         // TODO: fuzz position size some day
@@ -758,7 +767,16 @@ contract PanopticQueryTest is PositionUtils {
 
         // - alice mints a call to sell token0 at some size
         // TODO: make this a call-sale
-        TokenId callSaleTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(0, 2, 0, 1, 0, 0, 100, 10);
+        TokenId callSaleTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            2,
+            0,
+            1,
+            0,
+            0,
+            100,
+            10
+        );
         TokenId[] memory posIdList = new TokenId[](1);
         posIdList[0] = callSaleTokenId;
         // TODO: fuzz position size some day
