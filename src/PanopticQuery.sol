@@ -308,9 +308,9 @@ contract PanopticQuery {
         // in the chunk, somewhere above, and then subtract that from liquidityToSell too and reduce
         // size even further. For now, proceeding with a version that assumes you're the only seller.
         uint128 liquidityToSell = Math.mulDivRoundingUp(
-          liquidityDataForChunkWithSmallestNetLiquidity.leftSlot(),
-          10,
-          9
+            liquidityDataForChunkWithSmallestNetLiquidity.leftSlot(),
+            10,
+            9
         );
         // Convert to asset-token denomination to return a position size
         LiquidityChunk liquidityChunk = LiquidityChunkLibrary.createChunk(
@@ -318,11 +318,10 @@ contract PanopticQuery {
             legs[i].strike + (legs[i].width / 2),
             amountToSellInLiquidityUnits
         );
-        return assetOfLegWithSmallestNetLiquidity == 0 ? Math.getAmount0ForLiquidity(
-            liquidityChunk
-        ) : LiquidityAmounts.getAmount1ForLiquidity(
-            liquidityChunk
-        );
+        return
+            assetOfLegWithSmallestNetLiquidity == 0
+                ? Math.getAmount0ForLiquidity(liquidityChunk)
+                : LiquidityAmounts.getAmount1ForLiquidity(liquidityChunk);
     }
 
     /// @notice Fetch data about chunks in a positionIdList.
