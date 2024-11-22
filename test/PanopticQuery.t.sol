@@ -677,27 +677,164 @@ contract PanopticQueryTest is PositionUtils {
     }
 
     function test_reduceSize_returns_zero_if_no_purchase() public {
-        // TODO:
         // - mint a call to sell token0 at some size
+        // TODO: make this a call-sale
+        TokenId tokenId = TokenId.wrap(0).addPoolId(1234).addLeg(
+            0,
+            2,
+            0,
+            1,
+            0,
+            0,
+            100,
+            10
+        );
+        TokenId[] memory posIdList = new TokenId[](1);
+        posIdList[0] = tokenId;
+        // TODO: fuzz position size some day
+        uint128 positionSize = 1;
+        vm.prank(Alice);
+        pp.mintOptions(
+            posIdList,
+            positionSize,
+            0,
+            Constants.MIN_V3POOL_TICK,
+            Constants.MAX_V3POOL_TICK
+        );
         // - then immediately call reduceSize
         // it should return 0: no one has bought from you
+        uint128 minPositionSize = pq.reduceSize(
+            pp,
+            Alice,
+            tokenId
+        );
+        assertEq(minPositionSize, 0);
     }
 
     function test_reduceSize_returns_lower_size_if_small_purchase_made() public {
-        // TODO:
         // - alice mints a call to sell token0 at some size
+        // TODO: make this a call-sale
+        TokenId callSaleTokenId = TokenId.wrap(0).addPoolId(1234).addLeg(
+            0,
+            2,
+            0,
+            1,
+            0,
+            0,
+            100,
+            10
+        );
+        TokenId[] memory posIdList = new TokenId[](1);
+        posIdList[0] = callSaleTokenId;
+        // TODO: fuzz position size some day
+        uint128 alicesSaleSize = 100;
+        vm.prank(Alice);
+        pp.mintOptions(
+            posIdList,
+            alicesSaleSize,
+            0,
+            Constants.MIN_V3POOL_TICK,
+            Constants.MAX_V3POOL_TICK
+        );
         // - bob mints a call purchase, to purchase < 90% (fuzzed proportion ideally)
-        // - then call reduceSize
+        // TODO: make this a call-purchase
+        TokenId callPurchaseTokenId = TokenId.wrap(0).addPoolId(1234).addLeg(
+            0,
+            2,
+            0,
+            1,
+            0,
+            0,
+            100,
+            10
+        );
+        posIdList[0] = callPurchaseTokenId;
+        // TODO: fuzz the portion of alicesSaleSize some day; hardcoding half for now
+        uint128 bobsPurchaseSize = 50;
+        vm.prank(Bob);
+        pp.mintOptions(
+            posIdList,
+            bobsPurchaseSize,
+            0,
+            Constants.MIN_V3POOL_TICK,
+            Constants.MAX_V3POOL_TICK
+        );
+        // - then call reduceSize on Alice
         // it should return bobsSize / .9
+        uint128 alicesMinPositionSize = pq.reduceSize(
+            pp,
+            Bob,
+            callSaleTokenId
+        );
+        assertEq(alicesMinPositionSize, Math.mulDiv(bobsPurchaseSize, 10, 9));
+        // - then call reduceSize on Bob
+        // it should return type(uint128).max - bob has only long legs
+        uint128 bobsMinPositionSize = pq.reduceSize(
+            pp,
+            Bob,
+            callPurchaseTokenId
+        );
+        assertEq(bobsMinPositionSize, type(uint128).max);
     }
 
-    function test_reduceSize_returns_same_size_if_large_purchase_made() public {
-        // TODO:
+    function test_reduceSize_returns_same_size_if_max_purchase_made() public {
         // - alice mints a call to sell token0 at some size
-        // - bob mints a call purchase, to purchase exactly 90%
-        // - then call reduceSize
-        // it should return the original size you minted with
+        // TODO: make this a call-sale
+        TokenId callSaleTokenId = TokenId.wrap(0).addPoolId(1234).addLeg(
+            0,
+            2,
+            0,
+            1,
+            0,
+            0,
+            100,
+            10
+        );
+        TokenId[] memory posIdList = new TokenId[](1);
+        posIdList[0] = callSaleTokenId;
+        // TODO: fuzz position size some day
+        uint128 alicesSaleSize = 100;
+        vm.prank(Alice);
+        pp.mintOptions(
+            posIdList,
+            alicesSaleSize,
+            0,
+            Constants.MIN_V3POOL_TICK,
+            Constants.MAX_V3POOL_TICK
+        );
+        // - bob mints a call purchase, to purchase < 90% (fuzzed proportion ideally)
+        // TODO: make this a call-purchase
+        TokenId callPurchaseTokenId = TokenId.wrap(0).addPoolId(1234).addLeg(
+            0,
+            2,
+            0,
+            1,
+            0,
+            0,
+            100,
+            10
+        );
+        posIdList[0] = callPurchaseTokenId;
+        uint128 bobsPurchaseSize = 90;
+        vm.prank(Bob);
+        pp.mintOptions(
+            posIdList,
+            bobsPurchaseSize,
+            0,
+            Constants.MIN_V3POOL_TICK,
+            Constants.MAX_V3POOL_TICK
+        );
+        // - then call reduceSize on Alice
+        // it should return the original size alice minted
+        uint128 alicesMinPositionSize = pq.reduceSize(
+            pp,
+            Bob,
+            callSaleTokenId
+        );
+        assertEq(alicesMinPositionSize, alicesSaleSize);
     }
+
+    // TODO: test reduceSize with multiple sellers, multiple buyers, multi-leg positions...
 
     function test_getChunkData_returns_correct_liquidities() public {
         // TODO:
