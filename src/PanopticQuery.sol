@@ -12,7 +12,7 @@ import {PanopticMath} from "@libraries/PanopticMath.sol";
 import {Math} from "@libraries/Math.sol";
 // Custom types
 import {LeftRightUnsigned} from "@types/LeftRight.sol";
-import {LiquidityChunk} from "@types/LiquidityChunk.sol";
+import {LiquidityChunk, LiquidityChunkLibrary} from "@types/LiquidityChunk.sol";
 import {TokenId, TokenIdLibrary} from "@types/TokenId.sol";
 import {PositionBalance, PositionBalanceLibrary} from "@types/PositionBalance.sol";
 
@@ -260,37 +260,40 @@ contract PanopticQuery {
 
     /// @notice Calculates the minimum legal position size that the account could be holding for the supplied position.
     /// @dev The only constraint this method currently considers is that the notional amount purchased in the chunk
-    /// remains <= 90% of the notional amount being sold (from all sellers, not just `account`).
+    /// remains <= 90% of the notional amount being sold.
     /// @param account The address of the account to evaluate
     /// @param pool The PanopticPool the supplied position exists on
     /// @param tokenId The position to reduce the size of
-    /// @return minPositionSize The minimum position size that account could reduce to
+    /// @return The minimum position size that account could reduce to
     function reduceSizeIfNecessary(
         PanopticPool pool,
         address account,
         TokenId tokenId
-    ) external view returns (uint128 minPositionSize) {
+    ) external view returns (uint128) {
         // If there are are no short legs, you can hold as much of this position as you like.
         // TODO: maybe more gas efficient to reuse minNetLiquidity as return val here?
         if (tokenId.countLongs() == tokenId.countLegs()) return type(uint128).max;
 
         uint128 minNetLiquidity = type(uint128).max;
         // TODO: shorter var name
-        uint256 legIndexOnChunkWithSmallestNetLiquidity = 0;
+        LeftRightUnsigned liquidityDataForChunkWithSmallestNetLiquidity = 0;
+        uint256 assetOfLegWithSmallestNetLiquidity = 0;
         TokenIdHelper.Leg[] memory legs = tokenIdHelper.unwrapTokenId(tokenId);
         for (uint256 i = 0; i < tokenId.countLegs(); ) {
             if (legs[i].isLong == 0) {
-                LeftRightUnsigned liquidityData = SFPM.getAccountLiquidity(
+                LeftRightUnsigned liquidityDataForLegsChunk = SFPM.getAccountLiquidity(
                     legs[i].UniswapV3Pool,
                     account,
                     legs[i].tokenType,
                     legs[i].strike - (legs[i].width / 2),
                     legs[i].strike + (legs[i].width / 2)
                 );
-                uint128 netLiquidity = liquidityData.rightSlot();
 
-                if (netLiquidity < minNetLiquidity) {
-                    legIndexOnChunkWithSmallestNetLiquidity = i;
+                // liquidityDataForLegsChunk.rightSlot() = netLiquidity
+                if (liquidityDataForLegsChunk.rightSlot() < minNetLiquidity) {
+                    minNetLiquidity = liquidityDataForLegsChunk.rightSlot();
+                    liquidityDataForChunkWithSmallestNetLiquidity = liquidityDataForLegsChunk;
+                    assetOfLegWithSmallestNetLiquidity = legs[i].asset;
                 }
             }
             unchecked {
@@ -298,11 +301,28 @@ contract PanopticQuery {
             }
         }
 
-        // TODO:
-        // take the long liquidity of that leg’s chunk and divide by 90% to get an amount-to-sell, in “liquidity units”
-        // long liquidity == removedLiquidity (aka liquidityData above's .leftSlot())? or something else
-
-        // TODO: then, convert the above to position size units (probably using new also-public helper)
+        // removedLiquidity is equivalent to the amount of long demand
+        // Therefore, our min position size is that long demand divided by 90%
+        // (Panoptic requires 10% cushion of seller volume to buyer volume)
+        // TODO: I believe we could also calculate how much is currently being sold by other sellers
+        // in the chunk, somewhere above, and then subtract that from liquidityToSell too and reduce
+        // size even further. For now, proceeding with a version that assumes you're the only seller.
+        uint128 liquidityToSell = Math.mulDivRoundingUp(
+          liquidityDataForChunkWithSmallestNetLiquidity.leftSlot(),
+          10,
+          9
+        );
+        // Convert to asset-token denomination to return a position size
+        LiquidityChunk liquidityChunk = LiquidityChunkLibrary.createChunk(
+            legs[i].strike - (legs[i].width / 2),
+            legs[i].strike + (legs[i].width / 2),
+            amountToSellInLiquidityUnits
+        );
+        return assetOfLegWithSmallestNetLiquidity == 0 ? Math.getAmount0ForLiquidity(
+            liquidityChunk
+        ) : LiquidityAmounts.getAmount1ForLiquidity(
+            liquidityChunk
+        );
     }
 
     /// @notice Fetch data about chunks in a positionIdList.
