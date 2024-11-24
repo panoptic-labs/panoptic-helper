@@ -320,20 +320,18 @@ contract PanopticQuery {
                 // Finally, convert to asset-token denomination to get a minimum position size:
                 uint128 thisLegsMinPositionSize = tokenId.asset(i) == 0
                     ? uint128(
-                          LiquidityAmounts.getAmount0ForLiquidity(
-                              Math.getSqrtRatioAtTick(legTickLower),
-                              Math.getSqrtRatioAtTick(legTickUpper),
-                              liquidityToSell
-                          )
-                          / tokenId.optionRatio(i)
+                        LiquidityAmounts.getAmount0ForLiquidity(
+                            Math.getSqrtRatioAtTick(legTickLower),
+                            Math.getSqrtRatioAtTick(legTickUpper),
+                            liquidityToSell
+                        ) / tokenId.optionRatio(i)
                     )
                     : uint128(
-                          LiquidityAmounts.getAmount1ForLiquidity(
-                              Math.getSqrtRatioAtTick(legTickLower),
-                              Math.getSqrtRatioAtTick(legTickUpper),
-                              liquidityToSell
-                          )
-                          / tokenId.optionRatio(i)
+                        LiquidityAmounts.getAmount1ForLiquidity(
+                            Math.getSqrtRatioAtTick(legTickLower),
+                            Math.getSqrtRatioAtTick(legTickUpper),
+                            liquidityToSell
+                        ) / tokenId.optionRatio(i)
                     );
 
                 if (thisLegsMinPositionSize > minPositionSize) {
