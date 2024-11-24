@@ -21,15 +21,11 @@ import {PositionBalance, PositionBalanceLibrary} from "@types/PositionBalance.so
 contract PanopticQuery {
     /// @notice The SemiFungiblePositionManager of the Panoptic instance this querying helper is intended for.
     SemiFungiblePositionManager internal immutable SFPM;
-    /// @notice A TokenIdHelper used to unwrap TokenIds into the leg data they represent.
-    TokenIdHelper internal immutable tokenIdHelper;
 
-    /// @notice Construct the PanopticQuery and store the SFPM and TokenIdHelper addresses.
+    /// @notice Construct the PanopticQuery and store the SFPM address.
     /// @param SFPM_ The canonical SFPM address for the Panoptic instance this helper queries
-    /// @param tokenIdHelper_ A TokenIdHelper that can unwrap tokenIds into legs
-    constructor(SemiFungiblePositionManager SFPM_, TokenIdHelper tokenIdHelper_) payable {
+    constructor(SemiFungiblePositionManager SFPM_) payable {
         SFPM = SFPM_;
-        tokenIdHelper = tokenIdHelper_;
     }
 
     /// @notice Compute the total amount of collateral needed to cover the existing list of active positions in positionIdList.
@@ -261,8 +257,8 @@ contract PanopticQuery {
     /// @notice Calculates the minimum legal position size that the account could be holding for the supplied position.
     /// @dev The only constraint this method currently considers is that the notional amount purchased in the chunk
     /// remains <= 90% of the notional amount being sold.
-    /// @param account The address of the account to evaluate
     /// @param pool The PanopticPool the supplied position exists on
+    /// @param account The address of the account to evaluate
     /// @param tokenId The position to reduce the size of
     /// @return minPositionSize The minimum position size that `account` could hold `tokenId` in
     function reduceSize(
@@ -272,8 +268,6 @@ contract PanopticQuery {
     ) external view returns (uint128 minPositionSize) {
         // If there are are no short legs, you can hold as much of this position as you like.
         if (tokenId.countLongs() == tokenId.countLegs()) return type(uint128).max;
-
-        TokenIdHelper.Leg[] memory legs = tokenIdHelper.unwrapTokenId(tokenId);
 
         TokenId[] memory suppliedPositions = new TokenId[](1);
         suppliedPositions[0] = tokenId;
@@ -289,14 +283,13 @@ contract PanopticQuery {
             .positionSize();
 
         for (uint256 i = 0; i < tokenId.countLegs(); ) {
-            if (legs[i].isLong == 0) {
-                int24 legTickLower = legs[i].strike - (legs[i].width / 2);
-                int24 legTickUpper = legs[i].strike + (legs[i].width / 2);
+            if (tokenId.isLong(i) == 0) {
+                (int24 legTickLower, int24 legTickUpper) = tokenId.asTicks(i);
 
                 LeftRightUnsigned legsChunkLiquidityData = SFPM.getAccountLiquidity(
-                    legs[i].UniswapV3Pool,
+                    address(SFPM.getUniswapV3PoolFromId(tokenId.poolId())),
                     address(pool),
-                    legs[i].tokenType,
+                    tokenId.tokenType(i),
                     legTickLower,
                     legTickUpper
                 );
@@ -309,23 +302,7 @@ contract PanopticQuery {
                 // First, we get the amount others were selling:
                 uint128 preReductionSellSideLiquidityFromOthers = legsChunkLiquidityData
                     .rightSlot() -
-                    (
-                        legs[i].asset == 0
-                            ? Math
-                                .getLiquidityForAmount0(
-                                    legTickLower,
-                                    legTickUpper,
-                                    preReductionPositionSize
-                                )
-                                .liquidity()
-                            : Math
-                                .getLiquidityForAmount1(
-                                    legTickLower,
-                                    legTickUpper,
-                                    preReductionPositionSize
-                                )
-                                .liquidity()
-                    );
+                    PanopticMath.getLiquidityChunk(tokenId, i, preReductionPositionSize).liquidity();
 
                 // Then, we get the minimum total sell-side liquidity in this chunk, and subtract that amount:
                 uint128 liquidityToSell = uint128(
@@ -338,7 +315,7 @@ contract PanopticQuery {
                     legTickUpper,
                     liquidityToSell
                 );
-                uint128 thisLegsMinPositionSize = legs[i].asset == 0
+                uint128 thisLegsMinPositionSize = tokenId.asset(i) == 0
                     ? uint128(Math.getAmount0ForLiquidity(reducedSizeChunk))
                     : uint128(Math.getAmount1ForLiquidity(reducedSizeChunk));
 

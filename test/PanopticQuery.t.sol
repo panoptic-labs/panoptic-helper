@@ -24,7 +24,6 @@ import {PanopticPool} from "@contracts/PanopticPool.sol";
 import {CollateralTracker} from "@contracts/CollateralTracker.sol";
 import {PanopticFactory} from "@contracts/PanopticFactory.sol";
 import {PanopticQuery} from "../src/PanopticQuery.sol";
-import {TokenIdHelper} from "../src/TokenIdHelper.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {PositionUtils} from "lib/panoptic-v1-core/test/foundry/testUtils/PositionUtils.sol";
 import {UniPoolPriceMock} from "lib/panoptic-v1-core/test/foundry/testUtils/PriceMocks.sol";
@@ -117,7 +116,6 @@ contract PanopticQueryTest is PositionUtils {
     PanopticFactory factory;
     PanopticPoolHarness pp;
     PanopticQuery pq;
-    TokenIdHelper tih;
     CollateralTracker ct0;
     CollateralTracker ct1;
 
@@ -373,8 +371,7 @@ contract PanopticQueryTest is PositionUtils {
 
     function setUp() public {
         sfpm = new SemiFungiblePositionManagerHarness(V3FACTORY);
-        tih = new TokenIdHelper(sfpm);
-        pq = new PanopticQuery(SemiFungiblePositionManager(sfpm), tih);
+        pq = new PanopticQuery(SemiFungiblePositionManager(sfpm));
 
         // deploy reference pool and collateral token
         poolReference = address(new PanopticPoolHarness(sfpm));
