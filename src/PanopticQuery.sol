@@ -300,9 +300,10 @@ contract PanopticQuery {
                 // And therefore, your position size can be reduced to:
                 // the minimum sell-side volume *minus* the amount others were selling pre-reduction
                 // First, we get the amount others were selling:
-                uint128 preReductionSellSideLiquidityFromOthers = legsChunkLiquidityData
-                    .rightSlot() -
-                    PanopticMath.getLiquidityChunk(tokenId, i, preReductionPositionSize).liquidity();
+                // total being sold pre-reduction (e.g. netLiquidity + removedLiquidity) minus your sold
+                uint128 preReductionSellSideLiquidityFromOthers = legsChunkLiquidityData.rightSlot()
+                    + legsChunkLiquidityData.leftSlot()
+                    - PanopticMath.getLiquidityChunk(tokenId, i, preReductionPositionSize).liquidity();
 
                 // Then, we get the minimum total sell-side liquidity in this chunk, and subtract that amount:
                 uint128 liquidityToSell = uint128(
@@ -316,8 +317,8 @@ contract PanopticQuery {
                     liquidityToSell
                 );
                 uint128 thisLegsMinPositionSize = tokenId.asset(i) == 0
-                    ? uint128(Math.getAmount0ForLiquidity(reducedSizeChunk))
-                    : uint128(Math.getAmount1ForLiquidity(reducedSizeChunk));
+                    ? uint128(Math.getAmount0ForLiquidity(reducedSizeChunk) / tokenId.optionRatio(i))
+                    : uint128(Math.getAmount1ForLiquidity(reducedSizeChunk) / tokenId.optionRatio(i));
 
                 if (thisLegsMinPositionSize > minPositionSize) {
                     minPositionSize = thisLegsMinPositionSize;
@@ -343,7 +344,7 @@ contract PanopticQuery {
             uint256[][] memory ithPositionLiquidities = new uint256[][](4);
 
             for (uint256 j; j < positionIdList[i].countLegs(); ) {
-                (int24 tickLower, int24 tickUpper) = positionIdList[i].asTicks(j)
+                (int24 tickLower, int24 tickUpper) = positionIdList[i].asTicks(j);
                 LeftRightUnsigned liquidityData = SFPM.getAccountLiquidity(
                     address(SFPM.getUniswapV3PoolFromId(positionIdList[i].poolId())),
                     account,
