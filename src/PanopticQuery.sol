@@ -7,6 +7,7 @@ import {PanopticPool} from "@contracts/PanopticPool.sol";
 import {SemiFungiblePositionManager} from "@contracts/SemiFungiblePositionManager.sol";
 import {TokenIdHelper} from "@helper/TokenIdHelper.sol";
 // Libraries
+import {LiquidityAmounts} from "univ3-periphery/libraries/LiquidityAmounts.sol";
 import {Constants} from "@libraries/Constants.sol";
 import {PanopticMath} from "@libraries/PanopticMath.sol";
 import {Math} from "@libraries/Math.sol";
@@ -301,6 +302,9 @@ contract PanopticQuery {
                 // the minimum sell-side volume *minus* the amount others were selling pre-reduction
                 // First, we get the amount others were selling:
                 // total being sold pre-reduction (e.g. netLiquidity + removedLiquidity) minus your sold
+                // TODO: I think i could save gas by converting preReductionSellSideLiquidityFromOthers
+                // and liquidityToSell to in-line variables since they're only used once.
+                // The cost would be much less readability
                 uint128 preReductionSellSideLiquidityFromOthers = legsChunkLiquidityData
                     .rightSlot() +
                     legsChunkLiquidityData.leftSlot() -
@@ -314,17 +318,22 @@ contract PanopticQuery {
                 ) - preReductionSellSideLiquidityFromOthers;
 
                 // Finally, convert to asset-token denomination to get a minimum position size:
-                LiquidityChunk reducedSizeChunk = LiquidityChunkLibrary.createChunk(
-                    legTickLower,
-                    legTickUpper,
-                    liquidityToSell
-                );
                 uint128 thisLegsMinPositionSize = tokenId.asset(i) == 0
                     ? uint128(
-                        Math.getAmount0ForLiquidity(reducedSizeChunk) / tokenId.optionRatio(i)
+                          LiquidityAmounts.getAmount0ForLiquidity(
+                              Math.getSqrtRatioAtTick(legTickLower),
+                              Math.getSqrtRatioAtTick(legTickUpper),
+                              liquidityToSell
+                          )
+                          / tokenId.optionRatio(i)
                     )
                     : uint128(
-                        Math.getAmount1ForLiquidity(reducedSizeChunk) / tokenId.optionRatio(i)
+                          LiquidityAmounts.getAmount1ForLiquidity(
+                              Math.getSqrtRatioAtTick(legTickLower),
+                              Math.getSqrtRatioAtTick(legTickUpper),
+                              liquidityToSell
+                          )
+                          / tokenId.optionRatio(i)
                     );
 
                 if (thisLegsMinPositionSize > minPositionSize) {
