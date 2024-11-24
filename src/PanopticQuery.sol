@@ -343,12 +343,13 @@ contract PanopticQuery {
             uint256[][] memory ithPositionLiquidities = new uint256[][](4);
 
             for (uint256 j; j < positionIdList[i].countLegs(); ) {
+                (int24 tickLower, int24 tickUpper) = positionIdList[i].asTicks(j)
                 LeftRightUnsigned liquidityData = SFPM.getAccountLiquidity(
                     address(SFPM.getUniswapV3PoolFromId(positionIdList[i].poolId())),
                     account,
                     positionIdList[i].tokenType(j),
-                    positionIdList[i].strike(j) - (positionIdList[i].width(j) / 2),
-                    positionIdList[i].strike(j) + (positionIdList[i].width(j) / 2)
+                    tickLower,
+                    tickUpper
                 );
 
                 uint256[] memory liquidityDataArr = new uint256[](2);
