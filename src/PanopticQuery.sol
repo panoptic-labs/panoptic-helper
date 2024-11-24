@@ -301,9 +301,12 @@ contract PanopticQuery {
                 // the minimum sell-side volume *minus* the amount others were selling pre-reduction
                 // First, we get the amount others were selling:
                 // total being sold pre-reduction (e.g. netLiquidity + removedLiquidity) minus your sold
-                uint128 preReductionSellSideLiquidityFromOthers = legsChunkLiquidityData.rightSlot()
-                    + legsChunkLiquidityData.leftSlot()
-                    - PanopticMath.getLiquidityChunk(tokenId, i, preReductionPositionSize).liquidity();
+                uint128 preReductionSellSideLiquidityFromOthers = legsChunkLiquidityData
+                    .rightSlot() +
+                    legsChunkLiquidityData.leftSlot() -
+                    PanopticMath
+                        .getLiquidityChunk(tokenId, i, preReductionPositionSize)
+                        .liquidity();
 
                 // Then, we get the minimum total sell-side liquidity in this chunk, and subtract that amount:
                 uint128 liquidityToSell = uint128(
@@ -317,8 +320,12 @@ contract PanopticQuery {
                     liquidityToSell
                 );
                 uint128 thisLegsMinPositionSize = tokenId.asset(i) == 0
-                    ? uint128(Math.getAmount0ForLiquidity(reducedSizeChunk) / tokenId.optionRatio(i))
-                    : uint128(Math.getAmount1ForLiquidity(reducedSizeChunk) / tokenId.optionRatio(i));
+                    ? uint128(
+                        Math.getAmount0ForLiquidity(reducedSizeChunk) / tokenId.optionRatio(i)
+                    )
+                    : uint128(
+                        Math.getAmount1ForLiquidity(reducedSizeChunk) / tokenId.optionRatio(i)
+                    );
 
                 if (thisLegsMinPositionSize > minPositionSize) {
                     minPositionSize = thisLegsMinPositionSize;
