@@ -788,7 +788,8 @@ contract PanopticQueryTest is PositionUtils {
         */
         assertLt(
             Math.absUint(
-                int256(uint256(alicesMinPositionSize)) - int256(Math.mulDiv(uint256(bobsPurchaseSize), 10, 9))
+                int256(uint256(alicesMinPositionSize)) -
+                    int256(Math.mulDiv(uint256(bobsPurchaseSize), 10, 9))
             ),
             LiquidityAmounts.getAmount1ForLiquidity(
                 Math.getSqrtRatioAtTick(callSaleTickLower),

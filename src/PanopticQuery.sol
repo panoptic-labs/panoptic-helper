@@ -312,7 +312,7 @@ contract PanopticQuery {
                     // First, we get the amount others were selling:
                     // total being sold pre-reduction (e.g. netLiquidity + removedLiquidity) minus your sold
                     uint128 preReductionSellSideLiquidityFromOthers = legsChunkLiquidityData
-                        // netLiquidity
+                    // netLiquidity
                         .rightSlot() +
                         // removedLiquidity
                         legsChunkLiquidityData.leftSlot() -
@@ -322,9 +322,11 @@ contract PanopticQuery {
                             .liquidity();
 
                     // Then, we get the minimum total sell-side liquidity in this chunk, and subtract others' liquidity:
-                    liquidityToSell = uint128(
-                        Math.mulDivRoundingUp(uint256(legsChunkLiquidityData.leftSlot()), 10, 9)
-                    ) - preReductionSellSideLiquidityFromOthers;
+                    liquidityToSell =
+                        uint128(
+                            Math.mulDivRoundingUp(uint256(legsChunkLiquidityData.leftSlot()), 10, 9)
+                        ) -
+                        preReductionSellSideLiquidityFromOthers;
                 }
                 // Finally, convert to asset-token denomination to get a minimum position size:
                 uint128 thisLegsMinPositionSize = tokenId.asset(i) == 0
