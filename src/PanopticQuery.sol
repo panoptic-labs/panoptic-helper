@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+import "forge-std/Test.sol";
+
 // Interfaces
 import {IUniswapV3Pool} from "univ3-core/interfaces/IUniswapV3Pool.sol";
 import {PanopticPool} from "@contracts/PanopticPool.sol";
@@ -302,9 +304,10 @@ contract PanopticQuery {
                 // the minimum sell-side volume *minus* the amount others were selling pre-reduction
                 // First, we get the amount others were selling:
                 // total being sold pre-reduction (e.g. netLiquidity + removedLiquidity) minus your sold
-                // TODO: I think i could save gas by converting preReductionSellSideLiquidityFromOthers
-                // and liquidityToSell to in-line variables since they're only used once.
-                // The cost would be much less readability
+                // TODO: Could make this more gas efficient by converting
+                // preReductionSellSideLiquidityFromOthers and liquidityToSell to in-line variables
+                // since they're only used once.
+                // The cost would be much less readability.
                 uint128 preReductionSellSideLiquidityFromOthers = legsChunkLiquidityData
                     .rightSlot() +
                     legsChunkLiquidityData.leftSlot() -

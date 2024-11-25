@@ -674,16 +674,35 @@ contract PanopticQueryTest is PositionUtils {
         vm.stopPrank();
     }
 
-    function test_reduceSize_returns_zero_if_no_purchase(uint256 x) public {
+    function test_reduceSize_returns_zero_if_no_purchase(
+        uint256 x,
+        uint256 widthSeed,
+        int256 strikeSeed
+    ) public {
         _initPool(x);
+        ($width, $strike) = PositionUtils.getITMSW(
+            widthSeed,
+            strikeSeed,
+            uint24(tickSpacing),
+            currentTick,
+            0
+        );
 
         // - alice mints a call to sell token0 at some size
-        // TODO: make this a call-sale
-        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(0, 2, 0, 1, 0, 0, 100, 10);
+        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            isWETH,
+            0,
+            0,
+            0,
+            $strike,
+            $width
+        );
         TokenId[] memory posIdList = new TokenId[](1);
         posIdList[0] = tokenId;
         // TODO: fuzz position size some day
-        uint128 positionSize = 1;
+        uint128 positionSize = 10 ** 15;
         pp.mintOptions(
             posIdList,
             positionSize,
@@ -698,25 +717,35 @@ contract PanopticQueryTest is PositionUtils {
         vm.stopPrank();
     }
 
-    function test_reduceSize_returns_lower_size_if_small_purchase_made(uint256 x) public {
+    function test_reduceSize_returns_lower_size_if_small_purchase_made(
+        uint256 x,
+        uint256 widthSeed,
+        int256 strikeSeed
+    ) public {
         _initPool(x);
+        ($width, $strike) = PositionUtils.getITMSW(
+            widthSeed,
+            strikeSeed,
+            uint24(tickSpacing),
+            currentTick,
+            0
+        );
 
         // - alice mints a call to sell token0 at some size
-        // TODO: make this a call-sale
         TokenId callSaleTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
             0,
-            2,
-            0,
             1,
+            isWETH,
             0,
             0,
-            100,
-            10
+            0,
+            $strike,
+            $width
         );
         TokenId[] memory posIdList = new TokenId[](1);
         posIdList[0] = callSaleTokenId;
         // TODO: fuzz position size some day
-        uint128 alicesSaleSize = 100;
+        uint128 alicesSaleSize = 100 * 10 ** 15;
         pp.mintOptions(
             posIdList,
             alicesSaleSize,
@@ -724,33 +753,32 @@ contract PanopticQueryTest is PositionUtils {
             Constants.MIN_V3POOL_TICK,
             Constants.MAX_V3POOL_TICK
         );
-        // - bob mints a call purchase, to purchase < 90% (fuzzed proportion ideally)
-        // TODO: make this a call-purchase
+        // - bob mints a call purchase, to purchase < 90%
         TokenId callPurchaseTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
             0,
-            2,
-            0,
+            1,
+            isWETH,
             1,
             0,
             0,
-            100,
-            10
+            $strike,
+            $width
         );
         posIdList[0] = callPurchaseTokenId;
         // TODO: fuzz the portion of alicesSaleSize some day; hardcoding half for now
-        uint128 bobsPurchaseSize = 50;
+        uint128 bobsPurchaseSize = 50 * 10 ** 15;
         vm.stopPrank();
         vm.startPrank(Bob);
         pp.mintOptions(
             posIdList,
             bobsPurchaseSize,
-            0,
+            type(uint64).max,
             Constants.MIN_V3POOL_TICK,
             Constants.MAX_V3POOL_TICK
         );
         // - then call reduceSize on Alice
         // it should return bobsSize / .9
-        uint128 alicesMinPositionSize = pq.reduceSize(pp, Bob, callSaleTokenId);
+        uint128 alicesMinPositionSize = pq.reduceSize(pp, Alice, callSaleTokenId);
         assertEq(alicesMinPositionSize, uint128(Math.mulDiv(uint256(bobsPurchaseSize), 10, 9)));
         // - then call reduceSize on Bob
         // it should return type(uint128).max - bob has only long legs
@@ -759,25 +787,35 @@ contract PanopticQueryTest is PositionUtils {
         vm.stopPrank();
     }
 
-    function test_reduceSize_returns_same_size_if_max_purchase_made(uint256 x) public {
+    function test_reduceSize_returns_same_size_if_max_purchase_made(
+        uint256 x,
+        uint256 widthSeed,
+        int256 strikeSeed
+    ) public {
         _initPool(x);
+        ($width, $strike) = PositionUtils.getITMSW(
+            widthSeed,
+            strikeSeed,
+            uint24(tickSpacing),
+            currentTick,
+            0
+        );
 
         // - alice mints a call to sell token0 at some size
-        // TODO: make this a call-sale
         TokenId callSaleTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
             0,
-            2,
-            0,
             1,
+            isWETH,
             0,
             0,
-            100,
-            10
+            0,
+            $strike,
+            $width
         );
         TokenId[] memory posIdList = new TokenId[](1);
         posIdList[0] = callSaleTokenId;
         // TODO: fuzz position size some day
-        uint128 alicesSaleSize = 100;
+        uint128 alicesSaleSize = 100 * 10 ** 15;
         pp.mintOptions(
             posIdList,
             alicesSaleSize,
@@ -786,16 +824,15 @@ contract PanopticQueryTest is PositionUtils {
             Constants.MAX_V3POOL_TICK
         );
         // - bob mints a call purchase, to purchase exactly 90%
-        // TODO: make this a call-purchase
         TokenId callPurchaseTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
             0,
-            2,
-            0,
+            1,
+            isWETH,
             1,
             0,
             0,
-            100,
-            10
+            $strike,
+            $width
         );
         posIdList[0] = callPurchaseTokenId;
         uint128 bobsPurchaseSize = uint128(Math.mulDiv(uint256(alicesSaleSize), 9, 10));
@@ -804,13 +841,13 @@ contract PanopticQueryTest is PositionUtils {
         pp.mintOptions(
             posIdList,
             bobsPurchaseSize,
-            0,
+            type(uint64).max,
             Constants.MIN_V3POOL_TICK,
             Constants.MAX_V3POOL_TICK
         );
         // - then call reduceSize on Alice
         // it should return the original size alice minted
-        uint128 alicesMinPositionSize = pq.reduceSize(pp, Bob, callSaleTokenId);
+        uint128 alicesMinPositionSize = pq.reduceSize(pp, Alice, callSaleTokenId);
         assertEq(alicesMinPositionSize, alicesSaleSize);
         vm.stopPrank();
     }
