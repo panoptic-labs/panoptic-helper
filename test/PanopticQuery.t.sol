@@ -378,7 +378,6 @@ contract PanopticQueryTest is PositionUtils {
         pq = new PanopticQuery(SemiFungiblePositionManager(sfpm));
         tih = new TokenIdHelper(SemiFungiblePositionManager(sfpm));
 
-
         // deploy reference pool and collateral token
         poolReference = address(new PanopticPoolHarness(sfpm));
         collateralReference = address(
@@ -788,11 +787,7 @@ contract PanopticQueryTest is PositionUtils {
         uint128 alicesMinPositionSize = pq.reduceSize(pp, Alice, callSaleTokenId);
         // With that value, we should be able to make some assertions about remint-and-burning:
         // First - get a re-mintable tokenId by scaling down from the original option ratio of 2:
-        TokenId equivalentCallSaleTokenId = tih.scaledPosition(
-            callSaleTokenId,
-            2,
-            false
-        );
+        TokenId equivalentCallSaleTokenId = tih.scaledPosition(callSaleTokenId, 2, false);
         alicesMinPositionSize *= 2;
         TokenId[] memory remintingPosIdList = new TokenId[](2);
         TokenId[] memory postburnPosIdList = new TokenId[](1);
@@ -809,7 +804,10 @@ contract PanopticQueryTest is PositionUtils {
             Constants.MAX_V3POOL_TICK
         );
         vm.stopPrank();
-        (int24 equivalentCallSaleTickLower, int24 equivalentCallSaleTickUpper) = equivalentCallSaleTokenId.asTicks(0);
+        (
+            int24 equivalentCallSaleTickLower,
+            int24 equivalentCallSaleTickUpper
+        ) = equivalentCallSaleTokenId.asTicks(0);
         vm.startPrank(Alice);
         {
             // 1. Alice should get a revert if she tries to remint-and-burn with 1 less than the min size
@@ -819,16 +817,16 @@ contract PanopticQueryTest is PositionUtils {
                 /*
                 BEFORE: alicesMinPositionSize - 1,
                 */
-                alicesMinPositionSize - (
-                    // TODO: Why do i need to subtract by 100k liquidity units, rather than just 1 position size unit?
-                    // Something about .reduceSize is slightly too conservative..
-                    LiquidityAmounts.getAmount1ForLiquidity(
-                        Math.getSqrtRatioAtTick(equivalentCallSaleTickLower),
-                        Math.getSqrtRatioAtTick(equivalentCallSaleTickUpper),
-                        100_000
-                    )
-                ),
-
+                alicesMinPositionSize -
+                    (
+                        // TODO: Why do i need to subtract by 100k liquidity units, rather than just 1 position size unit?
+                        // Something about .reduceSize is slightly too conservative..
+                        LiquidityAmounts.getAmount1ForLiquidity(
+                            Math.getSqrtRatioAtTick(equivalentCallSaleTickLower),
+                            Math.getSqrtRatioAtTick(equivalentCallSaleTickUpper),
+                            100_000
+                        )
+                    ),
                 0,
                 Constants.MIN_V3POOL_TICK,
                 Constants.MAX_V3POOL_TICK
