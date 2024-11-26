@@ -310,10 +310,8 @@ contract PanopticQuery {
                     // First, we get the amount others were selling:
                     // total being sold pre-reduction (e.g. netLiquidity + removedLiquidity) minus your sold
                     uint128 preReductionSellSideLiquidityFromOthers = legsChunkLiquidityData
-                    // netLiquidity
-                        .rightSlot() +
-                        // removedLiquidity
-                        legsChunkLiquidityData.leftSlot() -
+                        .rightSlot() + // netLiquidity
+                        legsChunkLiquidityData.leftSlot() - // removedLiquidity
                         // this leg's liquidity
                         PanopticMath
                             .getLiquidityChunk(tokenId, i, preReductionPositionSize)

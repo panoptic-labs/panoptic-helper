@@ -24,6 +24,7 @@ import {PanopticPool} from "@contracts/PanopticPool.sol";
 import {CollateralTracker} from "@contracts/CollateralTracker.sol";
 import {PanopticFactory} from "@contracts/PanopticFactory.sol";
 import {PanopticQuery} from "../src/PanopticQuery.sol";
+import {TokenIdHelper} from "../src/TokenIdHelper.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {PositionUtils} from "lib/panoptic-v1-core/test/foundry/testUtils/PositionUtils.sol";
 import {UniPoolPriceMock} from "lib/panoptic-v1-core/test/foundry/testUtils/PriceMocks.sol";
@@ -63,6 +64,9 @@ contract PanopticQueryTest is PositionUtils {
 
     // the instance of SFPM we are testing
     SemiFungiblePositionManagerHarness sfpm;
+
+    // A TokenIdHelper for getting equivalent token IDs as need be
+    TokenIdHelper tih;
 
     // reference implemenatations used by the factory
     address poolReference;
@@ -372,6 +376,8 @@ contract PanopticQueryTest is PositionUtils {
     function setUp() public {
         sfpm = new SemiFungiblePositionManagerHarness(V3FACTORY);
         pq = new PanopticQuery(SemiFungiblePositionManager(sfpm));
+        tih = new TokenIdHelper(SemiFungiblePositionManager(sfpm));
+
 
         // deploy reference pool and collateral token
         poolReference = address(new PanopticPoolHarness(sfpm));
@@ -734,7 +740,8 @@ contract PanopticQueryTest is PositionUtils {
         // - alice mints a call to sell token0 at some size
         TokenId callSaleTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
             0,
-            1,
+            // Use an option ratio of 2 so that its easy to get an equivalentPosition later:
+            2,
             isWETH,
             0,
             0,
@@ -756,7 +763,8 @@ contract PanopticQueryTest is PositionUtils {
         // - bob mints a call purchase, to purchase < 90%
         TokenId callPurchaseTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
             0,
-            1,
+            // Use an option ratio of 2 so that its easy to get an equivalentPosition later:
+            2,
             isWETH,
             1,
             0,
@@ -777,28 +785,93 @@ contract PanopticQueryTest is PositionUtils {
             Constants.MAX_V3POOL_TICK
         );
         // - then call reduceSize on Alice
-        // it should return bobsSize / .9
         uint128 alicesMinPositionSize = pq.reduceSize(pp, Alice, callSaleTokenId);
-        (int24 callSaleTickLower, int24 callSaleTickUpper) = callSaleTokenId.asTicks(0);
-        // TODO: This is still a few units off. Lets just throw out this style of assertion and instead assert:
-        /*
-        Alice can burn-and-remint successfully with the returned reducedSize
-        Alice gets a revert if she tries to burn-and-remint with X less than the returned value (maybe even X=1?)
-        Bob gets a revert if he tries to purchase from Alice after she burn-and-remints with the new reduced size
-        */
-        assertLt(
-            Math.absUint(
-                int256(uint256(alicesMinPositionSize)) -
-                    int256(Math.mulDiv(uint256(bobsPurchaseSize), 10, 9))
-            ),
-            LiquidityAmounts.getAmount1ForLiquidity(
-                Math.getSqrtRatioAtTick(callSaleTickLower),
-                Math.getSqrtRatioAtTick(callSaleTickUpper),
-                1
-            ),
-            "alicesMinPositionSize was not within 1 liquidity unit of bobsPurchaseSize / .9 after a small, non-constraining purchase"
+        // With that value, we should be able to make some assertions about remint-and-burning:
+        // First - get a re-mintable tokenId by scaling down from the original option ratio of 2:
+        TokenId equivalentCallSaleTokenId = tih.scaledPosition(
+            callSaleTokenId,
+            2,
+            false
         );
-        // - then call reduceSize on Bob
+        alicesMinPositionSize *= 2;
+        TokenId[] memory remintingPosIdList = new TokenId[](2);
+        TokenId[] memory postburnPosIdList = new TokenId[](1);
+        remintingPosIdList[0] = callSaleTokenId;
+        remintingPosIdList[1] = equivalentCallSaleTokenId;
+        postburnPosIdList[0] = equivalentCallSaleTokenId;
+        bytes[] memory remintAndBurnMulticallData = new bytes[](2);
+        // In both subsequent tests, we plan to burn the original position:
+        remintAndBurnMulticallData[1] = abi.encodeWithSelector(
+            bytes4(keccak256("burnOptions(uint256,uint256[],int24,int24)")),
+            callSaleTokenId,
+            postburnPosIdList,
+            Constants.MIN_V3POOL_TICK,
+            Constants.MAX_V3POOL_TICK
+        );
+        vm.stopPrank();
+        (int24 equivalentCallSaleTickLower, int24 equivalentCallSaleTickUpper) = equivalentCallSaleTokenId.asTicks(0);
+        vm.startPrank(Alice);
+        {
+            // 1. Alice should get a revert if she tries to remint-and-burn with 1 less than the min size
+            remintAndBurnMulticallData[0] = abi.encodeWithSelector(
+                PanopticPool.mintOptions.selector,
+                remintingPosIdList,
+                /*
+                BEFORE: alicesMinPositionSize - 1,
+                */
+                alicesMinPositionSize - (
+                    // TODO: Why do i need to subtract by 100k liquidity units, rather than just 1 position size unit?
+                    // Something about .reduceSize is slightly too conservative..
+                    LiquidityAmounts.getAmount1ForLiquidity(
+                        Math.getSqrtRatioAtTick(equivalentCallSaleTickLower),
+                        Math.getSqrtRatioAtTick(equivalentCallSaleTickUpper),
+                        100_000
+                    )
+                ),
+
+                0,
+                Constants.MIN_V3POOL_TICK,
+                Constants.MAX_V3POOL_TICK
+            );
+            vm.expectRevert(Errors.EffectiveLiquidityAboveThreshold.selector);
+            pp.multicall(remintAndBurnMulticallData);
+        }
+        {
+            // 2. Alice should be able to successfully remint-and-burn with exactly the min size:
+            remintAndBurnMulticallData[0] = abi.encodeWithSelector(
+                PanopticPool.mintOptions.selector,
+                remintingPosIdList,
+                alicesMinPositionSize,
+                0,
+                Constants.MIN_V3POOL_TICK,
+                Constants.MAX_V3POOL_TICK
+            );
+            pp.multicall(remintAndBurnMulticallData);
+            // 3. Bob should not be able to purchase even a fraction of what he did before after Alice successfully resizes down:
+            vm.stopPrank();
+            vm.startPrank(Bob);
+            // Scale down the tokenId the original option ratio of 2
+            // (and scale up purchase size to reflect the same size as before):
+            TokenId equivalentCallPurchaseTokenId = tih.scaledPosition(
+                callPurchaseTokenId,
+                2,
+                false
+            );
+            bobsPurchaseSize *= 2;
+            TokenId[] memory bobsPostRepurchaseList = new TokenId[](2);
+            bobsPostRepurchaseList[0] = callPurchaseTokenId;
+            bobsPostRepurchaseList[1] = equivalentCallPurchaseTokenId;
+            vm.expectRevert(Errors.EffectiveLiquidityAboveThreshold.selector);
+            pp.mintOptions(
+                bobsPostRepurchaseList,
+                // Bob tries to buy one tenth as much as he did before
+                bobsPurchaseSize / 10,
+                type(uint64).max,
+                Constants.MIN_V3POOL_TICK,
+                Constants.MAX_V3POOL_TICK
+            );
+        }
+        // - finally, also call reduceSize on Bob
         // it should return type(uint128).max - bob has only long legs
         uint128 bobsMinPositionSize = pq.reduceSize(pp, Bob, callPurchaseTokenId);
         assertEq(bobsMinPositionSize, type(uint128).max);
@@ -864,23 +937,17 @@ contract PanopticQueryTest is PositionUtils {
             Constants.MAX_V3POOL_TICK
         );
         // - then call reduceSize on Alice
-        // it should return the original size alice minted, +/- 1 liquidity unit
+        // it should return the original size alice minted, +/- some liquidity units
         uint128 alicesMinPositionSize = pq.reduceSize(pp, Alice, callSaleTokenId);
         (int24 callSaleTickLower, int24 callSaleTickUpper) = callSaleTokenId.asTicks(0);
-        // TODO: This is still a few units off. Lets just throw out this style of assertion and instead assert:
-        /*
-        Alice can burn-and-remint successfully with the returned reducedSize
-        Alice gets a revert if she tries to burn-and-remint with X less than the returned value (maybe even X=1?)
-        Bob gets a revert if he tries to purchase from Alice after she burn-and-remints with the new reduced size
-        */
         assertLt(
             Math.absUint(int256(uint256(alicesMinPositionSize)) - int256(uint256(alicesSaleSize))),
             LiquidityAmounts.getAmount1ForLiquidity(
                 Math.getSqrtRatioAtTick(callSaleTickLower),
                 Math.getSqrtRatioAtTick(callSaleTickUpper),
-                1
+                2
             ),
-            "alicesMinPositionSize was not within 1 liquidity unit of alicesSaleSize after a 90% purchase"
+            "alicesMinPositionSize was not within 2 liquidity units of alicesSaleSize after a 90% purchase"
         );
         vm.stopPrank();
     }
