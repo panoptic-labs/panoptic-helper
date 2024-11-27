@@ -5,7 +5,6 @@ pragma solidity ^0.8.0;
 import {IUniswapV3Pool} from "univ3-core/interfaces/IUniswapV3Pool.sol";
 import {PanopticPool} from "@contracts/PanopticPool.sol";
 import {SemiFungiblePositionManager} from "@contracts/SemiFungiblePositionManager.sol";
-import {TokenIdHelper} from "@helper/TokenIdHelper.sol";
 // Libraries
 import {LiquidityAmounts} from "univ3-periphery/libraries/LiquidityAmounts.sol";
 import {Constants} from "@libraries/Constants.sol";
@@ -13,7 +12,7 @@ import {PanopticMath} from "@libraries/PanopticMath.sol";
 import {Math} from "@libraries/Math.sol";
 // Custom types
 import {LeftRightUnsigned} from "@types/LeftRight.sol";
-import {LiquidityChunk, LiquidityChunkLibrary} from "@types/LiquidityChunk.sol";
+import {LiquidityChunk} from "@types/LiquidityChunk.sol";
 import {TokenId, TokenIdLibrary} from "@types/TokenId.sol";
 import {PositionBalance, PositionBalanceLibrary} from "@types/PositionBalance.sol";
 
