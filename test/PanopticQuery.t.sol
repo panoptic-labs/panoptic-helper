@@ -824,7 +824,7 @@ contract PanopticQueryTest is PositionUtils {
                         LiquidityAmounts.getAmount1ForLiquidity(
                             Math.getSqrtRatioAtTick(equivalentCallSaleTickLower),
                             Math.getSqrtRatioAtTick(equivalentCallSaleTickUpper),
-                            100_000
+                            200_000
                         )
                     ),
                 0,
