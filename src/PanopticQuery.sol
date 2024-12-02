@@ -9,8 +9,8 @@ import {Constants} from "@libraries/Constants.sol";
 import {PanopticMath} from "@libraries/PanopticMath.sol";
 import {Math} from "@libraries/Math.sol";
 // Custom types
-import {LeftRightUnsigned} from "@types/LeftRight.sol";
-import {LiquidityChunk} from "@types/LiquidityChunk.sol";
+import {LeftRightUnsigned, LeftRightSigned} from "@types/LeftRight.sol";
+import {LiquidityChunk, LiquidityChunkLibrary} from "@types/LiquidityChunk.sol";
 import {TokenId, TokenIdLibrary} from "@types/TokenId.sol";
 
 /// @title Utility contract for token ID construction and advanced queries.
@@ -184,7 +184,7 @@ contract PanopticQuery {
         return PanopticMath.twapFilter(univ3pool, twapWindow);
     }
 
-    /// @notice Calculate NAV of user's option portfolio at a given tick.
+    /// @notice Calculate NAV of user's option portfolio with respect to Uniswap liquidity at a given tick.
     /// @param pool The PanopticPool instance to check collateral on
     /// @param account Address of the user that owns the positions
     /// @param atTick The tick to calculate the value at
@@ -240,5 +240,79 @@ contract PanopticQuery {
                 ++k;
             }
         }
+    }
+
+    /// @notice Calculate approximate NLV of user's option portfolio (token delta after closing `positionIdList`) at a given tick.
+    /// @param pool The PanopticPool instance to check collateral on
+    /// @param account Address of the user that owns the positions
+    /// @param includePendingPremium If true, include premium that is owed to the user but has not yet settled; if false, only include premium that is available to collect
+    /// @param positionIdList A list of all positions the user holds on that pool
+    /// @param atTick The tick to calculate the value at
+    /// @return value0 The NLV of `positionIdList` owned by `account` at the price `atTick` in terms of token0
+    /// @return value1 The NLV of `positionIdList` owned by `account` at the price `atTick` in terms of token1
+    function getNetLiquidationValue(
+        PanopticPool pool,
+        address account,
+        bool includePendingPremium,
+        TokenId[] calldata positionIdList,
+        int24 atTick
+    ) external view returns (int256 value0, int256 value1) {
+        // Compute premia for all options (includes short+long premium)
+        (
+            LeftRightUnsigned shortPremium,
+            LeftRightUnsigned longPremium,
+            uint256[2][] memory positionBalanceArray
+        ) = pool.getAccumulatedFeesAndPositionsData(account, includePendingPremium, positionIdList);
+
+        for (uint256 k = 0; k < positionIdList.length; ) {
+            TokenId tokenId = positionIdList[k];
+            uint128 positionSize = LeftRightUnsigned.wrap(positionBalanceArray[k][1]).rightSlot();
+            uint256 numLegs = tokenId.countLegs();
+            for (uint256 leg = 0; leg < numLegs; ) {
+                LiquidityChunk liquidityChunk = PanopticMath.getLiquidityChunk(
+                    tokenId,
+                    leg,
+                    positionSize
+                );
+
+                (uint256 amount0, uint256 amount1) = Math.getAmountsForLiquidity(
+                    atTick,
+                    liquidityChunk
+                );
+
+                if (tokenId.isLong(leg) == 0) {
+                    unchecked {
+                        value0 += int256(amount0);
+                        value1 += int256(amount1);
+                    }
+                } else {
+                    unchecked {
+                        value0 -= int256(amount0);
+                        value1 -= int256(amount1);
+                    }
+                }
+
+                unchecked {
+                    ++leg;
+                }
+            }
+
+            (LeftRightSigned longAmounts, LeftRightSigned shortAmounts) = PanopticMath
+                .computeExercisedAmounts(tokenId, positionSize);
+
+            value0 += int256(longAmounts.rightSlot()) - int256(shortAmounts.rightSlot());
+            value1 += int256(longAmounts.leftSlot()) - int256(shortAmounts.leftSlot());
+
+            unchecked {
+                ++k;
+            }
+        }
+
+        value0 +=
+            int256(uint256(shortPremium.rightSlot())) -
+            int256(uint256(longPremium.rightSlot()));
+        value1 +=
+            int256(uint256(shortPremium.leftSlot())) -
+            int256(uint256(longPremium.leftSlot()));
     }
 }
