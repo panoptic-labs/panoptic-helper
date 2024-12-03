@@ -58,7 +58,7 @@ contract UniswapHelper {
 
     function getTickNets(
         IUniswapV3Pool univ3pool
-    ) internal view returns (int256[] memory, int256[] memory) {
+    ) public view returns (int256[] memory, int256[] memory) {
         (, int24 currentTick, , , , , ) = univ3pool.slot0();
         int24 tickSpacing = univ3pool.tickSpacing();
         int256 scaledTick = int256((currentTick / tickSpacing) * tickSpacing);
