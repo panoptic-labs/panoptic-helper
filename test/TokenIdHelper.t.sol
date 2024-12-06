@@ -1213,7 +1213,16 @@ contract TokenIdHelperTest is PositionUtils {
     ) public {
         originalOptionRatio1 = uint8(bound(originalOptionRatio1, 1, MAX_OPTION_RATIO / 2));
         originalOptionRatio2 = uint8(bound(originalOptionRatio2, 1, MAX_OPTION_RATIO / 2));
-        scaleFactor = uint128(bound(scaleFactor, 2, _min(MAX_OPTION_RATIO / originalOptionRatio1, MAX_OPTION_RATIO / originalOptionRatio2)));
+        scaleFactor = uint128(
+            bound(
+                scaleFactor,
+                2,
+                _min(
+                    MAX_OPTION_RATIO / originalOptionRatio1,
+                    MAX_OPTION_RATIO / originalOptionRatio2
+                )
+            )
+        );
 
         TokenId originalPosition = TokenId
             .wrap(0)
@@ -1243,8 +1252,12 @@ contract TokenIdHelperTest is PositionUtils {
         scaleFactor = uint8(bound(scaleFactor, 1, MAX_OPTION_RATIO / 2));
 
         // Bound the multipliers for the original option ratios
-        uint8 fuzzedFactorOriginalOptionRatio1 = uint8(bound(originalOptionRatio1Seed, 1, MAX_OPTION_RATIO / scaleFactor));
-        uint8 fuzzedFactorOriginalOptionRatio2 = uint8(bound(originalOptionRatio2Seed, 1, MAX_OPTION_RATIO / scaleFactor));
+        uint8 fuzzedFactorOriginalOptionRatio1 = uint8(
+            bound(originalOptionRatio1Seed, 1, MAX_OPTION_RATIO / scaleFactor)
+        );
+        uint8 fuzzedFactorOriginalOptionRatio2 = uint8(
+            bound(originalOptionRatio2Seed, 1, MAX_OPTION_RATIO / scaleFactor)
+        );
 
         // Generate the original option ratios by multiplying with the scale factor multiplier
         uint8 originalOptionRatio1 = fuzzedFactorOriginalOptionRatio1 * scaleFactor;
