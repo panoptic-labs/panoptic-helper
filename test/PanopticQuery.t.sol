@@ -676,7 +676,6 @@ contract PanopticQueryTest is PositionUtils {
 
             pq.checkCollateral(pp, Alice, posIdList);
         }
-        vm.stopPrank();
     }
 
     function test_reduceSize_returns_zero_if_no_purchase(
@@ -719,7 +718,6 @@ contract PanopticQueryTest is PositionUtils {
         // it should return 0: no one has bought from you
         uint128 minPositionSize = pq.reduceSize(pp, Alice, tokenId);
         assertEq(minPositionSize, 0);
-        vm.stopPrank();
     }
 
     function test_reduceSize_returns_lower_size_if_small_purchase_made(
@@ -774,7 +772,6 @@ contract PanopticQueryTest is PositionUtils {
         posIdList[0] = callPurchaseTokenId;
         // TODO: fuzz the portion of alicesSaleSize some day; hardcoding half for now
         uint128 bobsPurchaseSize = 50 * 10 ** 15;
-        vm.stopPrank();
         vm.startPrank(Bob);
         pp.mintOptions(
             posIdList,
@@ -803,7 +800,6 @@ contract PanopticQueryTest is PositionUtils {
             Constants.MIN_V3POOL_TICK,
             Constants.MAX_V3POOL_TICK
         );
-        vm.stopPrank();
         (
             int24 equivalentCallSaleTickLower,
             int24 equivalentCallSaleTickUpper
@@ -854,7 +850,6 @@ contract PanopticQueryTest is PositionUtils {
             );
             pp.multicall(remintAndBurnMulticallData);
             // 3. Bob should not be able to purchase even a fraction of what he did before after Alice successfully resizes down:
-            vm.stopPrank();
             vm.startPrank(Bob);
             // Scale down the tokenId the original option ratio of 2
             // (and scale up purchase size to reflect the same size as before):
@@ -881,7 +876,6 @@ contract PanopticQueryTest is PositionUtils {
         // it should return type(uint128).max - bob has only long legs
         uint128 bobsMinPositionSize = pq.reduceSize(pp, Bob, callPurchaseTokenId);
         assertEq(bobsMinPositionSize, type(uint128).max);
-        vm.stopPrank();
     }
 
     function test_reduceSize_returns_same_size_if_max_purchase_made(
@@ -933,7 +927,6 @@ contract PanopticQueryTest is PositionUtils {
         );
         posIdList[0] = callPurchaseTokenId;
         uint128 bobsPurchaseSize = uint128(Math.mulDiv(uint256(alicesSaleSize), 9, 10));
-        vm.stopPrank();
         vm.startPrank(Bob);
         pp.mintOptions(
             posIdList,
@@ -955,7 +948,6 @@ contract PanopticQueryTest is PositionUtils {
             ),
             "alicesMinPositionSize was not within 2 liquidity units of alicesSaleSize after a 90% purchase"
         );
-        vm.stopPrank();
     }
 
     // TODO: test reduceSize with multiple sellers, multiple buyers, multi-leg positions...

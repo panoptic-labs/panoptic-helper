@@ -90,6 +90,11 @@ contract TokenIdHelperTest is PositionUtils {
         IUniswapV3Pool(0x8ad599c3A0ff1De082011EFDDc58f1908eb6e6D8);
     IUniswapV3Pool[3] public pools = [USDC_WETH_5, WBTC_ETH_30, USDC_WETH_30];
 
+    /// @notice The maximum quantity of a given Panoptic position one may hold.
+    uint128 private constant MAX_POSITION_SIZE = type(uint128).max;
+    /// @notice The maximum option ratio of a leg of a Panoptic position.
+    uint8 private constant MAX_OPTION_RATIO = 127;
+
     /*//////////////////////////////////////////////////////////////
                               WORLD STATE
     //////////////////////////////////////////////////////////////*/
@@ -1137,13 +1142,9 @@ contract TokenIdHelperTest is PositionUtils {
         uint128 positionSize,
         uint8 optionRatio
     ) public {
-        vm.assume(
-            positionSize > 0 &&
-                optionRatio > 0 &&
-                optionRatio < 128 &&
-                type(uint256).max / positionSize > optionRatio &&
-                type(uint256).max / optionRatio > positionSize
-        );
+        optionRatio = uint8(bound(optionRatio, 1, MAX_OPTION_RATIO));
+        positionSize = uint8(bound(positionSize, 1, MAX_POSITION_SIZE / optionRatio));
+
         TokenId originalPosition = TokenId.wrap(0).addPoolId(1234).addLeg(
             0,
             optionRatio,
@@ -1200,24 +1201,19 @@ contract TokenIdHelperTest is PositionUtils {
         );
     }
 
+    function _min(uint8 a, uint8 b) internal pure returns (uint256) {
+        return a >= b ? b : a;
+    }
+
     // TODO: Make these 2 fuzz the # of legs
     function testFuzz_scaledPosition_up_preservesOriginalScale(
         uint128 scaleFactor,
         uint8 originalOptionRatio1,
         uint8 originalOptionRatio2
     ) public {
-        // Assume non-zero / non-identity values, as well as bounded values, for meaningful test
-        vm.assume(originalOptionRatio1 > 0 && originalOptionRatio2 > 0);
-        vm.assume(
-            scaleFactor > 1 &&
-                scaleFactor < type(uint128).max / originalOptionRatio1 &&
-                scaleFactor < type(uint128).max / originalOptionRatio2
-        );
-
-        // Keep ratios within bounds to avoid overflow
-        vm.assume(originalOptionRatio1 < 128 && originalOptionRatio2 < 128);
-        vm.assume(scaleFactor * uint128(originalOptionRatio1) < 128);
-        vm.assume(scaleFactor * uint128(originalOptionRatio2) < 128);
+        originalOptionRatio1 = uint8(bound(originalOptionRatio1, 1, MAX_OPTION_RATIO / 2));
+        originalOptionRatio2 = uint8(bound(originalOptionRatio2, 1, MAX_OPTION_RATIO / 2));
+        scaleFactor = uint128(bound(scaleFactor, 2, _min(MAX_OPTION_RATIO / originalOptionRatio1, MAX_OPTION_RATIO / originalOptionRatio2)));
 
         TokenId originalPosition = TokenId
             .wrap(0)
@@ -1240,24 +1236,19 @@ contract TokenIdHelperTest is PositionUtils {
     }
 
     function testFuzz_scaledPosition_down_preservesOriginalScale(
-        uint128 scaleFactor,
-        uint8 originalOptionRatio1,
-        uint8 originalOptionRatio2
+        uint8 scaleFactor,
+        uint8 originalOptionRatio1Seed,
+        uint8 originalOptionRatio2Seed
     ) public {
-        // Assume non-zero / non-identity values, as well as divisible values, for meaningful test
-        vm.assume(
-            originalOptionRatio1 > 0 &&
-                originalOptionRatio1 < 128 &&
-                originalOptionRatio2 > 0 &&
-                originalOptionRatio2 < 128
-        );
-        vm.assume(
-            scaleFactor > 1 &&
-                scaleFactor < originalOptionRatio1 &&
-                originalOptionRatio1 % scaleFactor == 0 &&
-                scaleFactor < originalOptionRatio2 &&
-                originalOptionRatio2 % scaleFactor == 0
-        );
+        scaleFactor = uint8(bound(scaleFactor, 1, MAX_OPTION_RATIO / 2));
+
+        // Bound the multipliers for the original option ratios
+        uint8 fuzzedFactorOriginalOptionRatio1 = uint8(bound(originalOptionRatio1Seed, 1, MAX_OPTION_RATIO / scaleFactor));
+        uint8 fuzzedFactorOriginalOptionRatio2 = uint8(bound(originalOptionRatio2Seed, 1, MAX_OPTION_RATIO / scaleFactor));
+
+        // Generate the original option ratios by multiplying with the scale factor multiplier
+        uint8 originalOptionRatio1 = fuzzedFactorOriginalOptionRatio1 * scaleFactor;
+        uint8 originalOptionRatio2 = fuzzedFactorOriginalOptionRatio2 * scaleFactor;
 
         TokenId originalPosition = TokenId
             .wrap(0)
