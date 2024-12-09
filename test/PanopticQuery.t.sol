@@ -976,7 +976,7 @@ contract PanopticQueryTest is PositionUtils {
             $strike,
             $width
         );
-        TokenId;
+        TokenId[] memory posIdList = new TokenId[](1);
         posIdList[0] = callSaleTokenId;
         uint128 alicesSaleSize = 100 * 10 ** 15;
         pp.mintOptions(
@@ -1015,14 +1015,14 @@ contract PanopticQueryTest is PositionUtils {
 
         // Assert no sell-side position is required
         assertEq(
-            sellsidePosition.unwrap(),
+            TokenId.unwrap(sellsidePosition),
             0,
-            "Sellside position should be zero for small purchases"
+            "No sellside position should be returned for a subsequent purchase that easily fits within current liquidity"
         );
         assertEq(
             sellsidePositionSize,
             0,
-            "Sellside position size should be zero for small purchases"
+            "Sellside position size should be zero if no more liquidity necessary for purchase in question"
         );
     }
 
@@ -1051,7 +1051,7 @@ contract PanopticQueryTest is PositionUtils {
             $strike,
             $width
         );
-        TokenId;
+        TokenId[] memory posIdList = new TokenId[](1);
         posIdList[0] = callSaleTokenId;
         uint128 alicesSaleSize = 100 * 10 ** 15;
         pp.mintOptions(
@@ -1090,19 +1090,19 @@ contract PanopticQueryTest is PositionUtils {
 
         // Assert that a sell-side position is required and computed
         assertTrue(
-            sellsidePosition.unwrap() > 0,
-            "Sellside position should be non-zero for max purchases"
+            TokenId.unwrap(sellsidePosition) != 0,
+            "A sellside position should be returned because there is an insufficient liquidity for another purchase of that size"
         );
         assertGt(
             sellsidePositionSize,
             0,
-            "Sellside position size should be non-zero for max purchases"
+            "Sellside position size should be non-zero if more liquidity is necessary for purchase in question"
         );
         // Assert that the returned sell-side position sells into the same chunk Bob wanted to buy into
         uint256 sellAsset = sellsidePosition.asset(0);
         uint256 sellTokenType = sellsidePosition.tokenType(0);
-        uint256 sellStrike = sellsidePosition.strike(0);
-        uint256 sellWidth = sellsidePosition.width(0);
+        int24 sellStrike = sellsidePosition.strike(0);
+        int24 sellWidth = sellsidePosition.width(0);
         assertEq(sellAsset, isWETH, "Sellside asset does not match expected");
         assertEq(sellTokenType, 0, "Sellside token type should be type 0 like the minted position");
         assertEq(sellStrike, $strike, "Sellside strike does not match expected");
