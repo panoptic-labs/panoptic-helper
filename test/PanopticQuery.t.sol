@@ -1111,7 +1111,7 @@ contract PanopticQueryTest is PositionUtils {
     }
 
     // TODO: test computeMinimumSize with multiple sellers, multiple buyers, multi-leg positions...
-    // TODO: test computeSoldPositionToSatisfyLongLegs
+    // TODO: fuzz more of the computeSoldPositionToSatisfyLongLegs test content, and also try the above multi scenarios
     // TODO: mostly as an example, write a test where Alice has a position with both long and short legs,
     // and show how you could first get a min size from computeMinimumSize, then call computeSoldPositionToSatisfyLongLegs
     // to facilitate the full sequence of:
