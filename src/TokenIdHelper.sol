@@ -381,7 +381,7 @@ contract TokenIdHelper {
     function equivalentPosition(
         TokenId oldPosition,
         uint128 oldPositionSize
-    ) external view returns (TokenId newPosition, uint128 newPositionSize) {
+    ) external pure returns (TokenId newPosition, uint128 newPositionSize) {
         uint256[] memory optionRatios = new uint256[](oldPosition.countLegs());
         for (uint256 i = 0; i < optionRatios.length; i++) {
             optionRatios[i] = oldPosition.optionRatio(i);
@@ -494,7 +494,7 @@ contract TokenIdHelper {
         TokenId oldPosition,
         uint128 scaleFactor,
         bool scalingUp
-    ) external view returns (TokenId newPosition) {
+    ) external pure returns (TokenId newPosition) {
         uint256[] memory optionRatios = new uint256[](oldPosition.countLegs());
         for (uint256 i = 0; i < optionRatios.length; i++) {
             optionRatios[i] = oldPosition.optionRatio(i);
@@ -505,7 +505,7 @@ contract TokenIdHelper {
         for (uint256 i = 0; i < optionRatios.length; i++) {
             if (
                 scalingUp
-                    ? scaleFactor * optionRatios[i] < MAX_OPTION_RATIO
+                    ? scaleFactor * optionRatios[i] <= MAX_OPTION_RATIO
                     : optionRatios[i] / scaleFactor > 0
             ) {
                 newPosition = overwriteOptionRatio(

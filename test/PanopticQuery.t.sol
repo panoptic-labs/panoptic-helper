@@ -678,7 +678,7 @@ contract PanopticQueryTest is PositionUtils {
         }
     }
 
-    function test_reduceSize_returns_zero_if_no_purchase(
+    function test_computeMinimumSize_returns_zero_if_no_purchase(
         uint256 x,
         uint256 widthSeed,
         int256 strikeSeed
@@ -714,13 +714,13 @@ contract PanopticQueryTest is PositionUtils {
             Constants.MIN_V3POOL_TICK,
             Constants.MAX_V3POOL_TICK
         );
-        // - then immediately call reduceSize
+        // - then immediately call computeMinimumSize
         // it should return 0: no one has bought from you
-        uint128 minPositionSize = pq.reduceSize(pp, Alice, tokenId);
+        uint128 minPositionSize = pq.computeMinimumSize(pp, Alice, tokenId);
         assertEq(minPositionSize, 0);
     }
 
-    function test_reduceSize_returns_lower_size_if_small_purchase_made(
+    function test_computeMinimumSize_returns_lower_size_if_small_purchase_made(
         uint256 x,
         uint256 widthSeed,
         int256 strikeSeed
@@ -780,8 +780,8 @@ contract PanopticQueryTest is PositionUtils {
             Constants.MIN_V3POOL_TICK,
             Constants.MAX_V3POOL_TICK
         );
-        // - then call reduceSize on Alice
-        uint128 alicesMinPositionSize = pq.reduceSize(pp, Alice, callSaleTokenId);
+        // - then call computeMinimumSize on Alice
+        uint128 alicesMinPositionSize = pq.computeMinimumSize(pp, Alice, callSaleTokenId);
         // With that value, we should be able to make some assertions about remint-and-burning:
         // First - get a re-mintable tokenId by scaling down from the original option ratio of 2:
         TokenId equivalentCallSaleTokenId = tih.scaledPosition(callSaleTokenId, 2, false);
@@ -807,15 +807,16 @@ contract PanopticQueryTest is PositionUtils {
         vm.startPrank(Alice);
         {
             // 1. Alice should get a revert if she tries to remint-and-burn with 1 less than the min size
-            // TODO: reduceSize is too conservative, so for now we're commenting out this test, and just checking
+            // TODO: computeMinimumSize is too conservative, so for now we're commenting out this test, and just checking
             // that the position size was reduced at all:
             assertLt(alicesMinPositionSize / 2, alicesSaleSize);
             // But this is what it would look like to test that the reducedSize is truly as small as could be:
-            // remintAndBurnMulticallData[0] = abi.encodeWithSelector(
-            //     PanopticPool.mintOptions.selector,
-            //     remintingPosIdList,
+            remintAndBurnMulticallData[0] = abi.encodeWithSelector(
+                PanopticPool.mintOptions.selector,
+                remintingPosIdList,
             //     /*
             //     This is what the function should guarantee - this fails:
+            //     */
             //     alicesMinPositionSize - 1,
             //     */
             //     /*
@@ -823,20 +824,20 @@ contract PanopticQueryTest is PositionUtils {
             //     e.g., it passes even if alicesMinPositionSize could have been up to 200k liq units smaller,
             //     and passes with the current implementation (100k even usually passes):
             //     */
-            //     alicesMinPositionSize -
-            //         (
-            //             LiquidityAmounts.getAmount1ForLiquidity(
-            //                 Math.getSqrtRatioAtTick(equivalentCallSaleTickLower),
-            //                 Math.getSqrtRatioAtTick(equivalentCallSaleTickUpper),
-            //                 200_000
-            //             )
-            //         ),
-            //     0,
-            //     Constants.MIN_V3POOL_TICK,
-            //     Constants.MAX_V3POOL_TICK
-            // );
-            // vm.expectRevert(Errors.EffectiveLiquidityAboveThreshold.selector);
-            // pp.multicall(remintAndBurnMulticallData);
+                alicesMinPositionSize -
+                    (
+                        LiquidityAmounts.getAmount1ForLiquidity(
+                            Math.getSqrtRatioAtTick(equivalentCallSaleTickLower),
+                            Math.getSqrtRatioAtTick(equivalentCallSaleTickUpper),
+                            200_000
+                        )
+                    ),
+                0,
+                Constants.MIN_V3POOL_TICK,
+                Constants.MAX_V3POOL_TICK
+            );
+            vm.expectRevert(Errors.EffectiveLiquidityAboveThreshold.selector);
+            pp.multicall(remintAndBurnMulticallData);
         }
         {
             // 2. Alice should be able to successfully remint-and-burn with exactly the min size:
@@ -872,13 +873,13 @@ contract PanopticQueryTest is PositionUtils {
                 Constants.MAX_V3POOL_TICK
             );
         }
-        // - finally, also call reduceSize on Bob
+        // - finally, also call computeMinimumSize on Bob
         // it should return type(uint128).max - bob has only long legs
-        uint128 bobsMinPositionSize = pq.reduceSize(pp, Bob, callPurchaseTokenId);
+        uint128 bobsMinPositionSize = pq.computeMinimumSize(pp, Bob, callPurchaseTokenId);
         assertEq(bobsMinPositionSize, type(uint128).max);
     }
 
-    function test_reduceSize_returns_same_size_if_max_purchase_made(
+    function test_computeMinimumSize_returns_same_size_if_max_purchase_made(
         uint256 x,
         uint256 widthSeed,
         int256 strikeSeed
@@ -935,9 +936,9 @@ contract PanopticQueryTest is PositionUtils {
             Constants.MIN_V3POOL_TICK,
             Constants.MAX_V3POOL_TICK
         );
-        // - then call reduceSize on Alice
+        // - then call computeMinimumSize on Alice
         // it should return the original size alice minted, +/- some liquidity units
-        uint128 alicesMinPositionSize = pq.reduceSize(pp, Alice, callSaleTokenId);
+        uint128 alicesMinPositionSize = pq.computeMinimumSize(pp, Alice, callSaleTokenId);
         (int24 callSaleTickLower, int24 callSaleTickUpper) = callSaleTokenId.asTicks(0);
         assertLt(
             Math.absUint(int256(uint256(alicesMinPositionSize)) - int256(uint256(alicesSaleSize))),
@@ -950,7 +951,17 @@ contract PanopticQueryTest is PositionUtils {
         );
     }
 
-    // TODO: test reduceSize with multiple sellers, multiple buyers, multi-leg positions...
+    // TODO: test computeMinimumSize with multiple sellers, multiple buyers, multi-leg positions...
+    // TODO: test computeSoldPositionToSatisfyLongLegs
+    // TODO: mostly as an example, write a test where Alice has a position with both long and short legs,
+    // and show how you could first get a min size from computeMinimumSize, then call computeSoldPositionToSatisfyLongLegs
+    // to facilitate the full sequence of:
+    // 1. sell temporary sell-side position to satisfy long legs of new remintable position from computeMinimumSize
+    // 2. remint the returned position from computeMinimumSize
+    // 3. burn original position
+    // 4. burn temporary sell-side position from step (1)
+    // and can throw in all the scaledPosition / equivalentPosition calls you need too as good example
+
 
     function test_getChunkData_returns_correct_liquidities() public {
         // TODO:
