@@ -374,6 +374,8 @@ contract TokenIdHelper {
     /// (and positionSize scaled inversely).
     /// @dev This is useful if you want to effectively hold the same position but need to avoid minting
     /// the same tokenID twice in a row.
+    /// @dev Note that we attempt to do exact scaling, but we fallback to halving the positionSize (rounded upward)
+    /// if no common option-ratio factor or useable positionSize factor is found.
     /// @param oldPosition The original TokenId
     /// @param oldPositionSize The original position size
     /// @return newPosition The new TokenId with adjusted optionRatios
@@ -443,7 +445,18 @@ contract TokenIdHelper {
             newPositionSize = oldPositionSize * uint128(lcdAmongOptionRatios);
         }
 
-        // If neither of these work, return newPositionSize = 0:
+        // Fallback: Couldn't find an exact way to scale option ratio up or down; instead we'll double
+        // each option ratio and halve the positionSize (rounding up):
+        if (newPositionSize == 0) {
+            for (uint256 i = 0; i < optionRatios.length; i++) {
+                newPosition = overwriteOptionRatio(
+                    newPosition,
+                    2 * optionRatios[i],
+                    i
+                );
+            }
+            newPositionSize = uint128(Math.unsafeDivRoundingUp(uint256(oldPositionSize), 2));
+        }
     }
 
     /// @notice Finds the smallest factor of a number.
