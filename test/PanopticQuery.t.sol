@@ -1010,15 +1010,20 @@ contract PanopticQueryTest is PositionUtils {
         );
 
         // Bob tries to compute a sell-side position to satisfy another small purchase
-        (TokenId sellsidePosition, uint128 sellsidePositionSize) = pq.computeSoldPositionToSatisfyLongLegs(
-            pp,
-            callPurchaseTokenId,
-            bobsPurchaseSize
-        );
+        (TokenId sellsidePosition, uint128 sellsidePositionSize) = pq
+            .computeSoldPositionToSatisfyLongLegs(pp, callPurchaseTokenId, bobsPurchaseSize);
 
         // Assert no sell-side position is required
-        assertEq(sellsidePosition.unwrap(), 0, "Sellside position should be zero for small purchases");
-        assertEq(sellsidePositionSize, 0, "Sellside position size should be zero for small purchases");
+        assertEq(
+            sellsidePosition.unwrap(),
+            0,
+            "Sellside position should be zero for small purchases"
+        );
+        assertEq(
+            sellsidePositionSize,
+            0,
+            "Sellside position size should be zero for small purchases"
+        );
     }
 
     function test_computeSoldPositionToSatisfyLongLegs_returns_nonzero_if_max_purchase_made(
@@ -1080,15 +1085,19 @@ contract PanopticQueryTest is PositionUtils {
         );
 
         // Bob tries to compute a sell-side position to satisfy another purchase in the same size - driving util to 180%
-        (TokenId sellsidePosition, uint128 sellsidePositionSize) = pq.computeSoldPositionToSatisfyLongLegs(
-            pp,
-            callPurchaseTokenId,
-            bobsPurchaseSize
-        );
+        (TokenId sellsidePosition, uint128 sellsidePositionSize) = pq
+            .computeSoldPositionToSatisfyLongLegs(pp, callPurchaseTokenId, bobsPurchaseSize);
 
         // Assert that a sell-side position is required and computed
-        assertTrue(sellsidePosition.unwrap() > 0, "Sellside position should be non-zero for max purchases");
-        assertGt(sellsidePositionSize, 0, "Sellside position size should be non-zero for max purchases");
+        assertTrue(
+            sellsidePosition.unwrap() > 0,
+            "Sellside position should be non-zero for max purchases"
+        );
+        assertGt(
+            sellsidePositionSize,
+            0,
+            "Sellside position size should be non-zero for max purchases"
+        );
         // Assert that the returned sell-side position sells into the same chunk Bob wanted to buy into
         uint256 sellAsset = sellsidePosition.asset(0);
         uint256 sellTokenType = sellsidePosition.tokenType(0);

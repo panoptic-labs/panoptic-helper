@@ -439,21 +439,22 @@ contract PanopticQuery {
 
         requiredSize = uint128(
             asset == 0
-            ? Math.unsafeDivRoundingUp(
-                _getAmount0ForLiquidityRoundingUp(
-                    Math.getSqrtRatioAtTick(tickLower),
-                    Math.getSqrtRatioAtTick(tickUpper),
-                    liquidityToSell
-                ),
-                optionRatio
-            ) : Math.unsafeDivRoundingUp(
-                _getAmount1ForLiquidityRoundingUp(
-                    Math.getSqrtRatioAtTick(tickLower),
-                    Math.getSqrtRatioAtTick(tickUpper),
-                    liquidityToSell
-                ),
-                optionRatio
-            )
+                ? Math.unsafeDivRoundingUp(
+                    _getAmount0ForLiquidityRoundingUp(
+                        Math.getSqrtRatioAtTick(tickLower),
+                        Math.getSqrtRatioAtTick(tickUpper),
+                        liquidityToSell
+                    ),
+                    optionRatio
+                )
+                : Math.unsafeDivRoundingUp(
+                    _getAmount1ForLiquidityRoundingUp(
+                        Math.getSqrtRatioAtTick(tickLower),
+                        Math.getSqrtRatioAtTick(tickUpper),
+                        liquidityToSell
+                    ),
+                    optionRatio
+                )
         );
     }
 
