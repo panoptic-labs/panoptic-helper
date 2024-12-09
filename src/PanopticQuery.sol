@@ -268,8 +268,8 @@ contract PanopticQuery {
         address account,
         TokenId tokenId
     ) external view returns (uint128 minPositionSize) {
-        // If there are are no short legs, you can hold as much of this position as you like.
-        if (tokenId.countLongs() == tokenId.countLegs()) return type(uint128).max;
+        // If there are are no short legs, you can hold as little of this position as you like.
+        if (tokenId.countLongs() == tokenId.countLegs()) return 0;
 
         uint128 preReductionPositionSize;
         {
