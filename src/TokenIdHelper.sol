@@ -449,11 +449,7 @@ contract TokenIdHelper {
         // each option ratio and halve the positionSize (rounding up):
         if (newPositionSize == 0) {
             for (uint256 i = 0; i < optionRatios.length; i++) {
-                newPosition = overwriteOptionRatio(
-                    newPosition,
-                    2 * optionRatios[i],
-                    i
-                );
+                newPosition = overwriteOptionRatio(newPosition, 2 * optionRatios[i], i);
             }
             newPositionSize = uint128(Math.unsafeDivRoundingUp(uint256(oldPositionSize), 2));
         }
