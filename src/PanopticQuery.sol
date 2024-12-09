@@ -492,8 +492,8 @@ contract PanopticQuery {
             );
     }
 
-    /// @notice Computes the amount of token0 for a given amount of liquidity and a price range, rounding up
-    /// @dev This is simply Uni's LiquidityAmounts.getAmount0ForLiquidity but using mulDivRoundingUp
+    /// @notice Computes the amount of token0 for a given amount of liquidity and a price range, rounding up.
+    /// @dev This is simply Uni's LiquidityAmounts.getAmount0ForLiquidity but using mulDivRoundingUp.
     /// @param sqrtRatioAX96 A sqrt price representing the first tick boundary
     /// @param sqrtRatioBX96 A sqrt price representing the second tick boundary
     /// @param liquidity The liquidity being valued
@@ -516,8 +516,8 @@ contract PanopticQuery {
         }
     }
 
-    /// @notice Computes the amount of token1 for a given amount of liquidity and a price range, rounding up
-    /// @dev This is simply Uni's LiquidityAmounts.getAmount1ForLiquidity but using mulDivRoundingUp
+    /// @notice Computes the amount of token1 for a given amount of liquidity and a price range, rounding up.
+    /// @dev This is simply Uni's LiquidityAmounts.getAmount1ForLiquidity but using mulDivRoundingUp.
     /// @param sqrtRatioAX96 A sqrt price representing the first tick boundary
     /// @param sqrtRatioBX96 A sqrt price representing the second tick boundary
     /// @param liquidity The liquidity being valued
