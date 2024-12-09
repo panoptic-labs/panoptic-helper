@@ -332,21 +332,20 @@ contract PanopticQuery {
         // (Panoptic requires 10% cushion of seller volume to buyer volume)
         // And therefore, your position size can be reduced to:
         // the minimum sell-side volume *minus* the amount others were selling pre-reduction
-        return _calculateRequiredSaleSize(
-            legTickLower,
-            legTickUpper,
-            tokenId.asset(legIndex),
-            tokenId.optionRatio(legIndex),
-            // Pass in buysideDemand as the removedLiquidity, which is in the left slot of the liq data:
-            legsChunkLiquidityData.leftSlot(),
-            // Pass in preexistingSellsideLiquidity as the amount others are currently selling, which is:
-            // total being sold pre-reduction (e.g. netLiquidity + removedLiquidity), minus this leg's liquidity
-            legsChunkLiquidityData.rightSlot() +
-                legsChunkLiquidityData.leftSlot() -
-                PanopticMath
-                    .getLiquidityChunk(tokenId, legIndex, currentSize)
-                    .liquidity()
-        );
+        return
+            _calculateRequiredSaleSize(
+                legTickLower,
+                legTickUpper,
+                tokenId.asset(legIndex),
+                tokenId.optionRatio(legIndex),
+                // Pass in buysideDemand as the removedLiquidity, which is in the left slot of the liq data:
+                legsChunkLiquidityData.leftSlot(),
+                // Pass in preexistingSellsideLiquidity as the amount others are currently selling, which is:
+                // total being sold pre-reduction (e.g. netLiquidity + removedLiquidity), minus this leg's liquidity
+                legsChunkLiquidityData.rightSlot() +
+                    legsChunkLiquidityData.leftSlot() -
+                    PanopticMath.getLiquidityChunk(tokenId, legIndex, currentSize).liquidity()
+            );
     }
 
     /// @notice Prepares a tokenId and position size to sell such that you may mint the supplied tokenId
@@ -362,7 +361,7 @@ contract PanopticQuery {
         PanopticPool pool,
         TokenId tokenId,
         uint128 positionSize
-    ) external view returns(TokenId sellsidePosition, uint128 sellsidePositionSize) {
+    ) external view returns (TokenId sellsidePosition, uint128 sellsidePositionSize) {
         sellsidePosition = TokenId.wrap(0).addPoolId(tokenId.poolId());
 
         for (uint256 i = 0; i < tokenId.countLegs(); ) {
@@ -382,11 +381,7 @@ contract PanopticQuery {
 
                 uint128 additionalDemand;
                 {
-                    LiquidityChunk chunk = PanopticMath.getLiquidityChunk(
-                        tokenId,
-                        i,
-                        positionSize
-                    );
+                    LiquidityChunk chunk = PanopticMath.getLiquidityChunk(tokenId, i, positionSize);
                     additionalDemand = chunk.liquidity();
                 }
 
@@ -406,9 +401,9 @@ contract PanopticQuery {
                 if (requiredToSellIntoThisChunk > 0) {
                     sellsidePosition = _addLegSellingTo(tokenId, i, sellsidePosition);
 
-                    sellsidePositionSize = requiredToSellIntoThisChunk > sellsidePositionSize ?
-                        requiredToSellIntoThisChunk :
-                        sellsidePositionSize;
+                    sellsidePositionSize = requiredToSellIntoThisChunk > sellsidePositionSize
+                        ? requiredToSellIntoThisChunk
+                        : sellsidePositionSize;
                 }
             }
 
@@ -469,25 +464,26 @@ contract PanopticQuery {
         TokenId positionWithLongLeg,
         uint256 longLegIndex,
         TokenId positionToAddOnto
-    ) internal pure returns(TokenId) {
+    ) internal pure returns (TokenId) {
         // Add a leg selling what we need to sell onto sellsidePosition:
-        return positionToAddOnto.addLeg(
-          // legIndex: add it onto the end
-          positionWithLongLeg.countLegs(),
-          // optionRatio of 1; will make it easier to get equivalentPosition if caller needs
-          1,
-          // asset: same asset as original
-          positionWithLongLeg.asset(longLegIndex),
-          // isLong: 0, we want to sell into this chunk to ensure the reminted long leg can buy
-          0,
-          // tokenType: same tokenType as original
-          positionWithLongLeg.tokenType(longLegIndex),
-          // riskPartner: no risk partner, just a simple sale
-          0,
-          // Same strike and width as original
-          positionWithLongLeg.strike(longLegIndex),
-          positionWithLongLeg.width(longLegIndex)
-        );
+        return
+            positionToAddOnto.addLeg(
+                // legIndex: add it onto the end
+                positionWithLongLeg.countLegs(),
+                // optionRatio of 1; will make it easier to get equivalentPosition if caller needs
+                1,
+                // asset: same asset as original
+                positionWithLongLeg.asset(longLegIndex),
+                // isLong: 0, we want to sell into this chunk to ensure the reminted long leg can buy
+                0,
+                // tokenType: same tokenType as original
+                positionWithLongLeg.tokenType(longLegIndex),
+                // riskPartner: no risk partner, just a simple sale
+                0,
+                // Same strike and width as original
+                positionWithLongLeg.strike(longLegIndex),
+                positionWithLongLeg.width(longLegIndex)
+            );
     }
 
     /// @notice Computes the amount of token0 for a given amount of liquidity and a price range, rounding up
@@ -502,7 +498,8 @@ contract PanopticQuery {
         uint128 liquidity
     ) internal pure returns (uint256 amount0) {
         unchecked {
-            if (sqrtRatioAX96 > sqrtRatioBX96) (sqrtRatioAX96, sqrtRatioBX96) = (sqrtRatioBX96, sqrtRatioAX96);
+            if (sqrtRatioAX96 > sqrtRatioBX96)
+                (sqrtRatioAX96, sqrtRatioBX96) = (sqrtRatioBX96, sqrtRatioAX96);
 
             return
                 FullMath.mulDivRoundingUp(
@@ -524,10 +521,16 @@ contract PanopticQuery {
         uint160 sqrtRatioBX96,
         uint128 liquidity
     ) internal pure returns (uint256 amount1) {
-        if (sqrtRatioAX96 > sqrtRatioBX96) (sqrtRatioAX96, sqrtRatioBX96) = (sqrtRatioBX96, sqrtRatioAX96);
+        if (sqrtRatioAX96 > sqrtRatioBX96)
+            (sqrtRatioAX96, sqrtRatioBX96) = (sqrtRatioBX96, sqrtRatioAX96);
 
         unchecked {
-            return FullMath.mulDivRoundingUp(liquidity, sqrtRatioBX96 - sqrtRatioAX96, FixedPoint96.Q96);
+            return
+                FullMath.mulDivRoundingUp(
+                    liquidity,
+                    sqrtRatioBX96 - sqrtRatioAX96,
+                    FixedPoint96.Q96
+                );
         }
     }
 

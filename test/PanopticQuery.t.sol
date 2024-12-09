@@ -962,7 +962,6 @@ contract PanopticQueryTest is PositionUtils {
     // 4. burn temporary sell-side position from step (1)
     // and can throw in all the scaledPosition / equivalentPosition calls you need too as good example
 
-
     function test_getChunkData_returns_correct_liquidities() public {
         // TODO:
         // - PLP via the SFPM with token0,
