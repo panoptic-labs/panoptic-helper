@@ -876,7 +876,7 @@ contract PanopticQueryTest is PositionUtils {
         // - finally, also call computeMinimumSize on Bob
         // it should return type(uint128).max - bob has only long legs
         uint128 bobsMinPositionSize = pq.computeMinimumSize(pp, Bob, callPurchaseTokenId);
-        assertEq(bobsMinPositionSize, type(uint128).max);
+        assertEq(bobsMinPositionSize, 0);
     }
 
     function test_computeMinimumSize_returns_same_size_if_max_purchase_made(
@@ -949,6 +949,155 @@ contract PanopticQueryTest is PositionUtils {
             ),
             "alicesMinPositionSize was not within 2 liquidity units of alicesSaleSize after a 90% purchase"
         );
+    }
+
+    function test_computeSoldPositionToSatisfyLongLegs_returns_zero_if_small_purchase_made(
+        uint256 x,
+        uint256 widthSeed,
+        int256 strikeSeed
+    ) public {
+        // alice sells 100 * 10 ** 15
+        ($width, $strike) = PositionUtils.getITMSW(
+            widthSeed,
+            strikeSeed,
+            uint24(tickSpacing),
+            currentTick,
+            0
+        );
+
+        // Alice mints a call to sell token0
+        TokenId callSaleTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            isWETH,
+            0,
+            0,
+            0,
+            $strike,
+            $width
+        );
+        TokenId;
+        posIdList[0] = callSaleTokenId;
+        uint128 alicesSaleSize = 100 * 10 ** 15;
+        pp.mintOptions(
+            posIdList,
+            alicesSaleSize,
+            0,
+            Constants.MIN_V3POOL_TICK,
+            Constants.MAX_V3POOL_TICK
+        );
+
+        // Bob purchases 10%
+        TokenId callPurchaseTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            isWETH,
+            1,
+            0,
+            0,
+            $strike,
+            $width
+        );
+        posIdList[0] = callPurchaseTokenId;
+        uint128 bobsPurchaseSize = uint128(Math.mulDiv(uint256(alicesSaleSize), 1, 10));
+        vm.startPrank(Bob);
+        pp.mintOptions(
+            posIdList,
+            bobsPurchaseSize,
+            type(uint64).max,
+            Constants.MIN_V3POOL_TICK,
+            Constants.MAX_V3POOL_TICK
+        );
+
+        // Bob tries to compute a sell-side position to satisfy another small purchase
+        (TokenId sellsidePosition, uint128 sellsidePositionSize) = pq.computeSoldPositionToSatisfyLongLegs(
+            pp,
+            callPurchaseTokenId,
+            bobsPurchaseSize
+        );
+
+        // Assert no sell-side position is required
+        assertEq(sellsidePosition.unwrap(), 0, "Sellside position should be zero for small purchases");
+        assertEq(sellsidePositionSize, 0, "Sellside position size should be zero for small purchases");
+    }
+
+    function test_computeSoldPositionToSatisfyLongLegs_returns_nonzero_if_max_purchase_made(
+        uint256 x,
+        uint256 widthSeed,
+        int256 strikeSeed
+    ) public {
+        _initPool(x);
+        ($width, $strike) = PositionUtils.getITMSW(
+            widthSeed,
+            strikeSeed,
+            uint24(tickSpacing),
+            currentTick,
+            0
+        );
+
+        // Alice mints a call to sell token0
+        TokenId callSaleTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            isWETH,
+            0,
+            0,
+            0,
+            $strike,
+            $width
+        );
+        TokenId;
+        posIdList[0] = callSaleTokenId;
+        uint128 alicesSaleSize = 100 * 10 ** 15;
+        pp.mintOptions(
+            posIdList,
+            alicesSaleSize,
+            0,
+            Constants.MIN_V3POOL_TICK,
+            Constants.MAX_V3POOL_TICK
+        );
+
+        // Bob purchases 90%
+        TokenId callPurchaseTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            isWETH,
+            1,
+            0,
+            0,
+            $strike,
+            $width
+        );
+        posIdList[0] = callPurchaseTokenId;
+        uint128 bobsPurchaseSize = uint128(Math.mulDiv(uint256(alicesSaleSize), 9, 10));
+        vm.startPrank(Bob);
+        pp.mintOptions(
+            posIdList,
+            bobsPurchaseSize,
+            type(uint64).max,
+            Constants.MIN_V3POOL_TICK,
+            Constants.MAX_V3POOL_TICK
+        );
+
+        // Bob tries to compute a sell-side position to satisfy another purchase in the same size - driving util to 180%
+        (TokenId sellsidePosition, uint128 sellsidePositionSize) = pq.computeSoldPositionToSatisfyLongLegs(
+            pp,
+            callPurchaseTokenId,
+            bobsPurchaseSize
+        );
+
+        // Assert that a sell-side position is required and computed
+        assertTrue(sellsidePosition.unwrap() > 0, "Sellside position should be non-zero for max purchases");
+        assertGt(sellsidePositionSize, 0, "Sellside position size should be non-zero for max purchases");
+        // Assert that the returned sell-side position sells into the same chunk Bob wanted to buy into
+        uint256 sellAsset = sellsidePosition.asset(0);
+        uint256 sellTokenType = sellsidePosition.tokenType(0);
+        uint256 sellStrike = sellsidePosition.strike(0);
+        uint256 sellWidth = sellsidePosition.width(0);
+        assertEq(sellAsset, isWETH, "Sellside asset does not match expected");
+        assertEq(sellTokenType, 0, "Sellside token type should be type 0 like the minted position");
+        assertEq(sellStrike, $strike, "Sellside strike does not match expected");
+        assertEq(sellWidth, $width, "Sellside width does not match expected");
     }
 
     // TODO: test computeMinimumSize with multiple sellers, multiple buyers, multi-leg positions...

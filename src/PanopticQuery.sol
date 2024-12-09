@@ -437,27 +437,24 @@ contract PanopticQuery {
 
         uint128 liquidityToSell = minTotalSellsideLiquidity - preexistingSellsideLiquidity;
 
-        requiredSize = asset == 0
-            ? uint128(
-                Math.unsafeDivRoundingUp(
-                    _getAmount0ForLiquidityRoundingUp(
-                        Math.getSqrtRatioAtTick(tickLower),
-                        Math.getSqrtRatioAtTick(tickUpper),
-                        liquidityToSell
-                    ),
-                    optionRatio
-                )
+        requiredSize = uint128(
+            asset == 0
+            ? Math.unsafeDivRoundingUp(
+                _getAmount0ForLiquidityRoundingUp(
+                    Math.getSqrtRatioAtTick(tickLower),
+                    Math.getSqrtRatioAtTick(tickUpper),
+                    liquidityToSell
+                ),
+                optionRatio
+            ) : Math.unsafeDivRoundingUp(
+                _getAmount1ForLiquidityRoundingUp(
+                    Math.getSqrtRatioAtTick(tickLower),
+                    Math.getSqrtRatioAtTick(tickUpper),
+                    liquidityToSell
+                ),
+                optionRatio
             )
-            : uint128(
-                Math.unsafeDivRoundingUp(
-                    _getAmount1ForLiquidityRoundingUp(
-                        Math.getSqrtRatioAtTick(tickLower),
-                        Math.getSqrtRatioAtTick(tickUpper),
-                        liquidityToSell
-                    ),
-                    optionRatio
-                )
-            );
+        );
     }
 
     function _addLegSellingTo(
