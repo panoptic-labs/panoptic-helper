@@ -956,7 +956,8 @@ contract PanopticQueryTest is PositionUtils {
         uint256 widthSeed,
         int256 strikeSeed
     ) public {
-        // alice sells 100 * 10 ** 15
+        _initPool(x);
+        // alice sells 100 * 10 ** 15 calls
         ($width, $strike) = PositionUtils.getITMSW(
             widthSeed,
             strikeSeed,
@@ -965,7 +966,6 @@ contract PanopticQueryTest is PositionUtils {
             0
         );
 
-        // Alice mints a call to sell token0
         TokenId callSaleTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
             0,
             1,
@@ -1040,7 +1040,7 @@ contract PanopticQueryTest is PositionUtils {
             0
         );
 
-        // Alice mints a call to sell token0
+        // alice sells 100 * 10 ** 15 calls
         TokenId callSaleTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
             0,
             1,
@@ -1084,14 +1084,15 @@ contract PanopticQueryTest is PositionUtils {
             Constants.MAX_V3POOL_TICK
         );
 
-        // Bob tries to compute a sell-side position to satisfy another purchase in the same size - driving util to 180%
+        // Bob computes the sell-side position required to make another purchase in the same size
+        // (without more sales, he would drive util to 180%)
         (TokenId sellsidePosition, uint128 sellsidePositionSize) = pq
             .computeSoldPositionToSatisfyLongLegs(pp, callPurchaseTokenId, bobsPurchaseSize);
 
         // Assert that a sell-side position is required and computed
         assertTrue(
             TokenId.unwrap(sellsidePosition) != 0,
-            "A sellside position should be returned because there is an insufficient liquidity for another purchase of that size"
+            "A sellside position should be returned because there is insufficient liquidity for another purchase of that size"
         );
         assertGt(
             sellsidePositionSize,
