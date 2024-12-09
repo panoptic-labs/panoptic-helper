@@ -1015,9 +1015,9 @@ contract PanopticQueryTest is PositionUtils {
 
         // Assert no sell-side position is required
         assertEq(
-            TokenId.unwrap(sellsidePosition),
+            sellsidePosition.countLegs(),
             0,
-            "No sellside position should be returned for a subsequent purchase that easily fits within current liquidity"
+            "There should be no legs on the returned sellside position, as the purchase easily fits within current liquidity"
         );
         assertEq(
             sellsidePositionSize,
