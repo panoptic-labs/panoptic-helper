@@ -458,6 +458,14 @@ contract PanopticQuery {
         );
     }
 
+    /// @notice Adds a corresponding selling leg to an existing position, mirroring the asset and chunk
+    /// of a specified long leg within another position.
+    /// @dev Takes a position with a known long leg (identified by `positionWithLongLeg` and `longLegIndex`)
+    /// and creates a selling leg (short) with matching parameters onto `positionToAddOnto`.
+    /// @param positionWithLongLeg The position token containing the referenced long leg
+    /// @param longLegIndex The index within `positionWithLongLeg` specifying which leg to replicate as a short leg
+    /// @param positionToAddOnto The position token to which the new short leg will be added
+    /// @return The updated TokenId after adding the selling leg
     function _addLegSellingTo(
         TokenId positionWithLongLeg,
         uint256 longLegIndex,
