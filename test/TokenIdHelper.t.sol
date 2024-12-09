@@ -1165,7 +1165,7 @@ contract TokenIdHelperTest is PositionUtils {
             uint256 originalPayoff = uint256(positionSize) * optionRatio;
             uint256 newPayoff = uint256(newSize) * newPosition.optionRatio(0);
             // Tolerance of 1 in case we hit the fallback
-            assertLte(
+            assertLe(
                 Math.absUint(int256(originalPayoff) - int256(newPayoff)),
                 1,
                 "Fuzzed payoff should be preserved"
