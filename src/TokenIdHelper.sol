@@ -465,7 +465,12 @@ contract TokenIdHelper {
     /// @param limit The upper limit to search to
     /// @return factor The smallest number > 1 that divides n evenly (which is n itself if n is prime)
     function _lowestNonIdentityFactor(uint256 n, uint256 limit) internal pure returns (uint256 factor) {
-        for (factor = 2; factor <= limit; factor++) if (n % factor == 0) return factor;
+        // TODO: Some day we can do a cool trick here to iterate over the primes from n to limit,
+        // or just use a hardcoded list.
+        // For now, we check 2, then 3, then every odd number:
+        if (n % 2 == 0 && 2 <= limit) return 2;
+        for (factor = 3; factor <= limit; factor += 2) if (n % factor == 0) return factor;
+        return n;
     }
 
     /// @notice Finds the smallest number that divides all numbers in the input array.
