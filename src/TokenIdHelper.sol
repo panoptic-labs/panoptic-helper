@@ -397,7 +397,10 @@ contract TokenIdHelper {
         // (if doing so results in a valid option ratio for each leg)
         bool scalingUpwardFailed = false;
         if (oldPositionSize > 1) {
-            uint256 lowestOldPositionSizeFactor = _lowestNonIdentityFactor(oldPositionSize, MAX_OPTION_RATIO);
+            uint256 lowestOldPositionSizeFactor = _lowestNonIdentityFactor(
+                oldPositionSize,
+                MAX_OPTION_RATIO
+            );
             for (uint256 i = 0; i < optionRatios.length; i++) {
                 if (
                     // break early if lowestOldPositionSizeFactor * optionsRatios[i] overflows:
@@ -464,7 +467,10 @@ contract TokenIdHelper {
     /// @param n The number to find the lowest factor for
     /// @param limit The upper limit to search to
     /// @return factor The smallest number > 1 that divides n evenly (which is n itself if n is prime)
-    function _lowestNonIdentityFactor(uint256 n, uint256 limit) internal pure returns (uint256 factor) {
+    function _lowestNonIdentityFactor(
+        uint256 n,
+        uint256 limit
+    ) internal pure returns (uint256 factor) {
         // TODO: Some day we can do a cool trick here to iterate over the primes from n to limit,
         // or just use a hardcoded list.
         // For now, we check 2, then 3, then every odd number:
