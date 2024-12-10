@@ -335,7 +335,7 @@ contract PanopticQuery {
         // And therefore, your position size can be reduced to:
         // the minimum sell-side volume *minus* the amount others were selling pre-reduction
         return
-            _calculateRequiredSaleSize(
+            calculateRequiredSaleSize(
                 legTickLower,
                 legTickUpper,
                 tokenId.asset(legIndex),
@@ -387,7 +387,7 @@ contract PanopticQuery {
                     additionalDemand = chunk.liquidity();
                 }
 
-                uint128 requiredToSellIntoThisChunk = _calculateRequiredSaleSize(
+                uint128 requiredToSellIntoThisChunk = calculateRequiredSaleSize(
                     legTickLower,
                     legTickUpper,
                     tokenId.asset(i),
@@ -423,14 +423,14 @@ contract PanopticQuery {
     /// @param buysideDemand The total buying pressure we need to account for
     /// @param preexistingSellsideLiquidity Existing sell-side liquidity to subtract from requirement
     /// @return requiredSize The position size needed to maintain liquidity threshold
-    function _calculateRequiredSaleSize(
+    function calculateRequiredSaleSize(
         int24 tickLower,
         int24 tickUpper,
         uint256 asset,
         uint256 optionRatio,
         uint128 buysideDemand,
         uint128 preexistingSellsideLiquidity
-    ) internal pure returns (uint128 requiredSize) {
+    ) public pure returns (uint128 requiredSize) {
         // Panoptic requires 10% cushion of seller volume to buyer volume
         // Therefore, the minimum total sell-side supply is that buy-side demand divided by 90%
         uint128 minTotalSellsideLiquidity = uint128(Math.mulDivRoundingUp(buysideDemand, 10, 9));
