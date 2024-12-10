@@ -329,6 +329,7 @@ contract PanopticQuery {
             legTickLower,
             legTickUpper
         );
+        
         // The minimum total sell-side supply is the buy-side demand divided by 90%
         // (Panoptic requires 10% cushion of seller volume to buyer volume)
         // And therefore, your position size can be reduced to:
