@@ -413,7 +413,7 @@ contract PanopticQuery {
         }
     }
 
-    /// @notice Helper function to calculate the required position size to sell into a specific chunk
+    /// @notice Helper function to calculate the required position size to sell into a specific chunk.
     /// @param tickLower Lower tick of the chunk in question
     /// @param tickUpper Upper tick of the chunk in question
     /// @param asset The asset to return a position size in
