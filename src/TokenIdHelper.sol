@@ -9,6 +9,7 @@ import {Errors} from "@libraries/Errors.sol";
 import {Math} from "@libraries/Math.sol";
 import {PanopticMath} from "@libraries/PanopticMath.sol";
 import {PanopticPool} from "@contracts/PanopticPool.sol";
+import {PeripheryErrors} from "@helper/PeripheryErrors.sol";
 // Types
 import {LeftRightUnsigned} from "@types/LeftRight.sol";
 import {TokenId, TokenIdLibrary} from "@types/TokenId.sol";
@@ -27,9 +28,14 @@ contract TokenIdHelper {
         int24 width;
     }
 
+    /// @notice The SemiFungiblePositionManager of the Panoptic instance this TokenIdHelper is intended for.
     SemiFungiblePositionManager internal immutable SFPM;
+    /// @notice The maximum quantity of a given Panoptic position one may hold.
+    uint128 public constant MAX_POSITION_SIZE = type(uint128).max;
+    /// @notice The maximum option ratio of a leg of a Panoptic position.
+    uint256 public constant MAX_OPTION_RATIO = 127;
 
-    /// @notice Construct the PanopticHelper contract
+    /// @notice Construct the TokenIdHelper contract.
     /// @param _SFPM address of the SemiFungiblePositionManager
     /// @dev the SFPM is used to get the pool ID for a given address
     constructor(SemiFungiblePositionManager _SFPM) payable {
@@ -350,17 +356,194 @@ contract TokenIdHelper {
         TokenId tokenId,
         uint256 newOptionRatio,
         uint256 legIndex
-    ) external pure returns (TokenId overwrittenTokenId) {
+    ) public pure returns (TokenId overwrittenTokenId) {
         unchecked {
             overwrittenTokenId = TokenId.wrap(
-                TokenId.unwrap(tokenId) ^
-                    (// Get a uint with bits set to 1 for the bits of the `legIndex`th leg that would occupy the optionRatio
+                TokenId.unwrap(tokenId) &
+                    ~(// Get a uint with bits set to 1 for the bits of the `legIndex`th leg that would occupy the optionRatio
                     0x000000000000_000000000000_000000000000_0000000000FE_0000000000000000 <<
                         (48 * legIndex))
             );
         }
 
         return overwrittenTokenId.addOptionRatio(newOptionRatio, legIndex);
+    }
+
+    /// @notice Generate a tokenID and positionSize that represents the same position as the supplied
+    /// tokenID and positionSize, but with the optionRatios of each leg scaled upward/downward
+    /// (and positionSize scaled inversely).
+    /// @dev This is useful if you want to effectively hold the same position but need to avoid minting
+    /// the same tokenID twice in a row.
+    /// @dev Note that we attempt to do exact scaling, but we fallback to halving the positionSize (rounded upward)
+    /// if no common option-ratio factor or useable positionSize factor is found.
+    /// @param oldPosition The original TokenId
+    /// @param oldPositionSize The original position size
+    /// @return newPosition The new TokenId with adjusted optionRatios
+    /// @return newPositionSize The new position size, inversely scaled to the optionRatio changes. 0 if no valid alteration found
+    function equivalentPosition(
+        TokenId oldPosition,
+        uint128 oldPositionSize
+    ) external pure returns (TokenId newPosition, uint128 newPositionSize) {
+        uint256[] memory optionRatios = new uint256[](oldPosition.countLegs());
+        for (uint256 i = 0; i < optionRatios.length; i++) {
+            optionRatios[i] = oldPosition.optionRatio(i);
+        }
+
+        newPosition = oldPosition;
+
+        // First strategy:
+        // - Divide the position size by its lowest non-identity factor,
+        // - and then multiply all the leg's option ratios by it
+        // (if doing so results in a valid option ratio for each leg)
+        bool scalingUpwardFailed = false;
+        if (oldPositionSize > 1) {
+            uint256 lowestOldPositionSizeFactor = _lowestNonIdentityFactor(
+                oldPositionSize,
+                MAX_OPTION_RATIO
+            );
+            for (uint256 i = 0; i < optionRatios.length; i++) {
+                if (
+                    // break early if lowestOldPositionSizeFactor * optionsRatios[i] overflows:
+                    lowestOldPositionSizeFactor > type(uint256).max / optionRatios[i] ||
+                    // or if it exceeds the max option ratio:
+                    lowestOldPositionSizeFactor * optionRatios[i] > MAX_OPTION_RATIO
+                ) {
+                    scalingUpwardFailed = true;
+                    break;
+                } else {
+                    newPosition = overwriteOptionRatio(
+                        newPosition,
+                        lowestOldPositionSizeFactor * optionRatios[i],
+                        i
+                    );
+                }
+            }
+
+            if (!scalingUpwardFailed) {
+                return (
+                    newPosition,
+                    // oldPositionSize was originally a uint128, and the factor is guaranteed to be <=
+                    oldPositionSize / uint128(lowestOldPositionSizeFactor)
+                );
+            }
+        }
+
+        // If we haven't returned, then let's re-set the newPosition in case we modified option ratios
+        // of the first N legs before realising the N+1th would be invalid:
+        newPosition = oldPosition;
+
+        // Second strategy: Find the smallest non-identity common factor among the oldPosition's leg's optionRatios. if there is one:
+        // - divide all of the option ratios by it
+        // - return newPosition = oldPosition * LCD _if_ that value is less than max position size
+        uint256 lcdAmongOptionRatios = _lowestNonIdentityCommonFactor(optionRatios);
+        if (
+            lcdAmongOptionRatios > 1 &&
+            (// can oldPositionSize be multiplied by lcdAmongOptionRatios, w/o overflowing, and stay below MAX_POSITION_SIZE?
+            oldPositionSize < type(uint128).max / uint128(lcdAmongOptionRatios) &&
+                oldPositionSize * uint128(lcdAmongOptionRatios) < MAX_POSITION_SIZE)
+        ) {
+            for (uint256 i = 0; i < optionRatios.length; i++) {
+                newPosition = overwriteOptionRatio(
+                    newPosition,
+                    optionRatios[i] / lcdAmongOptionRatios,
+                    i
+                );
+            }
+            newPositionSize = oldPositionSize * uint128(lcdAmongOptionRatios);
+        }
+
+        // Fallback: Couldn't find an exact way to scale option ratio up or down; instead we'll double
+        // each option ratio and halve the positionSize (rounding up):
+        if (newPositionSize == 0) {
+            for (uint256 i = 0; i < optionRatios.length; i++) {
+                newPosition = overwriteOptionRatio(newPosition, 2 * optionRatios[i], i);
+            }
+            newPositionSize = uint128(Math.unsafeDivRoundingUp(uint256(oldPositionSize), 2));
+        }
+    }
+
+    /// @notice Finds the smallest factor of a number other than 1, up to a supplied limit.
+    /// @dev Checks 2, then every odd number up to `limit` to find a number that divides n without remainder.
+    /// @param n The number to find the lowest factor for
+    /// @param limit The upper limit to search to
+    /// @return factor The smallest number > 1 that divides n evenly; n itself if n is prime or limit is reached
+    function _lowestNonIdentityFactor(
+        uint256 n,
+        uint256 limit
+    ) internal pure returns (uint256 factor) {
+        // TODO: Some day we can do a cool trick here to iterate over the primes from n to limit,
+        // or just use a hardcoded list.
+        // For now, we check 2, then 3, then every odd number:
+        if (n % 2 == 0 && 2 <= limit) return 2;
+        for (factor = 3; factor <= limit; factor += 2) if (n % factor == 0) return factor;
+        return n;
+    }
+
+    /// @notice Finds the smallest factor, other than 1, shared among all numbers in the input array.
+    /// @dev First finds minimum value in array to optimize search space, then checks each potential
+    /// divisor against all numbers. Returns 1 if no common divisor is found.
+    /// @param numbers Array of numbers to find common divisor for
+    /// @return Smallest positive integer that divides all numbers in the array
+    function _lowestNonIdentityCommonFactor(
+        uint256[] memory numbers
+    ) internal pure returns (uint256) {
+        uint256 min = numbers[0];
+        for (uint256 i = 1; i < numbers.length; i++) {
+            if (numbers[i] < min) {
+                min = numbers[i];
+            }
+        }
+
+        for (uint256 i = 2; i <= min; i++) {
+            bool isDivisor = true;
+            for (uint256 j = 0; j < numbers.length; j++) {
+                if (numbers[j] % i != 0) {
+                    isDivisor = false;
+                    break;
+                }
+            }
+            if (isDivisor) {
+                return i;
+            }
+        }
+        return 1;
+    }
+
+    /// @notice Generate a tokenID that represents the same position as the supplied tokenID, but
+    /// with the optionRatios of each leg scaled upward/downward.
+    /// @dev This is useful if you want to effectively hold the same position but need to avoid
+    /// minting the same tokenID twice in a row.
+    /// @param oldPosition The original TokenId
+    /// @param scaleFactor The factor to scale up/down by
+    /// @param scalingUp Whether we're increasing or decreasing each leg.optionRatio
+    /// @return newPosition The new TokenId with adjusted optionRatios
+    function scaledPosition(
+        TokenId oldPosition,
+        uint128 scaleFactor,
+        bool scalingUp
+    ) external pure returns (TokenId newPosition) {
+        uint256[] memory optionRatios = new uint256[](oldPosition.countLegs());
+        for (uint256 i = 0; i < optionRatios.length; i++) {
+            optionRatios[i] = oldPosition.optionRatio(i);
+        }
+
+        newPosition = oldPosition;
+
+        for (uint256 i = 0; i < optionRatios.length; i++) {
+            if (
+                scalingUp
+                    ? scaleFactor * optionRatios[i] <= MAX_OPTION_RATIO
+                    : optionRatios[i] / scaleFactor > 0
+            ) {
+                newPosition = overwriteOptionRatio(
+                    newPosition,
+                    scalingUp ? scaleFactor * optionRatios[i] : optionRatios[i] / scaleFactor,
+                    i
+                );
+            } else {
+                revert PeripheryErrors.InvalidScaleFactor();
+            }
+        }
     }
 
     /// @notice Optimize the risk partnering of all legs within a tokenId.

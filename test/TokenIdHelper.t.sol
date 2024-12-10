@@ -90,6 +90,11 @@ contract TokenIdHelperTest is PositionUtils {
         IUniswapV3Pool(0x8ad599c3A0ff1De082011EFDDc58f1908eb6e6D8);
     IUniswapV3Pool[3] public pools = [USDC_WETH_5, WBTC_ETH_30, USDC_WETH_30];
 
+    /// @notice The maximum quantity of a given Panoptic position one may hold.
+    uint128 private constant MAX_POSITION_SIZE = type(uint128).max;
+    /// @notice The maximum option ratio of a leg of a Panoptic position.
+    uint8 private constant MAX_OPTION_RATIO = 127;
+
     /*//////////////////////////////////////////////////////////////
                               WORLD STATE
     //////////////////////////////////////////////////////////////*/
@@ -1074,5 +1079,210 @@ contract TokenIdHelperTest is PositionUtils {
         uint256 requiredAfter = th.getRequiredBase(pp, optimizedTokenId, currentTick);
         console2.log("tokenIds", TokenId.unwrap(tokenId), TokenId.unwrap(optimizedTokenId));
         assertTrue(requiredAfter <= requiredBefore);
+    }
+
+    function test_equivalentPosition_preservesOriginalScale() public view {
+        TokenId originalPosition = TokenId
+            .wrap(0)
+            .addPoolId(1234)
+            .addLeg(
+                0,
+                2, // optionRatio = 2
+                0,
+                1,
+                0,
+                0,
+                100,
+                10
+            )
+            .addLeg(
+                1,
+                3, // optionRatio = 3
+                0,
+                1,
+                0,
+                0,
+                100,
+                10
+            );
+        uint128 originalSize = 1000;
+
+        (TokenId newPosition, uint128 newSize) = th.equivalentPosition(
+            originalPosition,
+            originalSize
+        );
+
+        uint256 originalScaleLeg0 = originalSize * originalPosition.optionRatio(0);
+        uint256 newScaleLeg0 = newSize * newPosition.optionRatio(0);
+        uint256 originalScaleLeg1 = originalSize * originalPosition.optionRatio(1);
+        uint256 newScaleLeg1 = newSize * newPosition.optionRatio(1);
+
+        {
+            TokenIdHelper.Leg[] memory legs;
+            legs = th.unwrapTokenId(originalPosition);
+        }
+
+        {
+            TokenIdHelper.Leg[] memory legs;
+            legs = th.unwrapTokenId(newPosition);
+        }
+
+        assertEq(originalScaleLeg0, newScaleLeg0, "Scale of the position not preserved on leg 0");
+        assertEq(originalScaleLeg1, newScaleLeg1, "Scale of the position not preserved on leg 1");
+    }
+
+    // TODO: Wish-list for the future: fuzz the number of legs too
+
+    /// Must limit the gas on this test, as it involves a factorisation helper
+
+    /// @custom:fuzz-runs 50
+    /// @custom:fuzz-max-local-rejects 100
+    /// @custom:fuzz-run-limit 30000000
+    function testFuzz_equivalentPosition_preservesOriginalScale(
+        uint128 positionSizeSeed,
+        uint8 optionRatio
+    ) public {
+        optionRatio = uint8(bound(optionRatio, 1, MAX_OPTION_RATIO));
+        positionSize = uint8(bound(positionSizeSeed, 1, MAX_POSITION_SIZE / optionRatio));
+
+        TokenId originalPosition = TokenId.wrap(0).addPoolId(1234).addLeg(
+            0,
+            optionRatio,
+            0,
+            1,
+            0,
+            0,
+            100,
+            10
+        );
+
+        (TokenId newPosition, uint128 newSize) = th.equivalentPosition(
+            originalPosition,
+            positionSize
+        );
+
+        if (newSize > 0) {
+            uint256 originalPayoff = uint256(positionSize) * optionRatio;
+            uint256 newPayoff = uint256(newSize) * newPosition.optionRatio(0);
+            // Tolerance of 1 in case we hit the fallback
+            assertLe(
+                Math.absUint(int256(originalPayoff) - int256(newPayoff)),
+                1,
+                "Fuzzed payoff should be preserved"
+            );
+        }
+    }
+
+    function test_scaledPosition_preservesOriginalScale() public view {
+        TokenId originalPosition = TokenId.wrap(0).addPoolId(1234).addLeg(
+            0,
+            2,
+            0,
+            1,
+            0,
+            0,
+            100,
+            10
+        );
+
+        uint128 scaleFactor = 2;
+
+        TokenId scaledPosition = th.scaledPosition(originalPosition, scaleFactor, true);
+
+        assertEq(
+            scaledPosition.optionRatio(0),
+            originalPosition.optionRatio(0) * scaleFactor,
+            "Option ratio should be scaled up by factor"
+        );
+
+        assertEq(scaledPosition.poolId(), originalPosition.poolId(), "Pool ID should not change");
+        assertEq(scaledPosition.strike(0), originalPosition.strike(0), "Strike should not change");
+        assertEq(scaledPosition.width(0), originalPosition.width(0), "Width should not change");
+        assertEq(scaledPosition.isLong(0), originalPosition.isLong(0), "isLong should not change");
+        assertEq(
+            scaledPosition.tokenType(0),
+            originalPosition.tokenType(0),
+            "Token type should not change"
+        );
+    }
+
+    function _min(uint8 a, uint8 b) internal pure returns (uint256) {
+        return a >= b ? b : a;
+    }
+
+    // TODO: Make these 2 fuzz the # of legs
+    function testFuzz_scaledPosition_up_preservesOriginalScale(
+        uint128 scaleFactor,
+        uint8 originalOptionRatio1,
+        uint8 originalOptionRatio2
+    ) public view {
+        originalOptionRatio1 = uint8(bound(originalOptionRatio1, 1, MAX_OPTION_RATIO / 2));
+        originalOptionRatio2 = uint8(bound(originalOptionRatio2, 1, MAX_OPTION_RATIO / 2));
+        scaleFactor = uint128(
+            bound(
+                scaleFactor,
+                2,
+                _min(
+                    MAX_OPTION_RATIO / originalOptionRatio1,
+                    MAX_OPTION_RATIO / originalOptionRatio2
+                )
+            )
+        );
+
+        TokenId originalPosition = TokenId
+            .wrap(0)
+            .addPoolId(1234)
+            .addLeg(0, originalOptionRatio1, 0, 1, 0, 0, 100, 10)
+            .addLeg(1, originalOptionRatio2, 0, 1, 0, 0, 100, 10);
+
+        TokenId scaledUpPosition = th.scaledPosition(originalPosition, scaleFactor, true);
+
+        assertEq(
+            scaledUpPosition.optionRatio(0),
+            originalOptionRatio1 * scaleFactor,
+            "First leg ratio should be scaled up correctly"
+        );
+        assertEq(
+            scaledUpPosition.optionRatio(1),
+            originalOptionRatio2 * scaleFactor,
+            "Second leg ratio should be scaled up correctly"
+        );
+    }
+
+    function testFuzz_scaledPosition_down_preservesOriginalScale(
+        uint8 scaleFactor,
+        uint8 originalOptionRatio1Seed,
+        uint8 originalOptionRatio2Seed
+    ) public view {
+        scaleFactor = uint8(bound(scaleFactor, 1, MAX_OPTION_RATIO / 2));
+
+        // Bound the multipliers for the original option ratios
+        uint8 fuzzedFactorOriginalOptionRatio1 = uint8(
+            bound(originalOptionRatio1Seed, 1, MAX_OPTION_RATIO / scaleFactor)
+        );
+        uint8 fuzzedFactorOriginalOptionRatio2 = uint8(
+            bound(originalOptionRatio2Seed, 1, MAX_OPTION_RATIO / scaleFactor)
+        );
+
+        // Generate the original option ratios by multiplying with the scale factor multiplier
+        uint8 originalOptionRatio1 = fuzzedFactorOriginalOptionRatio1 * scaleFactor;
+        uint8 originalOptionRatio2 = fuzzedFactorOriginalOptionRatio2 * scaleFactor;
+
+        TokenId originalPosition = TokenId
+            .wrap(0)
+            .addPoolId(1234)
+            .addLeg(0, originalOptionRatio1, 0, 1, 0, 0, 100, 10)
+            .addLeg(1, originalOptionRatio2, 0, 1, 0, 0, 100, 10);
+        TokenId scaledDownPosition = th.scaledPosition(originalPosition, scaleFactor, false);
+        assertEq(
+            scaledDownPosition.optionRatio(0),
+            originalOptionRatio1 / scaleFactor,
+            "First leg ratio should be scaled down correctly"
+        );
+        assertEq(
+            scaledDownPosition.optionRatio(1),
+            originalOptionRatio2 / scaleFactor,
+            "Second leg ratio should be scaled down correctly"
+        );
     }
 }
