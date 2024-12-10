@@ -321,6 +321,7 @@ contract PanopticQuery {
         uint128 currentSize
     ) internal view returns (uint128) {
         (int24 legTickLower, int24 legTickUpper) = tokenId.asTicks(legIndex);
+        
         LeftRightUnsigned legsChunkLiquidityData = SFPM.getAccountLiquidity(
             address(SFPM.getUniswapV3PoolFromId(tokenId.poolId())),
             address(pool),
