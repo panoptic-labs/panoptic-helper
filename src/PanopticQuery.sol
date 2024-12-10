@@ -473,7 +473,7 @@ contract PanopticQuery {
         // Add a leg selling what we need to sell onto sellsidePosition:
         return
             positionToAddOnto.addLeg(
-                // legIndex: add it onto the end (which is countLegs() if any non-zero legs already exist; otherwise its 0)
+                // legIndex: add it onto the end
                 positionToAddOnto.countLegs(),
                 // optionRatio of 1; will make it easier to get equivalentPosition if caller needs
                 1,
