@@ -547,12 +547,10 @@ contract PanopticQuery {
     function getChunkData(
         address account,
         TokenId[] memory positionIdList
-    ) external view returns (uint256[][][] memory) {
-        uint256[][][] memory chunkData = new uint256[][][](positionIdList.length);
+    ) external view returns (uint256[2][4][] memory) {
+        uint256[2][4][] memory chunkData = new uint256[2][4][](positionIdList.length);
 
         for (uint256 i; i < positionIdList.length; ) {
-            uint256[][] memory ithPositionLiquidities = new uint256[][](4);
-
             for (uint256 j; j < positionIdList[i].countLegs(); ) {
                 (int24 tickLower, int24 tickUpper) = positionIdList[i].asTicks(j);
                 LeftRightUnsigned liquidityData = SFPM.getAccountLiquidity(
@@ -563,19 +561,14 @@ contract PanopticQuery {
                     tickUpper
                 );
 
-                uint256[] memory liquidityDataArr = new uint256[](2);
                 // net liquidity:
-                liquidityDataArr[0] = liquidityData.rightSlot();
+                chunkData[i][j][0] = liquidityData.rightSlot();
                 // removed liquidity:
-                liquidityDataArr[1] = liquidityData.leftSlot();
-                ithPositionLiquidities[j] = liquidityDataArr;
-
+                chunkData[i][j][1] = liquidityData.leftSlot();
                 unchecked {
                     ++j;
                 }
             }
-
-            chunkData[i] = ithPositionLiquidities;
             unchecked {
                 ++i;
             }
