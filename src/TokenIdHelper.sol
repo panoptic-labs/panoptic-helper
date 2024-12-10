@@ -475,8 +475,7 @@ contract TokenIdHelper {
         // or just use a hardcoded list.
         // For now, we check 2, then 3, then every odd number:
         if (n % 2 == 0 && 2 <= limit) return 2;
-        for (factor = 3; factor <= limit; factor += 2)
-            if (n % factor == 0) return factor;
+        for (factor = 3; factor <= limit; factor += 2) if (n % factor == 0) return factor;
         return n;
     }
 
