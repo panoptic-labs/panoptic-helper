@@ -309,7 +309,7 @@ contract PanopticQuery {
     /// @notice Computes the minimum required size for a particular leg of a position,
     /// ensuring that after reduction, the buy-side demand does not exceed 90%
     /// of the available sell-side supply.
-    /// @param pool The PanopticPool the position exists on
+    /// @param pool The `PanopticPool` the position exists on
     /// @param tokenId The position with a leg to reduce the size of
     /// @param legIndex The index of the leg to reduce the size of within the tokenId
     /// @param currentSize The current position size
