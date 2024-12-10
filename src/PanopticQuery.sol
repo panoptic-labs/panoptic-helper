@@ -259,7 +259,7 @@ contract PanopticQuery {
     /// @notice Computes the minimum position size `account` must hold for `tokenId`.
     /// @dev The constraint that this method applies is that reducing the current position size to the returned value
     /// should not decrease sell-side liquidity in any given chunk such that liquidity utilisation exceeds 90%.
-    /// @param pool The PanopticPool the supplied position exists on
+    /// @param pool The `PanopticPool` the supplied position exists on
     /// @param account The address of the account to evaluate
     /// @param tokenId The position to reduce the size of
     /// @return minPositionSize The minimum position size of `tokenId` that `account` must hold
