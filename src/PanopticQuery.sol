@@ -543,7 +543,7 @@ contract PanopticQuery {
     /// @notice Fetch data about chunks in a positionIdList.
     /// @param account The address of the account to retrieve liquidity data for
     /// @param positionIdList List of TokenIds to evaluate
-    /// @return chunkData A [positionIdList.length][4][2] array containing netLiquidity and removedLiquidity for each leg
+    /// @return chunkData A [2][4][positionIdList.length] array containing netLiquidity and removedLiquidity for each leg
     function getChunkData(
         address account,
         TokenId[] memory positionIdList
