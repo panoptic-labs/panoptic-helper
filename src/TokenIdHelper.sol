@@ -475,7 +475,8 @@ contract TokenIdHelper {
         // or just use a hardcoded list.
         // For now, we check 2, then 3, then every odd number:
         if (n % 2 == 0 && 2 <= limit) return 2;
-        for (factor = 3; factor <= limit && factor <= n; factor += 2) if (n % factor == 0) return factor;
+        for (factor = 3; factor <= limit && factor <= n; factor += 2)
+            if (n % factor == 0) return factor;
         return n;
     }
 
@@ -484,7 +485,9 @@ contract TokenIdHelper {
     /// divisor against all numbers. Returns 1 if no common divisor is found.
     /// @param numbers Array of numbers to find common divisor for
     /// @return Smallest positive integer that divides all numbers in the array
-    function _lowestNonIdentityCommonFactor(uint256[] memory numbers) internal pure returns (uint256) {
+    function _lowestNonIdentityCommonFactor(
+        uint256[] memory numbers
+    ) internal pure returns (uint256) {
         uint256 min = numbers[0];
         for (uint256 i = 1; i < numbers.length; i++) {
             if (numbers[i] < min) {
