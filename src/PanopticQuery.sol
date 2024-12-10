@@ -440,23 +440,20 @@ contract PanopticQuery {
         uint128 liquidityToSell = minTotalSellsideLiquidity - preexistingSellsideLiquidity;
 
         requiredSize = uint128(
-            asset == 0
-                ? Math.unsafeDivRoundingUp(
-                    _getAmount0ForLiquidityRoundingUp(
+            Math.unsafeDivRoundingUp(
+                asset == 0
+                    ? _getAmount0ForLiquidityRoundingUp(
+                        Math.getSqrtRatioAtTick(tickLower),
+                        Math.getSqrtRatioAtTick(tickUpper),
+                        liquidityToSell
+                    )
+                    : _getAmount1ForLiquidityRoundingUp(
                         Math.getSqrtRatioAtTick(tickLower),
                         Math.getSqrtRatioAtTick(tickUpper),
                         liquidityToSell
                     ),
-                    optionRatio
-                )
-                : Math.unsafeDivRoundingUp(
-                    _getAmount1ForLiquidityRoundingUp(
-                        Math.getSqrtRatioAtTick(tickLower),
-                        Math.getSqrtRatioAtTick(tickUpper),
-                        liquidityToSell
-                    ),
-                    optionRatio
-                )
+                optionRatio
+            )
         );
     }
 
