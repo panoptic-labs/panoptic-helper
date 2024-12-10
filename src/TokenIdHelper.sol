@@ -425,6 +425,10 @@ contract TokenIdHelper {
             }
         }
 
+        // If we haven't returned, then let's re-set the newPosition in case we modified option ratios
+        // of the first N legs before realising the N+1th would be invalid:
+        newPosition = oldPosition;
+
         // Second strategy: Find the smallest non-identity common factor among the oldPosition's leg's optionRatios. if there is one:
         // - divide all of the option ratios by it
         // - return newPosition = oldPosition * LCD _if_ that value is less than max position size
