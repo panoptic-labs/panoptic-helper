@@ -435,7 +435,7 @@ contract TokenIdHelper {
         // Second strategy: Find the smallest non-identity common factor among the oldPosition's leg's optionRatios. if there is one:
         // - divide all of the option ratios by it
         // - return newPosition = oldPosition * LCD _if_ that value is less than max position size
-        uint256 lcdAmongOptionRatios = _findLeastCommonDivisor(optionRatios);
+        uint256 lcdAmongOptionRatios = _lowestNonIdentityCommonFactor(optionRatios);
         if (
             lcdAmongOptionRatios > 1 &&
             (// can oldPositionSize be multiplied by lcdAmongOptionRatios, w/o overflowing, and stay below MAX_POSITION_SIZE?
@@ -463,10 +463,10 @@ contract TokenIdHelper {
     }
 
     /// @notice Finds the smallest factor of a number other than 1, up to a supplied limit.
-    /// @dev Iterates from 2 up to n to find the first number that divides n without remainder.
+    /// @dev Checks 2, then every odd number up to `limit` to find a number that divides n without remainder.
     /// @param n The number to find the lowest factor for
     /// @param limit The upper limit to search to
-    /// @return factor The smallest number > 1 that divides n evenly (which is n itself if n is prime)
+    /// @return factor The smallest number > 1 that divides n evenly; n itself if n is prime or limit is reached
     function _lowestNonIdentityFactor(
         uint256 n,
         uint256 limit
@@ -475,16 +475,16 @@ contract TokenIdHelper {
         // or just use a hardcoded list.
         // For now, we check 2, then 3, then every odd number:
         if (n % 2 == 0 && 2 <= limit) return 2;
-        for (factor = 3; factor <= limit; factor += 2) if (n % factor == 0) return factor;
+        for (factor = 3; factor <= limit && factor <= n; factor += 2) if (n % factor == 0) return factor;
         return n;
     }
 
-    /// @notice Finds the smallest number that divides all numbers in the input array.
+    /// @notice Finds the smallest factor, other than 1, sharedd among all numbers in the input array.
     /// @dev First finds minimum value in array to optimize search space, then checks each potential
     /// divisor against all numbers. Returns 1 if no common divisor is found.
     /// @param numbers Array of numbers to find common divisor for
     /// @return Smallest positive integer that divides all numbers in the array
-    function _findLeastCommonDivisor(uint256[] memory numbers) internal pure returns (uint256) {
+    function _lowestNonIdentityCommonFactor(uint256[] memory numbers) internal pure returns (uint256) {
         uint256 min = numbers[0];
         for (uint256 i = 1; i < numbers.length; i++) {
             if (numbers[i] < min) {
