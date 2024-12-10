@@ -1081,7 +1081,7 @@ contract TokenIdHelperTest is PositionUtils {
         assertTrue(requiredAfter <= requiredBefore);
     }
 
-    function test_equivalentPosition_preservesOriginalScale() public {
+    function test_equivalentPosition_preservesOriginalScale() public view {
         TokenId originalPosition = TokenId
             .wrap(0)
             .addPoolId(1234)
@@ -1139,11 +1139,11 @@ contract TokenIdHelperTest is PositionUtils {
     /// @custom:fuzz-max-local-rejects 100
     /// @custom:fuzz-run-limit 30000000
     function testFuzz_equivalentPosition_preservesOriginalScale(
-        uint128 positionSize,
+        uint128 positionSizeSeed,
         uint8 optionRatio
     ) public {
         optionRatio = uint8(bound(optionRatio, 1, MAX_OPTION_RATIO));
-        positionSize = uint8(bound(positionSize, 1, MAX_POSITION_SIZE / optionRatio));
+        positionSize = uint8(bound(positionSizeSeed, 1, MAX_POSITION_SIZE / optionRatio));
 
         TokenId originalPosition = TokenId.wrap(0).addPoolId(1234).addLeg(
             0,
@@ -1173,7 +1173,7 @@ contract TokenIdHelperTest is PositionUtils {
         }
     }
 
-    function test_scaledPosition_preservesOriginalScale() public {
+    function test_scaledPosition_preservesOriginalScale() public view {
         TokenId originalPosition = TokenId.wrap(0).addPoolId(1234).addLeg(
             0,
             2,
@@ -1215,7 +1215,7 @@ contract TokenIdHelperTest is PositionUtils {
         uint128 scaleFactor,
         uint8 originalOptionRatio1,
         uint8 originalOptionRatio2
-    ) public {
+    ) public view {
         originalOptionRatio1 = uint8(bound(originalOptionRatio1, 1, MAX_OPTION_RATIO / 2));
         originalOptionRatio2 = uint8(bound(originalOptionRatio2, 1, MAX_OPTION_RATIO / 2));
         scaleFactor = uint128(
@@ -1253,7 +1253,7 @@ contract TokenIdHelperTest is PositionUtils {
         uint8 scaleFactor,
         uint8 originalOptionRatio1Seed,
         uint8 originalOptionRatio2Seed
-    ) public {
+    ) public view {
         scaleFactor = uint8(bound(scaleFactor, 1, MAX_OPTION_RATIO / 2));
 
         // Bound the multipliers for the original option ratios

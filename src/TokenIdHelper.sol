@@ -458,9 +458,9 @@ contract TokenIdHelper {
     /// @notice Finds the smallest factor of a number.
     /// @dev Iterates from 2 up to n to find the first number that divides n without remainder.
     /// @param n The number to find the lowest factor for
-    /// @return The smallest number > 1 that divides n evenly, or n itself if n is prime
-    function _lowestNonIdentityFactor(uint256 n) internal pure returns (uint256) {
-        for (uint256 i = 2; i <= n; i++) if (n % i == 0) return i;
+    /// @return factor The smallest number > 1 that divides n evenly, or n itself if n is prime
+    function _lowestNonIdentityFactor(uint256 n) internal pure returns (uint256 factor) {
+        for (factor = 2; factor <= n; factor++) if (n % factor == 0) return factor;
     }
 
     /// @notice Finds the smallest number that divides all numbers in the input array.

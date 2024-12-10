@@ -706,10 +706,9 @@ contract PanopticQueryTest is PositionUtils {
         TokenId[] memory posIdList = new TokenId[](1);
         posIdList[0] = tokenId;
         // TODO: fuzz position size some day
-        uint128 positionSize = 10 ** 15;
         pp.mintOptions(
             posIdList,
-            positionSize,
+            10 ** 15,
             0,
             Constants.MIN_V3POOL_TICK,
             Constants.MAX_V3POOL_TICK
@@ -800,10 +799,10 @@ contract PanopticQueryTest is PositionUtils {
             Constants.MIN_V3POOL_TICK,
             Constants.MAX_V3POOL_TICK
         );
-        (
-            int24 equivalentCallSaleTickLower,
-            int24 equivalentCallSaleTickUpper
-        ) = equivalentCallSaleTokenId.asTicks(0);
+        // (
+        //     int24 equivalentCallSaleTickLower,
+        //     int24 equivalentCallSaleTickUpper
+        // ) = equivalentCallSaleTokenId.asTicks(0);
         vm.startPrank(Alice);
         {
             // 1. Alice should get a revert if she tries to remint-and-burn with 1 less than the min size
