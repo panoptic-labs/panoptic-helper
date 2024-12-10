@@ -354,11 +354,11 @@ contract PanopticQuery {
     /// in the supplied position size and ensure none of its long legs use up too much of the sell-side supply.
     /// @dev Specifically, we ensure the buy-side demand added by the supplied tokenId does not push liquidity
     /// utilisation above 90%, and add a leg to sell into that chunk if it would.
-    /// @param pool the PanopticPool the supplied position exists on
-    /// @param tokenId the tokenId with long legs we must ensure are able to buy
-    /// @param positionSize the position size the caller plans to purchase this tokenId in
-    /// @return sellsidePosition a position you can sell to ensure the long legs in tokenId can buy
-    /// @return sellsidePositionSize the position size to sell the sellsidePosition in
+    /// @param pool The `PanopticPool` the supplied position exists on
+    /// @param tokenId The tokenId with long legs we must ensure are able to buy
+    /// @param positionSize The position size the caller plans to purchase this tokenId in
+    /// @return sellsidePosition A position you can sell to ensure the long legs in tokenId can buy
+    /// @return sellsidePositionSize The position size to sell the sellsidePosition in
     function computeSoldPositionToSatisfyLongLegs(
         PanopticPool pool,
         TokenId tokenId,
