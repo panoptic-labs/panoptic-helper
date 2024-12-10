@@ -35,7 +35,7 @@ contract TokenIdHelper {
     /// @notice The maximum option ratio of a leg of a Panoptic position.
     uint256 public constant MAX_OPTION_RATIO = 127;
 
-    /// @notice Construct the TokenIdHelper contract
+    /// @notice Construct the TokenIdHelper contract.
     /// @param _SFPM address of the SemiFungiblePositionManager
     /// @dev the SFPM is used to get the pool ID for a given address
     constructor(SemiFungiblePositionManager _SFPM) payable {
