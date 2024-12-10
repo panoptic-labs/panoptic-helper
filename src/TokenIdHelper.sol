@@ -480,7 +480,7 @@ contract TokenIdHelper {
         return n;
     }
 
-    /// @notice Finds the smallest factor, other than 1, sharedd among all numbers in the input array.
+    /// @notice Finds the smallest factor, other than 1, shared among all numbers in the input array.
     /// @dev First finds minimum value in array to optimize search space, then checks each potential
     /// divisor against all numbers. Returns 1 if no common divisor is found.
     /// @param numbers Array of numbers to find common divisor for
