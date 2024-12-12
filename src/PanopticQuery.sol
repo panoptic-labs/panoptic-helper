@@ -651,7 +651,7 @@ contract PanopticQuery {
     }
 
     /**
-     * @notice Compute the Delta (sensitivity to price changes) of a group of positions.
+     * @notice Compute the Delta (sensitivity of value to price changes) of a group of positions.
      * @param pool The PanopticPool these positions exist on
      * @param account The account that owns the position
      * @param tick The current tick of the underlying Uniswap pair
@@ -697,7 +697,7 @@ contract PanopticQuery {
     }
 
     /**
-     * @notice Compute the Gamma (sensitivity to Delta changes) of a group of positions.
+     * @notice Compute the Gamma (sensitivity of Delta to price changes) of a group of positions.
      * @param pool The PanopticPool these positions exist on
      * @param account The account that owns the position
      * @param tick The current tick of the underlying Uniswap pair
