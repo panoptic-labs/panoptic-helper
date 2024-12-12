@@ -1165,13 +1165,8 @@ contract PanopticQueryTest is PositionUtils {
 
         // Step 3: Call delta() at current tick
         // TODO: get the right signature here
-        (,,,int24 currentTick) = univ3pool.slot0();
-        (int256 delta0, int256 delta1) = pq.delta(
-            pool,
-            alice,
-            currentTick,
-            posIdList
-        );
+        (, , , int24 currentTick) = univ3pool.slot0();
+        (int256 delta0, int256 delta1) = pq.delta(pool, alice, currentTick, posIdList);
 
         // Step 4: Get the portfolio value
         (int256 prePriceChangeValue0, int256 prePriceChangeValue1) = pq.getPortfolioValue(
@@ -1238,13 +1233,8 @@ contract PanopticQueryTest is PositionUtils {
 
         // Step 3: Call gamma() at current tick
         // TODO: get the right signature here
-        (,,,int24 currentTick) = univ3pool.slot0();
-        (int256 gamma0, int256 gamma1) = pq.gamma(
-            pool,
-            alice,
-            currentTick,
-            posIdList
-        );
+        (, , , int24 currentTick) = univ3pool.slot0();
+        (int256 gamma0, int256 gamma1) = pq.gamma(pool, alice, currentTick, posIdList);
 
         // Step 4: Get the portfolio delta
         (int256 prePriceChangeDelta0, int256 prePriceChangeDelta1) = pq.getPortfolioValue(
