@@ -1130,10 +1130,10 @@ contract PanopticQueryTest is PositionUtils {
     }
 
     function test_delta_returns_correct_values(
-      uint256 worldSeed,
-      uint256 widthSeed,
-      int256 strikeSeed,
-      int24 fuzzedPriceChange
+        uint256 worldSeed,
+        uint256 widthSeed,
+        int256 strikeSeed,
+        int24 fuzzedPriceChange
     ) public {
         // Step 1: Init the world
         _initPool(worldSeed);
@@ -1204,10 +1204,10 @@ contract PanopticQueryTest is PositionUtils {
     }
 
     function test_gamma_returns_correct_values(
-      uint256 worldSeed,
-      uint256 widthSeed,
-      int256 strikeSeed,
-      int24 fuzzedPriceChange
+        uint256 worldSeed,
+        uint256 widthSeed,
+        int256 strikeSeed,
+        int24 fuzzedPriceChange
     ) public {
         // Step 1: Init the world
         _initPool(worldSeed);
