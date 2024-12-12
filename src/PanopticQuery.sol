@@ -649,4 +649,95 @@ contract PanopticQuery {
             int256(uint256(shortPremium.leftSlot())) -
             int256(uint256(longPremium.leftSlot()));
     }
+
+    /**
+     * @notice Compute the Delta (sensitivity to price changes) of a group of positions.
+     * @param pool The PanopticPool these positions exist on
+     * @param account The account that owns the position
+     * @param tick The current tick of the underlying Uniswap pair
+     * @param positionIdList The Panoptic positions to analyse
+     * @return delta0 Sensitivity to changes in token0 price
+     * @return delta1 Sensitivity to changes in token1 price
+     */
+    function delta(
+        address pool,
+        address account,
+        int24 tick,
+        TokenId[] calldata positionIdList
+    ) public view returns (int256 delta0, int256 delta1) {
+        int256 ts = int256(PanopticPool(pool).univ3pool().tickSpacing());
+
+        // https://en.wikipedia.org/wiki/Numerical_differentiation#Higher-order_methods
+        // Use the five-point method to get the first derivative:
+
+        // our sample points are 2 below `tick`, 1 below, 1 above and 2 above:
+        // and our coefficients are constant based on the formula's derivation:
+        // (we drop the middle point of our five points, as its coefficient is 0)
+        int256[] memory coefficients = [-1, 8, -8, 1];
+        int24[] memory offsetFromTick = [-2, -1, 1, 2];
+
+        // Loop through offset ticks and calculate contributions to delta
+        for (uint256 i = 0; i < offsetFromTick.length; i++) {
+            int24 offsetTick = tick + offsetFromTick[i] * int24(ts);
+            (int256 value0, int256 value1) = getPortfolioValue(
+                PanopticPool(pool),
+                account,
+                offsetTick,
+                positionIdList
+            );
+
+            delta0 += coefficients[i] * value0;
+            delta1 += coefficients[i] * value1;
+        }
+
+        delta0 /= (12 * ts);
+        delta1 /= (12 * ts);
+
+        // TODO do we need to figure out that h^4/30 * f^(5)(c) term?
+    }
+
+    /**
+     * @notice Compute the Gamma (sensitivity to Delta changes) of a group of positions.
+     * @param pool The PanopticPool these positions exist on
+     * @param account The account that owns the position
+     * @param tick The current tick of the underlying Uniswap pair
+     * @param positionIdList The Panoptic positions to analyse
+     * @return delta0 Sensitivity to changes in token0 delta
+     * @return delta1 Sensitivity to changes in token1 delta
+     */
+    function gamma(
+        address pool,
+        address account,
+        int24 tick,
+        TokenId[] calldata positionIdList
+    ) public view returns (int256 gamma0, int256 gamma1) {
+        int256 ts = int256(PanopticPool(pool).univ3pool().tickSpacing());
+
+        // https://en.wikipedia.org/wiki/Numerical_differentiation#Higher-order_methods
+        // Use the five-point method to get the first derivative:
+
+        // our sample points are 2 below `tick`, 1 below, at, 1 above and 2 above:
+        // and our coefficients are constant based on the formula's derivation:
+        int256[] memory coefficients = [-1, 16, -30, 16, -1];
+        int24[] memory offsetFromTick = [-2, -1, 0, 1, 2];
+
+        // Loop through offset ticks and calculate contributions to delta
+        for (uint256 i = 0; i < offsetFromTick.length; i++) {
+            int24 offsetTick = tick + offsetFromTick[i] * int24(ts);
+            (int256 value0, int256 value1) = getPortfolioValue(
+                PanopticPool(pool),
+                account,
+                offsetTick,
+                positionIdList
+            );
+
+            gamma0 += coefficients[i] * value0;
+            gamma1 += coefficients[i] * value1;
+        }
+
+        gamma0 /= (12 * ts * ts);
+        gamma1 /= (12 * ts * ts);
+
+        // TODO do we need to figure out that h^4/30 * f^(5)(c) term?
+    }
 }
