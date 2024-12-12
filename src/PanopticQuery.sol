@@ -24,6 +24,14 @@ contract PanopticQuery {
     /// @notice The SemiFungiblePositionManager of the Panoptic instance this querying helper is intended for.
     SemiFungiblePositionManager internal immutable SFPM;
 
+    // The coefficients and offsets to use when approximating portfolio delta with the stencil method
+    int256[4] private DELTA_COEFFICIENTS = [int256(-1), 8, -8, 1];
+    int24[4] private DELTA_OFFSETS = [int24(-2), -1, 1, 2];
+
+    // The coefficients and offsets to use when approximating portfolio gamma with the stencil method
+    int256[5] private GAMMA_COEFFICIENTS = [int256(-1), 16, -30, 16, -1];
+    int24[5] private GAMMA_OFFSETS = [int24(-2), -1, 0, 1, 2];
+
     /// @notice Construct the PanopticQuery and store the SFPM address.
     /// @param SFPM_ The canonical SFPM address for the Panoptic instance this helper queries
     constructor(SemiFungiblePositionManager SFPM_) payable {
@@ -210,7 +218,7 @@ contract PanopticQuery {
         address account,
         int24 atTick,
         TokenId[] calldata positionIdList
-    ) external view returns (int256 value0, int256 value1) {
+    ) public view returns (int256 value0, int256 value1) {
         // Compute premia for all options (includes short+long premium)
         (, , uint256[2][] memory positionBalanceArray) = pool.getAccumulatedFeesAndPositionsData(
             account,
@@ -660,34 +668,27 @@ contract PanopticQuery {
      * @return delta1 Sensitivity to changes in token1 price
      */
     function delta(
-        address pool,
+        PanopticPool pool,
         address account,
         int24 tick,
         TokenId[] calldata positionIdList
     ) public view returns (int256 delta0, int256 delta1) {
-        int256 ts = int256(PanopticPool(pool).univ3pool().tickSpacing());
+        int256 ts = int256(pool.univ3pool().tickSpacing());
 
         // https://en.wikipedia.org/wiki/Numerical_differentiation#Higher-order_methods
-        // Use the five-point method to get the first derivative:
-
-        // our sample points are 2 below `tick`, 1 below, 1 above and 2 above:
-        // and our coefficients are constant based on the formula's derivation:
-        // (we drop the middle point of our five points, as its coefficient is 0)
-        int256[] memory coefficients = [-1, 8, -8, 1];
-        int24[] memory offsetFromTick = [-2, -1, 1, 2];
-
-        // Loop through offset ticks and calculate contributions to delta
-        for (uint256 i = 0; i < offsetFromTick.length; i++) {
-            int24 offsetTick = tick + offsetFromTick[i] * int24(ts);
+        // Use the five-point method to get the first derivative
+        // (But drop the third term as its coefficient is 0):
+        for (uint256 i = 0; i < DELTA_OFFSETS.length; i++) {
+            int24 offsetTick = tick + DELTA_OFFSETS[i] * int24(ts);
             (int256 value0, int256 value1) = getPortfolioValue(
-                PanopticPool(pool),
+                pool,
                 account,
                 offsetTick,
                 positionIdList
             );
 
-            delta0 += coefficients[i] * value0;
-            delta1 += coefficients[i] * value1;
+            delta0 += DELTA_COEFFICIENTS[i] * value0;
+            delta1 += DELTA_COEFFICIENTS[i] * value1;
         }
 
         delta0 /= (12 * ts);
@@ -702,37 +703,30 @@ contract PanopticQuery {
      * @param account The account that owns the position
      * @param tick The current tick of the underlying Uniswap pair
      * @param positionIdList The Panoptic positions to analyse
-     * @return delta0 Sensitivity to changes in token0 delta
-     * @return delta1 Sensitivity to changes in token1 delta
+     * @return gamma0 Sensitivity of delta to changes in token0 price
+     * @return gamma1 Sensitivity of delta to changes in token1 price
      */
     function gamma(
-        address pool,
+        PanopticPool pool,
         address account,
         int24 tick,
         TokenId[] calldata positionIdList
     ) public view returns (int256 gamma0, int256 gamma1) {
-        int256 ts = int256(PanopticPool(pool).univ3pool().tickSpacing());
+        int256 ts = int256(pool.univ3pool().tickSpacing());
 
         // https://en.wikipedia.org/wiki/Numerical_differentiation#Higher-order_methods
-        // Use the five-point method to get the first derivative:
-
-        // our sample points are 2 below `tick`, 1 below, at, 1 above and 2 above:
-        // and our coefficients are constant based on the formula's derivation:
-        int256[] memory coefficients = [-1, 16, -30, 16, -1];
-        int24[] memory offsetFromTick = [-2, -1, 0, 1, 2];
-
-        // Loop through offset ticks and calculate contributions to delta
-        for (uint256 i = 0; i < offsetFromTick.length; i++) {
-            int24 offsetTick = tick + offsetFromTick[i] * int24(ts);
+        // Use the five-point method to get the second derivative:
+        for (uint256 i = 0; i < GAMMA_OFFSETS.length; i++) {
+            int24 offsetTick = tick + GAMMA_OFFSETS[i] * int24(ts);
             (int256 value0, int256 value1) = getPortfolioValue(
-                PanopticPool(pool),
+                pool,
                 account,
                 offsetTick,
                 positionIdList
             );
 
-            gamma0 += coefficients[i] * value0;
-            gamma1 += coefficients[i] * value1;
+            gamma0 += GAMMA_COEFFICIENTS[i] * value0;
+            gamma1 += GAMMA_COEFFICIENTS[i] * value1;
         }
 
         gamma0 /= (12 * ts * ts);

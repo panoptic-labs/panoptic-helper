@@ -1129,7 +1129,12 @@ contract PanopticQueryTest is PositionUtils {
         // (both converted to liquidity units)
     }
 
-    function test_delta_returns_correct_values(uint256 worldSeed, int24 fuzzedPriceChange) public {
+    function test_delta_returns_correct_values(
+      uint256 worldSeed,
+      uint256 widthSeed,
+      int256 strikeSeed,
+      int24 fuzzedPriceChange
+    ) public {
         // Step 1: Init the world
         _initPool(worldSeed);
 
@@ -1165,13 +1170,12 @@ contract PanopticQueryTest is PositionUtils {
 
         // Step 3: Call delta() at current tick
         // TODO: get the right signature here
-        (, , , int24 currentTick) = univ3pool.slot0();
-        (int256 delta0, int256 delta1) = pq.delta(pool, alice, currentTick, posIdList);
+        (int256 delta0, int256 delta1) = pq.delta(pp, Alice, currentTick, posIdList);
 
         // Step 4: Get the portfolio value
         (int256 prePriceChangeValue0, int256 prePriceChangeValue1) = pq.getPortfolioValue(
-            pool,
-            alice,
+            pp,
+            Alice,
             currentTick,
             posIdList
         );
@@ -1181,23 +1185,30 @@ contract PanopticQueryTest is PositionUtils {
 
         // Step 6: Get the new portfolio value, and see if it is Step 4's value + fuzzedPriceChange * Step 3's value
         (int256 postPriceChangeValue0, int256 postPriceChangeValue1) = pq.getPortfolioValue(
-            pool,
-            alice,
+            pp,
+            Alice,
             currentTick,
             posIdList
         );
         // TODO need to add some tolerance here?
         assertEq(
-            postPriceChangeValue0 - prePriceChangeValue0 == delta0 * fuzzedPriceChange,
+            postPriceChangeValue0 - prePriceChangeValue0,
+            delta0 * fuzzedPriceChange,
             "Delta did not predict change in portfolio value0"
         );
         assertEq(
-            postPriceChangeValue1 - prePriceChangeValue1 == delta1 * fuzzedPriceChange,
+            postPriceChangeValue1 - prePriceChangeValue1,
+            delta1 * fuzzedPriceChange,
             "Delta did not predict change in portfolio value1"
         );
     }
 
-    function test_gamma_returns_correct_values(uint256 worldSeed, int24 fuzzedPriceChange) public {
+    function test_gamma_returns_correct_values(
+      uint256 worldSeed,
+      uint256 widthSeed,
+      int256 strikeSeed,
+      int24 fuzzedPriceChange
+    ) public {
         // Step 1: Init the world
         _initPool(worldSeed);
 
@@ -1233,34 +1244,36 @@ contract PanopticQueryTest is PositionUtils {
 
         // Step 3: Call gamma() at current tick
         // TODO: get the right signature here
-        (, , , int24 currentTick) = univ3pool.slot0();
-        (int256 gamma0, int256 gamma1) = pq.gamma(pool, alice, currentTick, posIdList);
+        (int256 gamma0, int256 gamma1) = pq.gamma(pp, Alice, currentTick, posIdList);
 
         // Step 4: Get the portfolio delta
         (int256 prePriceChangeDelta0, int256 prePriceChangeDelta1) = pq.getPortfolioValue(
-            pool,
-            alice,
+            pp,
+            Alice,
             currentTick,
             posIdList
         );
 
         // Step 5: Force the underlying uniswap pool to change by fuzzedPriceChange
         // TODO how? some automated swapping helper here? or maybe a vm hack?
+        // TODO and for this test, be very sure it updates `currentTick` in storage
 
         // Step 6: Get the new portfolio delta, and see if it is Step 4's value + fuzzedPriceChange * Step 3's value
         (int256 postPriceChangeDelta0, int256 postPriceChangeDelta1) = pq.getPortfolioValue(
-            pool,
-            alice,
+            pp,
+            Alice,
             currentTick,
             posIdList
         );
         // TODO need to add some tolerance here?
         assertEq(
-            postPriceChangeDelta0 - prePriceChangeDelta0 == gamma0 * fuzzedPriceChange,
+            postPriceChangeDelta0 - prePriceChangeDelta0,
+            gamma0 * fuzzedPriceChange,
             "Gamma did not predict change in portfolio delta0"
         );
         assertEq(
-            postPriceChangeDelta1 - prePriceChangeDelta1 == gamma1 * fuzzedPriceChange,
+            postPriceChangeDelta1 - prePriceChangeDelta1,
+            gamma1 * fuzzedPriceChange,
             "Gamma did not predict change in portfolio delta1"
         );
     }
