@@ -24,6 +24,14 @@ contract PanopticQuery {
     /// @notice The SemiFungiblePositionManager of the Panoptic instance this querying helper is intended for.
     SemiFungiblePositionManager internal immutable SFPM;
 
+    // The coefficients and offsets to use when approximating portfolio delta with the stencil method
+    int256[4] private DELTA_COEFFICIENTS = [int256(-1), 8, -8, 1];
+    int24[4] private DELTA_OFFSETS = [int24(-2), -1, 1, 2];
+
+    // The coefficients and offsets to use when approximating portfolio gamma with the stencil method
+    int256[5] private GAMMA_COEFFICIENTS = [int256(-1), 16, -30, 16, -1];
+    int24[5] private GAMMA_OFFSETS = [int24(-2), -1, 0, 1, 2];
+
     /// @notice Construct the PanopticQuery and store the SFPM address.
     /// @param SFPM_ The canonical SFPM address for the Panoptic instance this helper queries
     constructor(SemiFungiblePositionManager SFPM_) payable {
@@ -210,7 +218,7 @@ contract PanopticQuery {
         address account,
         int24 atTick,
         TokenId[] calldata positionIdList
-    ) external view returns (int256 value0, int256 value1) {
+    ) public view returns (int256 value0, int256 value1) {
         // Compute premia for all options (includes short+long premium)
         (, , uint256[2][] memory positionBalanceArray) = pool.getAccumulatedFeesAndPositionsData(
             account,
@@ -648,5 +656,82 @@ contract PanopticQuery {
         value1 +=
             int256(uint256(shortPremium.leftSlot())) -
             int256(uint256(longPremium.leftSlot()));
+    }
+
+    /**
+     * @notice Compute the Delta (sensitivity of value to price changes) of a group of positions.
+     * @param pool The PanopticPool these positions exist on
+     * @param account The account that owns the position
+     * @param tick The current tick of the underlying Uniswap pair
+     * @param positionIdList The Panoptic positions to analyse
+     * @return delta0 Sensitivity to changes in token0 price
+     * @return delta1 Sensitivity to changes in token1 price
+     */
+    function delta(
+        PanopticPool pool,
+        address account,
+        int24 tick,
+        TokenId[] calldata positionIdList
+    ) public view returns (int256 delta0, int256 delta1) {
+        int256 ts = int256(pool.univ3pool().tickSpacing());
+
+        // https://en.wikipedia.org/wiki/Numerical_differentiation#Higher-order_methods
+        // Use the five-point method to get the first derivative
+        // (But drop the third term as its coefficient is 0):
+        for (uint256 i = 0; i < DELTA_OFFSETS.length; i++) {
+            int24 offsetTick = tick + DELTA_OFFSETS[i] * int24(ts);
+            (int256 value0, int256 value1) = getPortfolioValue(
+                pool,
+                account,
+                offsetTick,
+                positionIdList
+            );
+
+            delta0 += DELTA_COEFFICIENTS[i] * value0;
+            delta1 += DELTA_COEFFICIENTS[i] * value1;
+        }
+
+        delta0 /= (12 * ts);
+        delta1 /= (12 * ts);
+
+        // TODO do we need to figure out that h^4/30 * f^(5)(c) term?
+    }
+
+    /**
+     * @notice Compute the Gamma (sensitivity of Delta to price changes) of a group of positions.
+     * @param pool The PanopticPool these positions exist on
+     * @param account The account that owns the position
+     * @param tick The current tick of the underlying Uniswap pair
+     * @param positionIdList The Panoptic positions to analyse
+     * @return gamma0 Sensitivity of delta to changes in token0 price
+     * @return gamma1 Sensitivity of delta to changes in token1 price
+     */
+    function gamma(
+        PanopticPool pool,
+        address account,
+        int24 tick,
+        TokenId[] calldata positionIdList
+    ) public view returns (int256 gamma0, int256 gamma1) {
+        int256 ts = int256(pool.univ3pool().tickSpacing());
+
+        // https://en.wikipedia.org/wiki/Numerical_differentiation#Higher-order_methods
+        // Use the five-point method to get the second derivative:
+        for (uint256 i = 0; i < GAMMA_OFFSETS.length; i++) {
+            int24 offsetTick = tick + GAMMA_OFFSETS[i] * int24(ts);
+            (int256 value0, int256 value1) = getPortfolioValue(
+                pool,
+                account,
+                offsetTick,
+                positionIdList
+            );
+
+            gamma0 += GAMMA_COEFFICIENTS[i] * value0;
+            gamma1 += GAMMA_COEFFICIENTS[i] * value1;
+        }
+
+        gamma0 /= (12 * ts * ts);
+        gamma1 /= (12 * ts * ts);
+
+        // TODO do we need to figure out that h^4/30 * f^(5)(c) term?
     }
 }

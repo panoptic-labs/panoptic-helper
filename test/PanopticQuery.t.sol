@@ -1128,4 +1128,153 @@ contract PanopticQueryTest is PositionUtils {
         // it should return a netLiquidity of originalSize - purchaseSize, and removedLiquidity of purchaseSize
         // (both converted to liquidity units)
     }
+
+    function test_delta_returns_correct_values(
+        uint256 worldSeed,
+        uint256 widthSeed,
+        int256 strikeSeed,
+        int24 fuzzedPriceChange
+    ) public {
+        // Step 1: Init the world
+        _initPool(worldSeed);
+
+        // Step 2: Sell a call TODO fuzz the position type someday
+        ($width, $strike) = PositionUtils.getITMSW(
+            widthSeed,
+            strikeSeed,
+            uint24(tickSpacing),
+            currentTick,
+            0
+        );
+        // Alice is selling 100 * 10 ** 15 calls
+        TokenId callSaleTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            isWETH,
+            0,
+            0,
+            0,
+            $strike,
+            $width
+        );
+        TokenId[] memory posIdList = new TokenId[](1);
+        posIdList[0] = callSaleTokenId;
+        uint128 alicesSaleSize = 100 * 10 ** 15;
+        pp.mintOptions(
+            posIdList,
+            alicesSaleSize,
+            0,
+            Constants.MIN_V3POOL_TICK,
+            Constants.MAX_V3POOL_TICK
+        );
+
+        // Step 3: Call delta() at current tick
+        // TODO: get the right signature here
+        (int256 delta0, int256 delta1) = pq.delta(pp, Alice, currentTick, posIdList);
+
+        // Step 4: Get the portfolio value
+        (int256 prePriceChangeValue0, int256 prePriceChangeValue1) = pq.getPortfolioValue(
+            pp,
+            Alice,
+            currentTick,
+            posIdList
+        );
+
+        // Step 5: Force the underlying uniswap pool to change by fuzzedPriceChange
+        // TODO how? some automated swapping helper here? or maybe a vm hack?
+
+        // Step 6: Get the new portfolio value, and see if it is Step 4's value + fuzzedPriceChange * Step 3's value
+        (int256 postPriceChangeValue0, int256 postPriceChangeValue1) = pq.getPortfolioValue(
+            pp,
+            Alice,
+            currentTick,
+            posIdList
+        );
+        // TODO need to add some tolerance here?
+        assertEq(
+            postPriceChangeValue0 - prePriceChangeValue0,
+            delta0 * fuzzedPriceChange,
+            "Delta did not predict change in portfolio value0"
+        );
+        assertEq(
+            postPriceChangeValue1 - prePriceChangeValue1,
+            delta1 * fuzzedPriceChange,
+            "Delta did not predict change in portfolio value1"
+        );
+    }
+
+    function test_gamma_returns_correct_values(
+        uint256 worldSeed,
+        uint256 widthSeed,
+        int256 strikeSeed,
+        int24 fuzzedPriceChange
+    ) public {
+        // Step 1: Init the world
+        _initPool(worldSeed);
+
+        // Step 2: Sell a call TODO fuzz the position type someday
+        ($width, $strike) = PositionUtils.getITMSW(
+            widthSeed,
+            strikeSeed,
+            uint24(tickSpacing),
+            currentTick,
+            0
+        );
+        // Alice is selling 100 * 10 ** 15 calls
+        TokenId callSaleTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            isWETH,
+            0,
+            0,
+            0,
+            $strike,
+            $width
+        );
+        TokenId[] memory posIdList = new TokenId[](1);
+        posIdList[0] = callSaleTokenId;
+        uint128 alicesSaleSize = 100 * 10 ** 15;
+        pp.mintOptions(
+            posIdList,
+            alicesSaleSize,
+            0,
+            Constants.MIN_V3POOL_TICK,
+            Constants.MAX_V3POOL_TICK
+        );
+
+        // Step 3: Call gamma() at current tick
+        // TODO: get the right signature here
+        (int256 gamma0, int256 gamma1) = pq.gamma(pp, Alice, currentTick, posIdList);
+
+        // Step 4: Get the portfolio delta
+        (int256 prePriceChangeDelta0, int256 prePriceChangeDelta1) = pq.getPortfolioValue(
+            pp,
+            Alice,
+            currentTick,
+            posIdList
+        );
+
+        // Step 5: Force the underlying uniswap pool to change by fuzzedPriceChange
+        // TODO how? some automated swapping helper here? or maybe a vm hack?
+        // TODO and for this test, be very sure it updates `currentTick` in storage
+
+        // Step 6: Get the new portfolio delta, and see if it is Step 4's value + fuzzedPriceChange * Step 3's value
+        (int256 postPriceChangeDelta0, int256 postPriceChangeDelta1) = pq.getPortfolioValue(
+            pp,
+            Alice,
+            currentTick,
+            posIdList
+        );
+        // TODO need to add some tolerance here?
+        assertEq(
+            postPriceChangeDelta0 - prePriceChangeDelta0,
+            gamma0 * fuzzedPriceChange,
+            "Gamma did not predict change in portfolio delta0"
+        );
+        assertEq(
+            postPriceChangeDelta1 - prePriceChangeDelta1,
+            gamma1 * fuzzedPriceChange,
+            "Gamma did not predict change in portfolio delta1"
+        );
+    }
 }
