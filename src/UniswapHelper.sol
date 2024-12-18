@@ -60,6 +60,7 @@ contract UniswapHelper {
         IUniswapV3Pool univ3pool
     ) public view returns (int256[] memory, int256[] memory) {
         (, int24 currentTick, , , , , ) = univ3pool.slot0();
+        uint128 liquidity = univ3pool.liquidity();
         int24 tickSpacing = univ3pool.tickSpacing();
         int256 scaledTick = int256((currentTick / tickSpacing) * tickSpacing);
 
@@ -74,7 +75,7 @@ contract UniswapHelper {
 
             if (i == 0) {
                 tickData[i] = scaledTick + dt * tickSpacing;
-                liquidityNets[i] = 250220217232024050;
+                liquidityNets[i] = 1;
             }
             tickData[i + 1] = scaledTick + dt * tickSpacing;
             liquidityNets[i + 1] = liquidityNets[i] + liquidityNet;
@@ -83,6 +84,57 @@ contract UniswapHelper {
             ++dt;
         }
 
+        // if the range overlaps with the current tick, rescale the liquidity Nets such that
+        int256 liquidityDelta = int256(uint256(liquidity)) - liquidityNets[150];
+        for (uint256 j = 0; j < 301; ++j) {
+            liquidityNets[j] += liquidityDelta;
+        }
+
+        return (tickData, liquidityNets);
+    }
+
+    function getTickNets(
+        IUniswapV3Pool univ3pool,
+        int24 startTick,
+        uint256 nTicks
+    ) public view returns (int256[] memory, int256[] memory) {
+        (, int24 currentTick, , , , , ) = univ3pool.slot0();
+        uint128 liquidity = univ3pool.liquidity();
+        int24 tickSpacing = univ3pool.tickSpacing();
+        int256 scaledCurrentTick = int256((currentTick / tickSpacing) * tickSpacing);
+        int256 scaledStartTick = int256((startTick / tickSpacing) * tickSpacing);
+
+        int256[] memory tickData = new int256[](2 * nTicks + 1);
+        int256[] memory liquidityNets = new int256[](2 * nTicks + 1);
+
+        uint256 i;
+        uint256 currentTickIndex = type(uint128).max;
+        for (int256 dt = -int256(nTicks); dt < int256(nTicks); ) {
+            (, int128 liquidityNet, , , , , , ) = univ3pool.ticks(
+                int24(scaledStartTick + dt * tickSpacing)
+            );
+
+            if (i == 0) {
+                tickData[i] = scaledStartTick + dt * tickSpacing;
+                liquidityNets[i] = 1;
+            }
+            tickData[i + 1] = scaledStartTick + dt * tickSpacing;
+            liquidityNets[i + 1] = liquidityNets[i] + liquidityNet;
+
+            if (scaledCurrentTick == tickData[i + 1]) {
+                currentTickIndex = i + 1;
+            }
+            ++i;
+            ++dt;
+        }
+
+        // if the range overlaps with the current tick, rescale the liquidity Nets such that
+        if (currentTickIndex < type(uint128).max) {
+            int256 liquidityDelta = int256(uint256(liquidity)) - liquidityNets[currentTickIndex];
+            for (uint256 j = 0; j < 2 * nTicks + 1; ++j) {
+                liquidityNets[j] += liquidityDelta;
+            }
+        }
         return (tickData, liquidityNets);
     }
 
@@ -795,7 +847,11 @@ contract UniswapHelper {
 
         (, int24 currentTick, , , , , ) = univ3pool.slot0();
 
-        (int256[] memory tickData, int256[] memory liquidityData) = getTickNets(univ3pool);
+        (int256[] memory tickData, int256[] memory liquidityData) = getTickNets(
+            univ3pool,
+            currentTick,
+            500
+        );
 
         // recard liquidityData into token0
         //liquidityData = recastLiquidity(tickData, liquidityData, int24(currentTick), decimals0);
