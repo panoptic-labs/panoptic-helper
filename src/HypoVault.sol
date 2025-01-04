@@ -256,6 +256,8 @@ contract HypoVault is ERC20Minimal {
         openPositions(currentTick, slowOracleTick, minTick, maxTick);
 
         currentEpoch = uint128(block.timestamp + epochLength);
+        assetsPendingDeposit = 0;
+        sharesPendingWithdrawal = 0;
     }
 
     function openPositions(
@@ -307,7 +309,9 @@ contract HypoVault is ERC20Minimal {
     function closePositions(TokenId currentPosition, int24 minTick, int24 maxTick) internal {
         // for our example, we are going to 100% collateralize the notional value of the position we mint in the borrowed token
         // thus, a position will never require more tokens to close (w/o zapping) than collateral we have on hand (unless protocol loss occurs)
-        pp.burnOptions(currentPosition, new TokenId[](0), minTick, maxTick);
+        // skip burn on first epoch
+        if (TokenId.unwrap(currentPosition) != 0)
+            pp.burnOptions(currentPosition, new TokenId[](0), minTick, maxTick);
 
         // now withdraw any collateral of the *non-underlying* token
         // if this fails, we just delay the next epoch until the withdrawal can go through. any better solution for this is more complicated
@@ -319,19 +323,21 @@ contract HypoVault is ERC20Minimal {
                 address(this)
             );
 
+            int256 amount0;
             // pretend this swap works all the time and we implemented the callback
             // ideally this is an asynchronous auction using something like CoWswap or Enso -- so the epoch advancement would be divided into two parts
             // we would also want to do only one swap for both the position close and the position open -- the reason we are doing two
             // in this prototype is so we can easily get a NAV figure to close this epoch's price at
-            (int256 amount0, ) = univ3pool.swap(
-                address(this),
-                !underlyingIsToken0,
-                int256(assetsToSwap),
-                underlyingIsToken0
-                    ? Math.getSqrtRatioAtTick(maxTick)
-                    : Math.getSqrtRatioAtTick(minTick),
-                ""
-            );
+            if (assetsToSwap > 0)
+                (amount0, ) = univ3pool.swap(
+                    address(this),
+                    !underlyingIsToken0,
+                    int256(assetsToSwap),
+                    underlyingIsToken0
+                        ? Math.getSqrtRatioAtTick(maxTick)
+                        : Math.getSqrtRatioAtTick(minTick),
+                    ""
+                );
 
             amount0 = -amount0;
 
@@ -359,7 +365,7 @@ contract HypoVault is ERC20Minimal {
 
             if (assetsToWithdraw > 0)
                 ct0.withdraw(uint256(assetsToWithdraw), address(this), address(this));
-                // ensure all collateral is deposited -- this initial version of the vault assumes that the tokenType = underlying and deposits extra collateral to remain at 100%
+                // ensure all collateral is deposited -- this initial version of the vault assumes that the tokenType = underlying and uses zapping
             else if (assetsToWithdraw < 0) ct0.deposit(uint256(-assetsToWithdraw), address(this));
 
             totalSupply = uint256(
