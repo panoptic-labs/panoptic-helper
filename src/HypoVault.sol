@@ -112,7 +112,7 @@ contract HypoVault is ERC20Minimal {
 
         int256 depositDelta;
         // if the previous queued deposit has already gone into effect, reset the queued deposit state and mint shares
-        if (_currentEpoch > pendingDeposit.epoch) {
+        if (pendingDeposit.epoch > 0 && _currentEpoch > pendingDeposit.epoch) {
             EpochState memory depositEpochState = closeState[_currentEpoch];
 
             // shares from pending deposits are already added to the supply at the start of every new epoch
@@ -173,7 +173,7 @@ contract HypoVault is ERC20Minimal {
         uint128 _currentEpoch = currentEpoch;
 
         // if the previous queued withdrawal has already gone into effect, reset the queued withdrawal state and distribute tokens
-        if (_currentEpoch > pendingWithdrawal.epoch) {
+        if (pendingWithdrawal.epoch > 0 && _currentEpoch > pendingWithdrawal.epoch) {
             EpochState memory withdrawalEpochState = closeState[_currentEpoch];
 
             queuedWithdrawal[msg.sender] = PendingAction({
@@ -202,7 +202,9 @@ contract HypoVault is ERC20Minimal {
             int256 withdrawalDelta = int256(uint256(updatedWithdrawalShares)) -
                 int256(uint256(pendingWithdrawal.amount));
 
-            balanceOf[msg.sender] = uint256(int256(balanceOf[msg.sender]) - withdrawalDelta);
+            if (withdrawalDelta > 0) balanceOf[msg.sender] -= uint256(withdrawalDelta);
+            else balanceOf[msg.sender] = uint256(int256(balanceOf[msg.sender]) - withdrawalDelta);
+
             sharesPendingWithdrawal = uint256(int256(sharesPendingWithdrawal) + withdrawalDelta);
         }
     }
@@ -236,6 +238,7 @@ contract HypoVault is ERC20Minimal {
                              STRATEGY LOGIC
     //////////////////////////////////////////////////////////////*/
 
+    // advances the epoch, rebalancing positions and processing deposits/withdrawals if epoch length has passed or rebalance criteria are met
     function advanceEpoch(TokenId currentPosition) external {
         (int24 currentTick, , int24 slowOracleTick, , ) = pp.getOracleTicks();
 
