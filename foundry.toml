@@ -6,10 +6,11 @@ libs = ['lib']
 no_match_path = "src/*"
 evm_version = 'cancun'
 optimizer = true
-optimizer_runs = 999_999
+optimizer_runs = 1
 viaIR = false
 gas_limit = 9223372036854775807
 eth_rpc_url = "https://eth.public-rpc.com"
+auto_detect_remappings = false
 
 [profile.ci_test]
 fork_block_number = 18963715
