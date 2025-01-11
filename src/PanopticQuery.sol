@@ -2,7 +2,7 @@
 pragma solidity ^0.8.0;
 
 // Interfaces
-import {IUniswapV3Pool} from "univ3-core/interfaces/IUniswapV3Pool.sol";
+import {IV3CompatibleOracle} from "@interfaces/IV3CompatibleOracle.sol";
 import {PanopticPool} from "@contracts/PanopticPool.sol";
 import {SemiFungiblePositionManager} from "@contracts/SemiFungiblePositionManager.sol";
 // Libraries
@@ -137,26 +137,26 @@ contract PanopticQuery {
                           ORACLE CALCULATIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Returns the median of the last `cardinality` average prices over `period` observations from `univ3pool`.
+    /// @notice Returns the median of the last `cardinality` average prices over `period` observations from `oracleContract`.
     /// @dev Used when we need a manipulation-resistant TWAP price.
     /// @dev Uniswap observations snapshot the closing price of the last block before the first interaction of a given block.
     /// @dev The maximum frequency of observations is 1 per block, but there is no guarantee that the pool will be observed at every block.
-    /// @dev Each period has a minimum length of blocktime * period, but may be longer if the Uniswap pool is relatively inactive.
+    /// @dev Each period has a minimum length of blocktime * period, but may be longer if the oracle contract is relatively inactive.
     /// @dev The final price used in the array (of length `cardinality`) is the average of all observations comprising `period` (which is itself a number of observations).
     /// @dev Thus, the minimum total time window is `cardinality` * `period` * `blocktime`.
-    /// @param univ3pool The Uniswap pool to get the median observation from
+    /// @param oracleContract The oracle contract to get the median observation from
     /// @param cardinality The number of `periods` to in the median price array, should be odd.
     /// @param period The number of observations to average to compute one entry in the median price array
-    /// @return medianTick The median of `cardinality` observations spaced by `period` in the Uniswap pool
+    /// @return medianTick The median of `cardinality` observations spaced by `period` in the oracle contract
     function computeMedianObservedPrice(
-        IUniswapV3Pool univ3pool,
+        IV3CompatibleOracle oracleContract,
         uint256 cardinality,
         uint256 period
     ) external view returns (int24 medianTick) {
-        (, , uint16 observationIndex, uint16 observationCardinality, , , ) = univ3pool.slot0();
+        (, , uint16 observationIndex, uint16 observationCardinality, , , ) = oracleContract.slot0();
 
         (medianTick, ) = PanopticMath.computeMedianObservedPrice(
-            univ3pool,
+            oracleContract,
             observationIndex,
             observationCardinality,
             cardinality,
@@ -165,18 +165,18 @@ contract PanopticQuery {
     }
 
     /// @notice Takes a packed structure representing a sorted 8-slot queue of ticks and returns the median of those values.
-    /// @dev Also inserts the latest Uniswap observation into the buffer, resorts, and returns if the last entry is at least `period` seconds old.
+    /// @dev Also inserts the latest oracle observation into the buffer, resorts, and returns if the last entry is at least `period` seconds old.
     /// @param period The minimum time in seconds that must have passed since the last observation was inserted into the buffer
     /// @param medianData The packed structure representing the sorted 8-slot queue of ticks
-    /// @param univ3pool The Uniswap pool to retrieve observations from
+    /// @param oracleContract The oralce contract to retrieve observations from
     /// @return The median of the provided 8-slot queue of ticks in `medianData`
     /// @return The updated 8-slot queue of ticks with the latest observation inserted if the last entry is at least `period` seconds old (returns 0 otherwise)
     function computeInternalMedian(
         uint256 period,
         uint256 medianData,
-        IUniswapV3Pool univ3pool
+        IV3CompatibleOracle oracleContract
     ) external view returns (int24, uint256) {
-        (, , uint16 observationIndex, uint16 observationCardinality, , , ) = univ3pool.slot0();
+        (, , uint16 observationIndex, uint16 observationCardinality, , , ) = oracleContract.slot0();
 
         return
             PanopticMath.computeInternalMedian(
@@ -184,18 +184,21 @@ contract PanopticQuery {
                 observationCardinality,
                 period,
                 medianData,
-                univ3pool
+                oracleContract
             );
     }
 
-    /// @notice Computes the twap of a Uniswap V3 pool using data from its oracle.
+    /// @notice Computes the twap of a Uniswap V3-compatible oracle contract.
     /// @dev Note that our definition of TWAP differs from a typical mean of prices over a time window.
     /// @dev We instead observe the average price over a series of time intervals, and define the TWAP as the median of those averages.
-    /// @param univ3pool The Uniswap pool from which to compute the TWAP.
+    /// @param oracleContract The oracle contract from which to compute the TWAP.
     /// @param twapWindow The time window to compute the TWAP over.
     /// @return The final calculated TWAP tick.
-    function twapFilter(IUniswapV3Pool univ3pool, uint32 twapWindow) external view returns (int24) {
-        return PanopticMath.twapFilter(univ3pool, twapWindow);
+    function twapFilter(
+        IV3CompatibleOracle oracleContract,
+        uint32 twapWindow
+    ) external view returns (int24) {
+        return PanopticMath.twapFilter(oracleContract, twapWindow);
     }
 
     /// @notice Calculate NAV of user's option portfolio with respect to Uniswap liquidity at a given tick.
@@ -323,7 +326,7 @@ contract PanopticQuery {
         (int24 legTickLower, int24 legTickUpper) = tokenId.asTicks(legIndex);
 
         LeftRightUnsigned legsChunkLiquidityData = SFPM.getAccountLiquidity(
-            address(SFPM.getUniswapV3PoolFromId(tokenId.poolId())),
+            SFPM.getUniswapV4PoolKeyFromId(tokenId.poolId()).toId(),
             address(pool),
             tokenId.tokenType(legIndex),
             legTickLower,
@@ -373,7 +376,7 @@ contract PanopticQuery {
                 LeftRightUnsigned legsChunkLiquidityData;
                 {
                     legsChunkLiquidityData = SFPM.getAccountLiquidity(
-                        address(SFPM.getUniswapV3PoolFromId(tokenId.poolId())),
+                        SFPM.getUniswapV4PoolKeyFromId(tokenId.poolId()).toId(),
                         address(pool),
                         tokenId.tokenType(i),
                         legTickLower,
@@ -553,7 +556,7 @@ contract PanopticQuery {
             for (uint256 j; j < positionIdList[i].countLegs(); ) {
                 (int24 tickLower, int24 tickUpper) = positionIdList[i].asTicks(j);
                 LeftRightUnsigned liquidityData = SFPM.getAccountLiquidity(
-                    address(SFPM.getUniswapV3PoolFromId(positionIdList[i].poolId())),
+                    SFPM.getUniswapV4PoolKeyFromId(positionIdList[i].poolId()).toId(),
                     account,
                     positionIdList[i].tokenType(j),
                     tickLower,

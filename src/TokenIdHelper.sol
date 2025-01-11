@@ -13,12 +13,13 @@ import {PeripheryErrors} from "@helper/PeripheryErrors.sol";
 // Types
 import {LeftRightUnsigned} from "@types/LeftRight.sol";
 import {TokenId, TokenIdLibrary} from "@types/TokenId.sol";
+import {PoolId} from "v4-core/types/PoolId.sol";
 
 /// @title Deployable contract to interact with TokenIds, that comes with extra utils for ease of use
 contract TokenIdHelper {
     struct Leg {
         uint64 poolId;
-        address UniswapV3Pool;
+        PoolId idV4;
         uint256 asset;
         uint256 optionRatio;
         uint256 tokenType;
@@ -771,10 +772,10 @@ contract TokenIdHelper {
         Leg[] memory legs = new Leg[](numLegs);
 
         uint64 _poolId = tokenId.poolId();
-        address UniswapV3Pool = address(SFPM.getUniswapV3PoolFromId(tokenId.poolId()));
+        PoolId idV4 = SFPM.getUniswapV4PoolKeyFromId(tokenId.poolId()).toId();
         for (uint256 i = 0; i < numLegs; ++i) {
             legs[i].poolId = _poolId;
-            legs[i].UniswapV3Pool = UniswapV3Pool;
+            legs[i].idV4 = idV4;
             legs[i].asset = tokenId.asset(i);
             legs[i].optionRatio = tokenId.optionRatio(i);
             legs[i].tokenType = tokenId.tokenType(i);
