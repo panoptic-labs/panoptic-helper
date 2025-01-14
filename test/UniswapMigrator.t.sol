@@ -9,11 +9,17 @@ import {PanopticFactory} from "@contracts/PanopticFactory.sol";
 import {CollateralTracker} from "@contracts/CollateralTracker.sol";
 import {SemiFungiblePositionManager} from "@contracts/SemiFungiblePositionManager.sol";
 import {Pointer} from "@types/Pointer.sol";
+import {IV3CompatibleOracle} from "@interfaces/IV3CompatibleOracle.sol";
 import {IERC20Partial} from "@tokens/interfaces/IERC20Partial.sol";
 import {PeripheryErrors} from "@helper/PeripheryErrors.sol";
 import {IUniswapV3Pool} from "v3-core/interfaces/IUniswapV3Pool.sol";
 import {IUniswapV3Factory} from "v3-core/interfaces/IUniswapV3Factory.sol";
 import {INonfungiblePositionManager} from "v3-periphery/interfaces/INonfungiblePositionManager.sol";
+import {PoolManager} from "v4-core/PoolManager.sol";
+import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
+import {IHooks} from "v4-core/interfaces/IHooks.sol";
+import {PoolKey} from "v4-core/types/PoolKey.sol";
+import {Currency} from "v4-core/types/Currency.sol";
 
 import {IERC20Partial} from "@tokens/interfaces/IERC20Partial.sol";
 
@@ -59,21 +65,33 @@ contract UniswapMigratorTest is Test {
     UniswapMigrator uniswapMigrator;
 
     function setUp() public {
-        sfpm = new SemiFungiblePositionManager(V3FACTORY, 10 ** 13, 0);
+        IPoolManager manager = IPoolManager(address(new PoolManager(address(0))));
+
+        PoolKey memory poolKey = PoolKey(
+            Currency.wrap(address(USDC)),
+            Currency.wrap(address(WETH)),
+            500,
+            10,
+            IHooks(address(0))
+        );
+
+        manager.initialize(poolKey, 2 ** 96);
+
+        sfpm = new SemiFungiblePositionManager(manager, 10 ** 13, 10 ** 13, 0);
 
         // deploy reference pool and collateral token
-        poolReference = address(new PanopticPool(sfpm));
+        poolReference = address(new PanopticPool(sfpm, manager));
 
         // no commission/mint fee
         collateralReference = address(
-            new CollateralTracker(0, 2_000, 1_000, -1_024, 5_000, 9_000, 20_000)
+            new CollateralTracker(0, 2_000, 1_000, -1_024, 5_000, 9_000, 20, manager)
         );
 
         vm.startPrank(Deployer);
 
         factory = new PanopticFactory(
             sfpm,
-            V3FACTORY,
+            manager,
             poolReference,
             collateralReference,
             new bytes32[](0),
@@ -90,7 +108,11 @@ contract UniswapMigratorTest is Test {
 
         pp = PanopticPool(
             address(
-                factory.deployNewPool(address(USDC), address(WETH), 500, uint96(block.timestamp))
+                factory.deployNewPool(
+                    IV3CompatibleOracle(address(USDC_WETH_5)),
+                    poolKey,
+                    uint96(block.timestamp)
+                )
             )
         );
 
@@ -131,10 +153,7 @@ contract UniswapMigratorTest is Test {
             })
         );
 
-        tokenIds.push(tokenId);
-        amount0Mins.push([0, 0]);
-
-        uniswapMigrator.migrate(tokenIds, amount0Mins, ct0, ct1);
+        uniswapMigrator.migrate(tokenId, 0, 0, ct0, ct1);
 
         // err = rounded down shares
         assertApproxEqAbs(ct0.convertToAssets(ct0.balanceOf(Alice)), amount0, 1);
@@ -160,10 +179,7 @@ contract UniswapMigratorTest is Test {
             })
         );
 
-        tokenIds.push(tokenId);
-        amount0Mins.push([0, 0]);
-
-        uniswapMigrator.migrate(tokenIds, amount0Mins, ct0, ct1);
+        uniswapMigrator.migrate(tokenId, 0, 0, ct0, ct1);
 
         // err = rounded down shares
         assertApproxEqAbs(ct0.convertToAssets(ct0.balanceOf(Alice)), amount0, 1);
@@ -189,10 +205,7 @@ contract UniswapMigratorTest is Test {
             })
         );
 
-        tokenIds.push(tokenId);
-        amount0Mins.push([0, 0]);
-
-        uniswapMigrator.migrate(tokenIds, amount0Mins, ct0, ct1);
+        uniswapMigrator.migrate(tokenId, 0, 0, ct0, ct1);
 
         // err = rounded down shares
         assertEq(ct0.balanceOf(Alice), 0);
@@ -201,6 +214,8 @@ contract UniswapMigratorTest is Test {
 
     function test_success_migrate_multiple() public {
         vm.startPrank(Alice);
+
+        bytes[] memory calls = new bytes[](32);
 
         for (uint256 i = 0; i < 32; ++i) {
             (tokenId, , amount0, amount1) = V3NFPM.mint(
@@ -224,9 +239,18 @@ contract UniswapMigratorTest is Test {
 
             tokenIds.push(tokenId);
             amount0Mins.push([0, 0]);
+
+            calls[i] = abi.encodeWithSelector(
+                uniswapMigrator.migrate.selector,
+                tokenId,
+                0,
+                0,
+                ct0,
+                ct1
+            );
         }
 
-        uniswapMigrator.migrate(tokenIds, amount0Mins, ct0, ct1);
+        uniswapMigrator.multicall(calls);
 
         // err = rounded down shares
         assertApproxEqAbs(ct0.convertToAssets(ct0.balanceOf(Alice)), amount0Migrate, 32);
@@ -252,13 +276,10 @@ contract UniswapMigratorTest is Test {
             })
         );
 
-        tokenIds.push(tokenId);
-        amount0Mins.push([0, 0]);
-
         vm.startPrank(Alice);
 
         vm.expectRevert(PeripheryErrors.UnauthorizedMigration.selector);
-        uniswapMigrator.migrate(tokenIds, amount0Mins, ct0, ct1);
+        uniswapMigrator.migrate(tokenId, 0, 0, ct0, ct1);
     }
 
     function test_fail_migrate_single_slippage0() public {
@@ -280,13 +301,10 @@ contract UniswapMigratorTest is Test {
             })
         );
 
-        tokenIds.push(tokenId);
-        amount0Mins.push([amount0 + 1, 0]);
-
         vm.startPrank(Alice);
 
         vm.expectRevert();
-        uniswapMigrator.migrate(tokenIds, amount0Mins, ct0, ct1);
+        uniswapMigrator.migrate(tokenId, amount0 + 1, 0, ct0, ct1);
     }
 
     function test_fail_migrate_single_slippage1() public {
@@ -308,13 +326,10 @@ contract UniswapMigratorTest is Test {
             })
         );
 
-        tokenIds.push(tokenId);
-        amount0Mins.push([0, amount1 + 1]);
-
         vm.startPrank(Alice);
 
         vm.expectRevert();
-        uniswapMigrator.migrate(tokenIds, amount0Mins, ct0, ct1);
+        uniswapMigrator.migrate(tokenId, 0, amount1 + 1, ct0, ct1);
     }
 
     function test_fail_migrate_single_slippageboth() public {
@@ -336,17 +351,16 @@ contract UniswapMigratorTest is Test {
             })
         );
 
-        tokenIds.push(tokenId);
-        amount0Mins.push([amount0 + 1, amount1 + 1]);
-
         vm.startPrank(Alice);
 
         vm.expectRevert();
-        uniswapMigrator.migrate(tokenIds, amount0Mins, ct0, ct1);
+        uniswapMigrator.migrate(tokenId, amount0 + 1, amount1 + 1, ct0, ct1);
     }
 
     function test_fail_migrate_multiple_unauthorized() public {
         vm.startPrank(Alice);
+
+        bytes[] memory calls = new bytes[](32);
 
         for (uint256 i = 0; i < 32; ++i) {
             (tokenId, , amount0, amount1) = V3NFPM.mint(
@@ -365,17 +379,24 @@ contract UniswapMigratorTest is Test {
                 })
             );
 
-            tokenIds.push(tokenId);
-            amount0Mins.push([0, 0]);
+            calls[i] = abi.encodeWithSelector(
+                uniswapMigrator.migrate.selector,
+                tokenId,
+                0,
+                0,
+                ct0,
+                ct1
+            );
         }
 
         vm.expectRevert(PeripheryErrors.UnauthorizedMigration.selector);
-        uniswapMigrator.migrate(tokenIds, amount0Mins, ct0, ct1);
+        uniswapMigrator.multicall(calls);
     }
 
     function test_fail_migrate_multiple_slippage() public {
         vm.startPrank(Alice);
 
+        bytes[] memory calls = new bytes[](32);
         for (uint256 i = 0; i < 32; ++i) {
             (tokenId, , amount0, amount1) = V3NFPM.mint(
                 INonfungiblePositionManager.MintParams({
@@ -395,9 +416,18 @@ contract UniswapMigratorTest is Test {
 
             tokenIds.push(tokenId);
             amount0Mins.push(i == 17 ? [uint256(0), amount1 + 1] : [uint256(0), uint256(0)]);
+
+            calls[i] = abi.encodeWithSelector(
+                uniswapMigrator.migrate.selector,
+                tokenId,
+                0,
+                i == 17 ? amount1 + 1 : 0,
+                ct0,
+                ct1
+            );
         }
 
         vm.expectRevert();
-        uniswapMigrator.migrate(tokenIds, amount0Mins, ct0, ct1);
+        uniswapMigrator.multicall(calls);
     }
 }

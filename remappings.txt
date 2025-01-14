@@ -1,5 +1,6 @@
 forge-std/=lib/panoptic-v1-core/lib/forge-std/src/
 @openzeppelin/=lib/panoptic-v1-core/lib/openzeppelin-contracts/
+v3-core/=lib/panoptic-v1-core/lib/v3-core/contracts/
 univ3-core/=lib/panoptic-v1-core/lib/v3-core/contracts/
 v4-core/=lib/panoptic-v1-core/lib/v4-core/src
 v3-periphery/=lib/panoptic-v1-core/lib/v3-periphery/contracts/

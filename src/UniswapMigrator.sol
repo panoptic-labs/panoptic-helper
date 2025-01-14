@@ -1,6 +1,9 @@
-// SPDX-License-Identifier: BUSL-1.1
+// SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity ^0.8.18;
 
+// Base
+import {Multicall} from "@base/Multicall.sol";
+import {SelfPermit} from "v3-periphery/base/SelfPermit.sol";
 // Interfaces
 import {CollateralTracker} from "@contracts/CollateralTracker.sol";
 import {INonfungiblePositionManager} from "v3-periphery/interfaces/INonfungiblePositionManager.sol";
@@ -10,7 +13,7 @@ import {PeripheryErrors} from "@helper/PeripheryErrors.sol";
 
 /// @title Facilitates the migration from Uniswap LPing to PLPing.
 /// @author Axicon Labs Limited
-contract UniswapMigrator {
+contract UniswapMigrator is Multicall, SelfPermit {
     /// @notice Canonical NonFungiblePositionManager deployment
     INonfungiblePositionManager immutable NFPM;
 
@@ -20,54 +23,44 @@ contract UniswapMigrator {
         NFPM = _NFPM;
     }
 
-    /// @notice Removes all liquidity from `tokenIds` in the NFPM and deposits into collateral vaults.
+    /// @notice Removes all liquidity from `tokenId` in the NFPM and deposits into collateral vaults.
     /// @dev All positions in `tokenIds` SHOULD be on the same pool.
     /// @dev All positions in `tokenIds` MUST have the same token0/token1.
     /// @dev `amountMins` MUST be the same length as `tokenIds`.
-    /// @param tokenIds List of NFPM token ids to remove liquidity from
-    /// @param amountMins An array of [amount0Min, amount1Min] for each tokenId
+    /// @param tokenId The NFPM token ID to migrate
+    /// @param amount0Min The minimum amount of token0 that should be collected from the position
+    /// @param amount1Min The minimum amount of token1 that should be collected from the position
     /// @param ct0 Desired collateral vault to deposit token0 into
     /// @param ct1 Desired collateral vault to deposit token1 into
     function migrate(
-        uint256[] calldata tokenIds,
-        uint256[2][] calldata amountMins,
+        uint256 tokenId,
+        uint256 amount0Min,
+        uint256 amount1Min,
         CollateralTracker ct0,
         CollateralTracker ct1
     ) external {
-        uint256 amount0Collected;
-        uint256 amount1Collected;
+        if (NFPM.ownerOf(tokenId) != msg.sender) revert PeripheryErrors.UnauthorizedMigration();
 
-        for (uint256 i; i < tokenIds.length; ++i) {
-            if (NFPM.ownerOf(tokenIds[i]) != msg.sender)
-                revert PeripheryErrors.UnauthorizedMigration();
+        (, , , , , , , uint128 liquidity, , , , ) = NFPM.positions(tokenId);
 
-            (, , , , , , , uint128 liquidity, , , , ) = NFPM.positions(tokenIds[i]);
+        NFPM.decreaseLiquidity(
+            INonfungiblePositionManager.DecreaseLiquidityParams({
+                tokenId: tokenId,
+                liquidity: liquidity,
+                amount0Min: amount0Min,
+                amount1Min: amount1Min,
+                deadline: type(uint32).max
+            })
+        );
 
-            NFPM.decreaseLiquidity(
-                INonfungiblePositionManager.DecreaseLiquidityParams({
-                    tokenId: tokenIds[i],
-                    liquidity: liquidity,
-                    amount0Min: amountMins[i][0],
-                    amount1Min: amountMins[i][1],
-                    deadline: type(uint32).max
-                })
-            );
-
-            (uint256 amount0CollectedFromPosition, uint256 amount1CollectedFromPosition) = NFPM
-                .collect(
-                    INonfungiblePositionManager.CollectParams({
-                        tokenId: tokenIds[i],
-                        recipient: address(this),
-                        amount0Max: type(uint128).max,
-                        amount1Max: type(uint128).max
-                    })
-                );
-
-            unchecked {
-                amount0Collected += amount0CollectedFromPosition;
-                amount1Collected += amount1CollectedFromPosition;
-            }
-        }
+        (uint256 amount0Collected, uint256 amount1Collected) = NFPM.collect(
+            INonfungiblePositionManager.CollectParams({
+                tokenId: tokenId,
+                recipient: address(this),
+                amount0Max: type(uint128).max,
+                amount1Max: type(uint128).max
+            })
+        );
 
         if (amount0Collected > 0) {
             IERC20Partial(ct0.asset()).approve(address(ct0), amount0Collected);
