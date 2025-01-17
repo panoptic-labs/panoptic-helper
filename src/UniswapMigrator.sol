@@ -2,7 +2,7 @@
 pragma solidity ^0.8.18;
 
 // Base
-import {Multicall} from "@base/Multicall.sol";
+import {Multicall} from "./base/Multicall.sol";
 import {SelfPermit} from "v3-periphery/base/SelfPermit.sol";
 // Interfaces
 import {CollateralTracker} from "@contracts/CollateralTracker.sol";
