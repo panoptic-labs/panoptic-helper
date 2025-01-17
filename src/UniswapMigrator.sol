@@ -176,6 +176,6 @@ contract UniswapMigrator is Multicall, SelfPermit {
     }
 
     /// @notice Accepts native currency.
-    /// @dev Used to handle native currency in migrateV4 for native-currency-based pools + receive native currency from mid-migration swaps
+    /// @dev Used to handle native currency in migrateV4 for native-currency-based pools + receive native currency from mid-migration swaps.
     receive() external payable {}
 }
