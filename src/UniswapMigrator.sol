@@ -31,15 +31,12 @@ contract UniswapMigrator is Multicall, SelfPermit {
         V4_PM = _V4_PM;
     }
 
-    /// @notice Removes all liquidity from `tokenId` in the NFPM and deposits into collateral vaults.
-    /// @dev All positions in `tokenIds` SHOULD be on the same pool.
-    /// @dev All positions in `tokenIds` MUST have the same token0/token1.
-    /// @dev `amountMins` MUST be the same length as `tokenIds`.
+    /// @notice Removes all liquidity from `tokenId` in the NFPM and deposits into supplied `CollateralTracker` vaults.
     /// @param tokenId The NFPM token ID to migrate
-    /// @param amount0Min The minimum amount of token0 that should be collected from the position
-    /// @param amount1Min The minimum amount of token1 that should be collected from the position
-    /// @param swapAddresses List of addresses to call in order to swap tokens
-    /// @param swapCalls List of calls, corresponding to `swapAddresses` to make in order to swap tokens
+    /// @param amount0Min The minimum amount of token0 that should be collected from `tokenId`
+    /// @param amount1Min The minimum amount of token1 that should be collected from `tokenId`
+    /// @param swapAddresses If applicable, a list of addresses to call in order to swap tokens to the desired deposit ratio
+    /// @param swapCalls List of calls to make, corresponding to `swapAddresses`, in order to swap tokens
     /// @param ct0 Desired collateral vault to deposit token0 into
     /// @param ct1 Desired collateral vault to deposit token1 into
     function migrateV3(
@@ -105,15 +102,12 @@ contract UniswapMigrator is Multicall, SelfPermit {
         }
     }
 
-    /// @notice Removes all liquidity from `tokenId` in the NFPM and deposits into collateral vaults.
-    /// @dev All positions in `tokenIds` SHOULD be on the same pool.
-    /// @dev All positions in `tokenIds` MUST have the same token0/token1.
-    /// @dev `amountMins` MUST be the same length as `tokenIds`.
+    /// @notice Removes all liquidity from `tokenId` in the NFPM and deposits into supplied `CollateralTracker` vaults.
     /// @param tokenId The NFPM token ID to migrate
-    /// @param amount0Min The minimum amount of token0 that should be collected from the position
-    /// @param amount1Min The minimum amount of token1 that should be collected from the position
-    /// @param swapAddresses List of addresses to call in order to swap tokens
-    /// @param swapCalls List of calls, corresponding to `swapAddresses` to make in order to swap tokens
+    /// @param amount0Min The minimum amount of token0 that should be collected from `tokenId`
+    /// @param amount1Min The minimum amount of token1 that should be collected from `tokenId`
+    /// @param swapAddresses If applicable, a list of addresses to call in order to swap tokens to the desired deposit ratio
+    /// @param swapCalls List of calls to make, corresponding to `swapAddresses`, in order to swap tokens
     /// @param swapValues List of ether values to send with the corresponding swap call
     /// @param ct0 Desired collateral vault to deposit token0 into
     /// @param ct1 Desired collateral vault to deposit token1 into
@@ -181,5 +175,7 @@ contract UniswapMigrator is Multicall, SelfPermit {
         }
     }
 
+    /// @notice Accepts native currency.
+    /// @dev Used to handle native currency in migrateV4 for native-currency-based pools + receive native currency from mid-migration swaps
     receive() external payable {}
 }
