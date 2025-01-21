@@ -94,10 +94,7 @@ contract UniswapMigrator is Multicall, SelfPermit {
 
         amountCollected = IERC20Partial(token1).balanceOf(address(this));
         if (amountCollected > 0) {
-            IERC20Partial(token1).approve(
-                address(ct1),
-                IERC20Partial(token1).balanceOf(address(this))
-            );
+            IERC20Partial(token1).approve(address(ct1), amountCollected);
             ct1.deposit(amountCollected, msg.sender);
         }
     }
