@@ -10,6 +10,7 @@ import {IERC20Partial} from "@tokens/interfaces/IERC20Partial.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {INonfungiblePositionManager} from "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import {IPositionManager} from "v4-periphery/interfaces/IPositionManager.sol";
+import {IWETH9} from "v4-periphery/interfaces/external/IWETH9.sol";
 /// Libraries
 import {Actions} from "v4-periphery/libraries/Actions.sol";
 import {PeripheryErrors} from "@helper/PeripheryErrors.sol";
@@ -23,18 +24,24 @@ contract UniswapMigrator is Multicall, SelfPermit {
     /// @notice Canonical Uniswap V4 PositionManager deployment
     IPositionManager immutable V4_PM;
 
+    /// @notice Canonical WETH deployment
+    IWETH9 immutable WETH;
+
     /// @notice Set canonical deployments of NonFungiblePositionManager and Uniswap V4 PositionManager.
     /// @param _NFPM Address of canonical NonFungiblePositionManager
     /// @param _V4_PM Address of canonical Uniswap V4 PositionManager
-    constructor(INonfungiblePositionManager _NFPM, IPositionManager _V4_PM) {
+    /// @param _WETH Address of canonical WETH contract
+    constructor(INonfungiblePositionManager _NFPM, IPositionManager _V4_PM, IWETH9 _WETH) {
         NFPM = _NFPM;
         V4_PM = _V4_PM;
+        WETH = _WETH;
     }
 
     /// @notice Removes all liquidity from `tokenId` in the NFPM and deposits into supplied `CollateralTracker` vaults.
     /// @param tokenId The NFPM token ID to migrate
     /// @param amount0Min The minimum amount of token0 that should be collected from `tokenId`
     /// @param amount1Min The minimum amount of token1 that should be collected from `tokenId`
+    /// @param unwrapWETH If true, assume `token0` or `token1` is WETH and `ct0` is native ETH, unwrapping received WETH to deposit in `ct0`
     /// @param swapAddresses If applicable, a list of addresses to call in order to swap tokens to the desired deposit ratio
     /// @param swapCalls List of calls to make, corresponding to `swapAddresses`, in order to swap tokens
     /// @param ct0 Desired collateral vault to deposit token0 into
@@ -43,6 +50,7 @@ contract UniswapMigrator is Multicall, SelfPermit {
         uint256 tokenId,
         uint256 amount0Min,
         uint256 amount1Min,
+        bool unwrapWETH,
         address[] memory swapAddresses,
         bytes[] memory swapCalls,
         CollateralTracker ct0,
@@ -86,10 +94,18 @@ contract UniswapMigrator is Multicall, SelfPermit {
             }
         }
 
+        // swap v3 WETH/TOKEN order to match alphanumeric order in v4 (0x0000..., TOKEN)
+        if (unwrapWETH && token1 == address(WETH)) (token0, token1) = (token1, token0);
+
         uint256 amountCollected = IERC20Partial(token0).balanceOf(address(this));
         if (amountCollected > 0) {
-            IERC20Partial(token0).approve(address(ct0), amountCollected);
-            ct0.deposit(amountCollected, msg.sender);
+            if (unwrapWETH) {
+                WETH.withdraw(amountCollected);
+                ct0.deposit{value: amountCollected}(amountCollected, msg.sender);
+            } else {
+                IERC20Partial(token0).approve(address(ct0), amountCollected);
+                ct0.deposit(amountCollected, msg.sender);
+            }
         }
 
         amountCollected = IERC20Partial(token1).balanceOf(address(this));

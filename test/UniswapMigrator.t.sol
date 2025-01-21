@@ -139,7 +139,7 @@ contract UniswapMigratorTest is Test {
             new Pointer[][](0)
         );
 
-        uniswapMigrator = new UniswapMigrator(V3NFPM, posManager);
+        uniswapMigrator = new UniswapMigrator(V3NFPM, posManager, IWETH9(address(WETH)));
 
         deal(address(USDC), Deployer, type(uint104).max);
         deal(address(WETH), Deployer, type(uint104).max);
@@ -239,7 +239,7 @@ contract UniswapMigratorTest is Test {
             })
         );
 
-        uniswapMigrator.migrateV3(tokenId, 0, 0, new address[](0), new bytes[](0), ct0, ct1);
+        uniswapMigrator.migrateV3(tokenId, 0, 0, false, new address[](0), new bytes[](0), ct0, ct1);
 
         // err = rounded down shares
         assertApproxEqAbs(ct0.convertToAssets(ct0.balanceOf(Alice)), amount0, 1);
@@ -329,7 +329,7 @@ contract UniswapMigratorTest is Test {
             })
         );
 
-        uniswapMigrator.migrateV3(tokenId, 0, 0, new address[](0), new bytes[](0), ct0, ct1);
+        uniswapMigrator.migrateV3(tokenId, 0, 0, false, new address[](0), new bytes[](0), ct0, ct1);
 
         // err = rounded down shares
         assertApproxEqAbs(ct0.convertToAssets(ct0.balanceOf(Alice)), amount0, 1);
@@ -387,7 +387,7 @@ contract UniswapMigratorTest is Test {
             })
         );
 
-        uniswapMigrator.migrateV3(tokenId, 0, 0, new address[](0), new bytes[](0), ct0, ct1);
+        uniswapMigrator.migrateV3(tokenId, 0, 0, false, new address[](0), new bytes[](0), ct0, ct1);
 
         // err = rounded down shares
         assertEq(ct0.balanceOf(Alice), 0);
@@ -459,6 +459,7 @@ contract UniswapMigratorTest is Test {
                 tokenId,
                 0,
                 0,
+                false,
                 new address[](0),
                 new bytes[](0),
                 ct0,
@@ -495,7 +496,7 @@ contract UniswapMigratorTest is Test {
         vm.startPrank(Alice);
 
         vm.expectRevert(PeripheryErrors.UnauthorizedMigration.selector);
-        uniswapMigrator.migrateV3(tokenId, 0, 0, new address[](0), new bytes[](0), ct0, ct1);
+        uniswapMigrator.migrateV3(tokenId, 0, 0, false, new address[](0), new bytes[](0), ct0, ct1);
     }
 
     function test_fail_migrateV4_unauthorized() public {
@@ -555,6 +556,7 @@ contract UniswapMigratorTest is Test {
             tokenId,
             amount0 + 1,
             0,
+            false,
             new address[](0),
             new bytes[](0),
             ct0,
@@ -617,6 +619,7 @@ contract UniswapMigratorTest is Test {
             tokenId,
             0,
             amount1 + 1,
+            false,
             new address[](0),
             new bytes[](0),
             ct0,
@@ -679,6 +682,7 @@ contract UniswapMigratorTest is Test {
             tokenId,
             amount0 + 1,
             amount1 + 1,
+            false,
             new address[](0),
             new bytes[](0),
             ct0,
@@ -741,7 +745,7 @@ contract UniswapMigratorTest is Test {
         bytes[] memory swapCalls = new bytes[](2);
 
         vm.expectRevert(PeripheryErrors.InvalidSwapAddress.selector);
-        uniswapMigrator.migrateV3(tokenId, 0, 0, swapAddresses, swapCalls, ct0, ct1);
+        uniswapMigrator.migrateV3(tokenId, 0, 0, false, swapAddresses, swapCalls, ct0, ct1);
 
         swapAddresses = new address[](1);
         swapAddresses[0] = address(V4_PM);
@@ -749,7 +753,7 @@ contract UniswapMigratorTest is Test {
         swapCalls = new bytes[](1);
 
         vm.expectRevert(PeripheryErrors.InvalidSwapAddress.selector);
-        uniswapMigrator.migrateV3(tokenId, 0, 0, swapAddresses, swapCalls, ct0, ct1);
+        uniswapMigrator.migrateV3(tokenId, 0, 0, false, swapAddresses, swapCalls, ct0, ct1);
     }
 
     function test_fail_migrateV4_InvalidSwapAddress() public {
