@@ -115,8 +115,8 @@ contract UniswapMigrator is Multicall, SelfPermit {
         }
     }
 
-    /// @notice Removes all liquidity from `tokenId` in the NFPM and deposits into supplied `CollateralTracker` vaults.
-    /// @param tokenId The NFPM token ID to migrate
+    /// @notice Removes all liquidity from `tokenId` in the V4 position manager and deposits into supplied `CollateralTracker` vaults.
+    /// @param tokenId The V4 position manager token ID to migrate
     /// @param amount0Min The minimum amount of token0 that should be collected from `tokenId`
     /// @param amount1Min The minimum amount of token1 that should be collected from `tokenId`
     /// @param swapAddresses If applicable, a list of addresses to call in order to swap tokens to the desired deposit ratio
@@ -189,6 +189,6 @@ contract UniswapMigrator is Multicall, SelfPermit {
     }
 
     /// @notice Accepts native currency.
-    /// @dev Used to handle native currency in migrateV4 for native-currency-based pools + receive native currency from mid-migration swaps.
+    /// @dev Used to handle native currency in migrateV4 for native-currency-based pools + receive native currency from mid-migration swaps and WETH unwraps.
     receive() external payable {}
 }
