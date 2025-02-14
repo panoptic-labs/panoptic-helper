@@ -4,8 +4,8 @@ pragma solidity ^0.8.24;
 // Foundry
 import "forge-std/Script.sol";
 // Interfaces
-import {IUniswapV3Factory} from "univ3-core/interfaces/IUniswapV3Factory.sol";
-import {INonfungiblePositionManager} from "v3-periphery/interfaces/INonfungiblePositionManager.sol";
+import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
+import {IPositionManager} from "v4-periphery/interfaces/IPositionManager.sol";
 import {SemiFungiblePositionManager} from "@contracts/SemiFungiblePositionManager.sol";
 // Contracts
 import {UniswapHelper} from "@helper/UniswapHelper.sol";
@@ -17,8 +17,8 @@ contract DeployUniswapHelper is Script {
         vm.startBroadcast(DEPLOYER_PRIVATE_KEY);
 
         new UniswapHelper(
-            IUniswapV3Factory(vm.envAddress("UNIV3_FACTORY")),
-            INonfungiblePositionManager(vm.envAddress("NFPM")),
+            IPoolManager(vm.envAddress("POOL_MANAGER_V4")),
+            IPositionManager(vm.envAddress("POS_MANAGER_V4")),
             SemiFungiblePositionManager(vm.envAddress("SFPM"))
         );
 

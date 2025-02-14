@@ -3,14 +3,18 @@ pragma solidity ^0.8.18;
 //import "forge-std/Test.sol";
 
 // Interfaces
-import {IUniswapV3Pool} from "univ3-core/interfaces/IUniswapV3Pool.sol";
-import {IUniswapV3Factory} from "univ3-core/interfaces/IUniswapV3Factory.sol";
-import {INonfungiblePositionManager} from "v3-periphery/interfaces/INonfungiblePositionManager.sol";
+import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
+import {IPositionManager} from "v4-periphery/interfaces/IPositionManager.sol";
 import {SemiFungiblePositionManager} from "@contracts/SemiFungiblePositionManager.sol";
 // Libraries
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {Base64} from "@openzeppelin/contracts/utils/Base64.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
+import {PoolId} from "v4-core/types/PoolId.sol";
+import {PoolKey} from "v4-core/types/PoolKey.sol";
+import {Currency} from "v4-core/types/Currency.sol";
+import {PositionInfo} from "v4-periphery/libraries/PositionInfoLibrary.sol";
 
 /// @title Utility contract for token ID construction and advanced queries.
 /// @author Axicon Labs Limited
@@ -32,8 +36,8 @@ contract UniswapHelper {
         string tokenURI;
     }
 
-    IUniswapV3Factory internal immutable FACTORY;
-    INonfungiblePositionManager immutable NFPM;
+    IPoolManager internal immutable V4_POOLM;
+    IPositionManager immutable V4_POSM;
     SemiFungiblePositionManager internal immutable SFPM;
 
     using Strings for uint256;
@@ -45,23 +49,22 @@ contract UniswapHelper {
     int256 private constant TITLE_HEIGHT = 20;
 
     /// @notice Construct the PanopticHelper contract
-    /// @param _factory address of the Uniswap factory
     constructor(
-        IUniswapV3Factory _factory,
-        INonfungiblePositionManager _NFPM,
+        IPoolManager _V4_POOLM,
+        IPositionManager _V4_POSM,
         SemiFungiblePositionManager _SFPM
     ) payable {
-        FACTORY = _factory;
-        NFPM = _NFPM;
+        V4_POOLM = _V4_POOLM;
+        V4_POSM = _V4_POSM;
         SFPM = _SFPM;
     }
 
     function getTickNets(
-        IUniswapV3Pool univ3pool
+        PoolKey memory poolKey
     ) public view returns (int256[] memory, int256[] memory) {
-        (, int24 currentTick, , , , , ) = univ3pool.slot0();
-        uint128 liquidity = univ3pool.liquidity();
-        int24 tickSpacing = univ3pool.tickSpacing();
+        (, int24 currentTick, , ) = StateLibrary.getSlot0(V4_POOLM, poolKey.toId());
+        uint128 liquidity = StateLibrary.getLiquidity(V4_POOLM, poolKey.toId());
+        int24 tickSpacing = poolKey.tickSpacing;
         int256 scaledTick = int256((currentTick / tickSpacing) * tickSpacing);
 
         int256[] memory tickData = new int256[](301);
@@ -69,7 +72,9 @@ contract UniswapHelper {
 
         uint256 i;
         for (int256 dt = -150; dt < 150; ) {
-            (, int128 liquidityNet, , , , , , ) = univ3pool.ticks(
+            (, int128 liquidityNet, , ) = StateLibrary.getTickInfo(
+                V4_POOLM,
+                poolKey.toId(),
                 int24(scaledTick + dt * tickSpacing)
             );
 
@@ -94,13 +99,13 @@ contract UniswapHelper {
     }
 
     function getTickNets(
-        IUniswapV3Pool univ3pool,
+        PoolKey memory poolKey,
         int24 startTick,
         uint256 nTicks
     ) public view returns (int256[] memory, int256[] memory) {
-        (, int24 currentTick, , , , , ) = univ3pool.slot0();
-        uint128 liquidity = univ3pool.liquidity();
-        int24 tickSpacing = univ3pool.tickSpacing();
+        (, int24 currentTick, , ) = StateLibrary.getSlot0(V4_POOLM, poolKey.toId());
+        uint128 liquidity = StateLibrary.getLiquidity(V4_POOLM, poolKey.toId());
+        int24 tickSpacing = poolKey.tickSpacing;
         int256 scaledCurrentTick = int256((currentTick / tickSpacing) * tickSpacing);
         int256 scaledStartTick = int256((startTick / tickSpacing) * tickSpacing);
 
@@ -110,7 +115,10 @@ contract UniswapHelper {
         uint256 i;
         uint256 currentTickIndex = type(uint128).max;
         for (int256 dt = -int256(nTicks); dt < int256(nTicks); ) {
-            (, int128 liquidityNet, , , , , , ) = univ3pool.ticks(
+            PoolKey memory _poolKey = poolKey;
+            (, int128 liquidityNet, , ) = StateLibrary.getTickInfo(
+                V4_POOLM,
+                _poolKey.toId(),
                 int24(scaledStartTick + dt * tickSpacing)
             );
 
@@ -842,13 +850,11 @@ contract UniswapHelper {
         return string(abi.encodePacked("data:image/svg+xml;base64,", Base64.encode(bytes(svg))));
     }
 
-    function plotPoolLiquidity(address pool) public view returns (string memory) {
-        IUniswapV3Pool univ3pool = IUniswapV3Pool(pool);
-
-        (, int24 currentTick, , , , , ) = univ3pool.slot0();
+    function plotPoolLiquidity(PoolKey memory poolKey) public view returns (string memory) {
+        (, int24 currentTick, , ) = StateLibrary.getSlot0(V4_POOLM, poolKey.toId());
 
         (int256[] memory tickData, int256[] memory liquidityData) = getTickNets(
-            univ3pool,
+            poolKey,
             currentTick,
             500
         );
@@ -859,9 +865,9 @@ contract UniswapHelper {
         string memory title;
 
         {
-            uint24 feeTier = univ3pool.fee();
-            string memory symbol0 = ERC20(univ3pool.token0()).symbol();
-            string memory symbol1 = ERC20(univ3pool.token1()).symbol();
+            uint24 feeTier = poolKey.fee;
+            string memory symbol0 = ERC20(Currency.unwrap(poolKey.currency0)).symbol();
+            string memory symbol1 = ERC20(Currency.unwrap(poolKey.currency1)).symbol();
 
             title = string(
                 abi.encodePacked(
@@ -878,40 +884,21 @@ contract UniswapHelper {
     }
 
     function plotPnL(uint256 tokenId) public view returns (string memory) {
-        int24 currentTick;
-        int24 tickLower;
-        int24 tickUpper;
-        uint128 liquidity;
+        (PoolKey memory poolKey, PositionInfo info) = V4_POSM.getPoolAndPositionInfo(tokenId);
 
-        IUniswapV3Pool univ3pool;
-        //uint256 fees0;
-        //uint256 fees1;
-        {
-            address token0;
-            address token1;
-            uint24 fee;
-            (
-                ,
-                ,
-                token0,
-                token1,
-                fee,
+        int24 tickLower = info.tickLower();
+        int24 tickUpper = info.tickUpper();
+        uint128 liquidity = V4_POSM.getPositionLiquidity(tokenId);
+        (, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128) = StateLibrary
+            .getPositionInfo(
+                V4_POOLM,
+                poolKey.toId(),
+                address(V4_POSM),
                 tickLower,
                 tickUpper,
-                liquidity, //feeGrowthInside0LastX128,
-                //feeGrowthInside1LastX128,
-                //uint128 tokensOwed0,
-                //uint128 tokensOwed1
-                ,
-                ,
-                ,
+                bytes32(tokenId)
+            );
 
-            ) = NFPM.positions(tokenId);
-
-            univ3pool = IUniswapV3Pool(FACTORY.getPool(token0, token1, fee));
-
-            (, currentTick, , , , , ) = univ3pool.slot0();
-        }
         int256[] memory tickData = new int256[](300);
         {
             int24 positionWidth = tickUpper - tickLower;
@@ -931,23 +918,11 @@ contract UniswapHelper {
             uint256 fees0;
             uint256 fees1;
             {
-                uint256 feeGrowthInside0LastX128;
-                uint256 feeGrowthInside1LastX128;
-                (, , , , , , , , feeGrowthInside0LastX128, feeGrowthInside1LastX128, , ) = NFPM
-                    .positions(tokenId);
+                (uint256 feeGrowthInside0X128, uint256 feeGrowthInside1X128) = StateLibrary
+                    .getFeeGrowthInside(V4_POOLM, poolKey.toId(), tickLower, tickUpper);
 
-                (
-                    uint256 feeGrowthInside0X128,
-                    uint256 feeGrowthInside1X128
-                ) = _getAMMSwapFeesPerLiquidityCollected(
-                        univ3pool,
-                        currentTick,
-                        tickLower,
-                        tickUpper
-                    );
-
-                fees0 = (feeGrowthInside0X128 * liquidity) / 2 ** 128;
-                fees1 = (feeGrowthInside1X128 * liquidity) / 2 ** 128;
+                fees0 = ((feeGrowthInside0X128 - feeGrowthInside0LastX128) * liquidity) / 2 ** 128;
+                fees1 = ((feeGrowthInside1X128 - feeGrowthInside1LastX128) * liquidity) / 2 ** 128;
             }
             for (uint256 i; i < 300; ++i) {
                 int24 _tick = int24(tickData[i]);
@@ -973,6 +948,7 @@ contract UniswapHelper {
         string memory svg;
         {
             uint256 _tokenId = tokenId;
+            (, int24 currentTick, , ) = StateLibrary.getSlot0(V4_POOLM, poolKey.toId());
             svg = generatePoolSVGChart(
                 tickData,
                 pnlData,
@@ -1304,154 +1280,6 @@ contract UniswapHelper {
                 return mulDiv(amount, 2 ** 192, uint256(sqrtPriceX96) ** 2);
             } else {
                 return mulDiv(amount, 2 ** 128, mulDiv(sqrtPriceX96, sqrtPriceX96, 2 ** 64));
-            }
-        }
-    }
-
-    /// @notice Calculates the fee growth that has occurred (per unit of liquidity) in the AMM/Uniswap for an
-    /// option position's tick range.
-    /// @dev Extracts the feeGrowth from the uniswap v3 pool.
-    /// @param univ3pool The AMM pool where the leg is deployed
-    /// @param currentTick The current price tick in the AMM
-    /// @param tickLower The lower tick of the option position leg (a liquidity chunk)
-    /// @param tickUpper The upper tick of the option position leg (a liquidity chunk)
-    /// @return feeGrowthInside0X128 The fee growth in the AMM of token0
-    /// @return feeGrowthInside1X128 The fee growth in the AMM of token1
-    function _getAMMSwapFeesPerLiquidityCollected(
-        IUniswapV3Pool univ3pool,
-        int24 currentTick,
-        int24 tickLower,
-        int24 tickUpper
-    ) internal view returns (uint256 feeGrowthInside0X128, uint256 feeGrowthInside1X128) {
-        // Get feesGrowths from the option position's lower+upper ticks
-        // lowerOut0: For token0: fee growth per unit of liquidity on the _other_ side of tickLower (relative to currentTick)
-        // only has relative meaning, not absolute — the value depends on when the tick is initialized
-        // (...)
-        // upperOut1: For token1: fee growth on the _other_ side of tickUpper (again: relative to currentTick)
-        // the point is: the range covered by lowerOut0 changes depending on where currentTick is.
-        (, , uint256 lowerOut0, uint256 lowerOut1, , , , ) = univ3pool.ticks(tickLower);
-        (, , uint256 upperOut0, uint256 upperOut1, , , , ) = univ3pool.ticks(tickUpper);
-
-        // compute the effective feeGrowth, depending on whether price is above/below/within range
-        unchecked {
-            if (currentTick < tickLower) {
-                /**
-                  Diagrams shown for token0, and applies for token1 the same
-                  L = lowerTick, U = upperTick
-
-                    liquidity         lowerOut0 (all fees collected in this price tick range for token0)
-                        ▲            ◄──────────────^v───► (to MAX_TICK)
-                        │
-                        │                      upperOut0
-                        │                     ◄─────^v───►
-                        │           ┌────────┐
-                        │           │ chunk  │
-                        │           │        │
-                        └─────▲─────┴────────┴────────► price tick
-                              │     L        U
-                              │
-                           current
-                            tick
-                */
-                feeGrowthInside0X128 = lowerOut0 - upperOut0; // fee growth inside the chunk
-                feeGrowthInside1X128 = lowerOut1 - upperOut1;
-            } else if (currentTick >= tickUpper) {
-                /**
-                    liquidity
-                        ▲           upperOut0
-                        │◄─^v─────────────────────►
-                        │     
-                        │     lowerOut0  ┌────────┐
-                        │◄─^v───────────►│ chunk  │
-                        │                │        │
-                        └────────────────┴────────┴─▲─────► price tick
-                                         L        U │
-                                                    │
-                                                 current
-                                                  tick
-                 */
-                feeGrowthInside0X128 = upperOut0 - lowerOut0;
-                feeGrowthInside1X128 = upperOut1 - lowerOut1;
-            } else {
-                /**
-                  current AMM tick is within the option position range (within the chunk)
-
-                     liquidity
-                        ▲        feeGrowthGlobal0X128 = global fee growth
-                        │                             = (all fees collected for the entire price range for token 0)
-                        │
-                        │                        
-                        │     lowerOut0  ┌──────────────┐ upperOut0
-                        │◄─^v───────────►│              │◄─────^v───►
-                        │                │     chunk    │
-                        │                │              │
-                        └────────────────┴───────▲──────┴─────► price tick
-                                         L       │      U
-                                                 │
-                                              current
-                                               tick
-                */
-                feeGrowthInside0X128 = univ3pool.feeGrowthGlobal0X128() - lowerOut0 - upperOut0;
-                feeGrowthInside1X128 = univ3pool.feeGrowthGlobal1X128() - lowerOut1 - upperOut1;
-            }
-        }
-    }
-
-    /// @notice Retrieves all Uniswap V3 NFT positions for a given account.
-    /// @dev Retrieves the complete Position struct and tokenURI for each NFT so that position details can be displayed alongside SVGs.
-    /// @param account The address of the account to fetch positions for
-    /// @return positionsWithTokenURI An array of PositionWithTokenURI structs containing details of each position, including its tokenURI
-    function getNfpmPositionsForAccount(
-        address account
-    ) public view returns (PositionWithTokenURI[] memory positionsWithTokenURI) {
-        uint256 balance = NFPM.balanceOf(account);
-        positionsWithTokenURI = new PositionWithTokenURI[](balance);
-
-        for (uint256 i; i < balance; ++i) {
-            uint256 tokenId = NFPM.tokenOfOwnerByIndex(account, i);
-
-            // Assign struct in multiple blocks to avoid stack too deep
-            {
-                (
-                    uint96 nonce,
-                    address operator,
-                    address token0,
-                    address token1,
-                    uint24 fee,
-                    int24 tickLower,
-                    int24 tickUpper,
-                    uint128 liquidity,
-                    uint256 feeGrowthInside0LastX128,
-                    uint256 feeGrowthInside1LastX128,
-                    ,
-
-                ) = NFPM.positions(tokenId);
-
-                positionsWithTokenURI[i] = PositionWithTokenURI({
-                    nonce: nonce,
-                    operator: operator,
-                    token0: token0,
-                    token1: token1,
-                    fee: fee,
-                    tickLower: tickLower,
-                    tickUpper: tickUpper,
-                    liquidity: liquidity,
-                    feeGrowthInside0LastX128: feeGrowthInside0LastX128,
-                    feeGrowthInside1LastX128: feeGrowthInside1LastX128,
-                    tokensOwed0: 0,
-                    tokensOwed1: 0,
-                    tokenURI: ""
-                });
-            }
-
-            // Assign remaining fields
-            {
-                (, , , , , , , , , , uint128 tokensOwed0, uint128 tokensOwed1) = NFPM.positions(
-                    tokenId
-                );
-                positionsWithTokenURI[i].tokensOwed0 = tokensOwed0;
-                positionsWithTokenURI[i].tokensOwed1 = tokensOwed1;
-                positionsWithTokenURI[i].tokenURI = NFPM.tokenURI(tokenId);
             }
         }
     }
