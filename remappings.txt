@@ -1,4 +1,4 @@
-forge-std/=lib/panoptic-v1-core/lib/forge-std/src/
+forge-std/=lib/forge-std/src/
 @openzeppelin/=lib/panoptic-v1-core/lib/openzeppelin-contracts/
 univ3-core/=lib/panoptic-v1-core/lib/v3-core/contracts/
 v4-core/=lib/panoptic-v1-core/lib/v4-core/src
@@ -17,4 +17,5 @@ clones-with-immutable-args/=lib/panoptic-v1-core/lib/clones-with-immutable-args/
 @types/=lib/panoptic-v1-core/contracts/types/
 @interfaces/=lib/panoptic-v1-core/contracts/interfaces/
 @helper/=src
+@testutils-v1-core/=lib/panoptic-v1-core/test/foundry/testUtils/
 permit2/=lib/v4-periphery/lib/permit2
