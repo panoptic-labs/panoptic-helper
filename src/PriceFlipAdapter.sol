@@ -53,7 +53,9 @@ contract PriceFlipAdapter {
             unlocked
         ) = underlying.slot0();
 
-        tick = -tick;
+        unchecked {
+            tick = -tick;
+        }
         sqrtPriceX96 = uint160(uint256(2 ** 192) / sqrtPriceX96);
     }
 
@@ -81,7 +83,10 @@ contract PriceFlipAdapter {
             secondsPerLiquidityCumulativeX128,
             initialized
         ) = underlying.observations(index);
-        tickCumulative = -tickCumulative;
+
+        unchecked {
+            tickCumulative = -tickCumulative;
+        }
     }
 
     /// @notice Returns the cumulative tick and liquidity as of each timestamp `secondsAgo` from the current block timestamp on the underlying oracle.
@@ -106,8 +111,10 @@ contract PriceFlipAdapter {
     {
         (tickCumulatives, secondsPerLiquidityCumulativeX128s) = underlying.observe(secondsAgos);
 
-        for (uint256 i = 0; i < tickCumulatives.length; i++) {
-            tickCumulatives[i] = -tickCumulatives[i];
+        unchecked {
+            for (uint256 i = 0; i < tickCumulatives.length; i++) {
+                tickCumulatives[i] = -tickCumulatives[i];
+            }
         }
     }
 
