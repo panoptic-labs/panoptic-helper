@@ -73,6 +73,8 @@ contract V3StyleOracle is BaseHook {
     ) BaseHook(_manager) {
         underlyingPool.hooks = IHooks(address(this));
 
+        underlyingPoolId = underlyingPool.toId();
+
         _manager.initialize(underlyingPool, sqrtPriceX96);
 
         (uint16 cardinality, uint16 cardinalityNext) = observations.initialize(
@@ -132,6 +134,7 @@ contract V3StyleOracle is BaseHook {
         ObservationState memory _observationState = observationState;
 
         (, int24 tick, , ) = manager.getSlot0(underlyingPoolId);
+
         (observationState.observationIndex, observationState.observationCardinality) = observations
             .write(
                 _observationState.observationIndex,

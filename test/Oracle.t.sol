@@ -7,6 +7,7 @@ import {V3StyleOracle} from "../src/hooks/V3StyleOracle.sol";
 import {PoolManager} from "v4-core/PoolManager.sol";
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 import {ERC20S} from "@testutils-v1-core/ERC20S.sol";
+import {V4RouterSimple} from "@testutils-v1-core/V4RouterSimple.sol";
 import {TickMath} from "univ3-core/libraries/TickMath.sol";
 import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {Currency} from "v4-core/types/Currency.sol";
@@ -19,18 +20,33 @@ contract OracleTestV4 is Test {
     V3StyleOracle public constant oracle =
         V3StyleOracle(address(uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.BEFORE_INITIALIZE_FLAG)));
 
+    V4RouterSimple public routerV4;
+
     ERC20S public token0;
     ERC20S public token1;
+
+    PoolKey public poolKey;
 
     struct InitializeParams {
         uint32 time;
         int24 tick;
     }
 
+    struct UpdateParams {
+        uint32 advanceTimeBy;
+        int24 tick;
+    }
+
     constructor(IPoolManager _manager) {
         manager = _manager;
+        routerV4 = new V4RouterSimple(_manager);
+
         token0 = new ERC20S("Token0", "T0", 18);
+        token0.mint(address(this), 2 ** 125);
+        token0.approve(address(routerV4), 2 ** 125);
         token1 = new ERC20S("Token1", "T1", 18);
+        token1.mint(address(this), 2 ** 125);
+        token1.approve(address(routerV4), 2 ** 125);
 
         if (address(token1) < address(token0)) (token0, token1) = (token1, token0);
     }
@@ -53,6 +69,25 @@ contract OracleTestV4 is Test {
             ),
             address(oracle)
         );
+
+        poolKey = PoolKey({
+            currency0: Currency.wrap(address(token0)),
+            currency1: Currency.wrap(address(token1)),
+            fee: 3000,
+            tickSpacing: 1,
+            hooks: IHooks(address(oracle))
+        });
+
+        routerV4.modifyLiquidity(address(0), poolKey, -887270, 887270, 100);
+    }
+
+    function grow(uint16 _cardinality) public {
+        oracle.increaseObservationCardinalityNext(_cardinality);
+    }
+
+    function update(UpdateParams memory params) public {
+        vm.warp(block.timestamp + params.advanceTimeBy);
+        routerV4.swapTo(address(0), poolKey, TickMath.getSqrtRatioAtTick(params.tick));
     }
 
     function index() public view returns (uint16) {
@@ -124,78 +159,56 @@ contract OracleLibTest is Test {
         assertEq(secondsPerLiquidityCumulativeX128, 0);
     }
 
-    // WIP - ported from hardhat
-    // function test_grow_increasesCardinalityNext() public {
-    //     oracle.initialize(OracleTest.InitializeParams({
-    //         time: 0,
-    //         tick: 0,
-    //         liquidity: 0
-    //     }));
-    //     oracle.grow(5);
-    //     assertEq(oracle.index(), 0);
-    //     assertEq(oracle.cardinality(), 1);
-    //     assertEq(oracle.cardinalityNext(), 5);
-    // }
+    function test_grow_increasesCardinalityNext() public {
+        oracle.initialize(OracleTestV4.InitializeParams({time: 0, tick: 0}));
+        oracle.grow(5);
+        assertEq(oracle.index(), 0);
+        assertEq(oracle.cardinality(), 1);
+        assertEq(oracle.cardinalityNext(), 5);
+    }
 
-    // function test_grow_doesNotTouchFirstSlot() public {
-    //     oracle.initialize(OracleTest.InitializeParams({
-    //         time: 0,
-    //         tick: 0,
-    //         liquidity: 0
-    //     }));
-    //     oracle.grow(5);
-    //     (uint32 blockTimestamp, int56 tickCumulative, uint160 secondsPerLiquidityCumulativeX128, bool initialized) = oracle.observations(0);
-    //     assertTrue(initialized);
-    //     assertEq(blockTimestamp, 0);
-    //     assertEq(tickCumulative, 0);
-    //     assertEq(secondsPerLiquidityCumulativeX128, 0);
-    // }
+    function test_grow_doesNotTouchFirstSlot() public {
+        oracle.initialize(OracleTestV4.InitializeParams({time: 0, tick: 0}));
+        oracle.grow(5);
+        (
+            uint32 blockTimestamp,
+            int56 tickCumulative,
+            uint160 secondsPerLiquidityCumulativeX128,
+            bool initialized
+        ) = oracle.observations(0);
+        assertTrue(initialized);
+        assertEq(blockTimestamp, 0);
+        assertEq(tickCumulative, 0);
+        assertEq(secondsPerLiquidityCumulativeX128, 0);
+    }
 
-    // function test_grow_isNoOpIfAlreadyLargerSize() public {
-    //     oracle.initialize(OracleTest.InitializeParams({
-    //         time: 0,
-    //         tick: 0,
-    //         liquidity: 0
-    //     }));
-    //     oracle.grow(5);
-    //     oracle.grow(3);
-    //     assertEq(oracle.index(), 0);
-    //     assertEq(oracle.cardinality(), 1);
-    //     assertEq(oracle.cardinalityNext(), 5);
-    // }
+    function test_grow_isNoOpIfAlreadyLargerSize() public {
+        oracle.initialize(OracleTestV4.InitializeParams({time: 0, tick: 0}));
+        oracle.grow(5);
+        oracle.grow(3);
+        assertEq(oracle.index(), 0);
+        assertEq(oracle.cardinality(), 1);
+        assertEq(oracle.cardinalityNext(), 5);
+    }
 
-    // function test_update_singleElementArrayOverwrite() public {
-    //     oracle.initialize(OracleTest.InitializeParams({
-    //         time: 0,
-    //         tick: 0,
-    //         liquidity: 0
-    //     }));
+    function test_update_singleElementArrayOverwrite() public {
+        oracle.initialize(OracleTestV4.InitializeParams({time: 0, tick: 0}));
 
-    //     // First update
-    //     oracle.update(OracleTest.UpdateParams({
-    //         advanceTimeBy: 1,
-    //         tick: 2,
-    //         liquidity: 5
-    //     }));
-    //     assertEq(oracle.index(), 0);
-    //     (uint32 blockTimestamp, int56 tickCumulative, uint160 secondsPerLiquidityCumulativeX128, bool initialized) = oracle.observations(0);
-    //     assertTrue(initialized);
-    //     assertEq(blockTimestamp, 1);
-    //     assertEq(tickCumulative, 0);
-    //     assertEq(secondsPerLiquidityCumulativeX128, uint160(340282366920938463463374607431768211456));
+        // First update
+        oracle.update(OracleTestV4.UpdateParams({advanceTimeBy: 1, tick: 2}));
+        assertEq(oracle.index(), 0);
+        (uint32 blockTimestamp, int56 tickCumulative, , bool initialized) = oracle.observations(0);
+        assertTrue(initialized);
+        assertEq(blockTimestamp, 1);
+        assertEq(tickCumulative, 0);
 
-    //     // Second update
-    //     oracle.update(OracleTest.UpdateParams({
-    //         advanceTimeBy: 5,
-    //         tick: -1,
-    //         liquidity: 8
-    //     }));
-    //     (blockTimestamp, tickCumulative, secondsPerLiquidityCumulativeX128, initialized) = oracle.observations(0);
-    //     assertTrue(initialized);
-    //     assertEq(blockTimestamp, 6);
-    //     assertEq(tickCumulative, 10);
-    //     assertEq(secondsPerLiquidityCumulativeX128, uint160(680564733841876926926749214863536422912));
-    // }
+        // Second update
+        oracle.update(OracleTestV4.UpdateParams({advanceTimeBy: 5, tick: -1}));
+        (blockTimestamp, tickCumulative, , initialized) = oracle.observations(0);
+        assertTrue(initialized);
+        assertEq(blockTimestamp, 6);
+        assertEq(tickCumulative, 10);
+    }
 
     // function test_update_doesNothingIfTimeHasNotChanged() public {
     //     oracle.initialize(OracleTest.InitializeParams({
