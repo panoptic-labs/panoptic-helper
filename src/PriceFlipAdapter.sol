@@ -19,8 +19,8 @@ contract PriceFlipAdapter {
 
     /// @notice The 0th storage slot in the underlying oracle stores many values, and is exposed as a single method to save gas
     /// when accessed externally.
-    /// @return sqrtPriceX96 The current price of the pool as a sqrt(token1/token0) Q64.96 value
-    /// @return tick The current tick of the pool, i.e. according to the last tick transition that was run.
+    /// @return sqrtPriceX96 The current price of the pool as a sqrt(token0/token1) Q64.96 value
+    /// @return tick The inverse of the current tick of the pool, i.e. according to the last tick transition that was run.
     /// This value may not always be equal to SqrtTickMath.getTickAtSqrtRatio(sqrtPriceX96) if the price is on a tick
     /// boundary.
     /// @return observationIndex The index of the last oracle observation that was written,
@@ -62,7 +62,7 @@ contract PriceFlipAdapter {
     /// @notice Returns data about a specific observation index on the underlying oracle.
     /// @param index The element of the observations array to fetch
     /// @return blockTimestamp The timestamp of the observation
-    /// @return tickCumulative The tick multiplied by seconds elapsed for the life of the pool as of the observation timestamp
+    /// @return tickCumulative The inverse of the tick multiplied by seconds elapsed for the life of the pool as of the observation timestamp
     /// @return secondsPerLiquidityCumulativeX128 The seconds per in range liquidity for the life of the pool as of the observation timestamp
     /// @return initialized Whether the observation has been initialized and the values are safe to use
     function observations(
@@ -96,7 +96,7 @@ contract PriceFlipAdapter {
     /// @dev The time weighted average tick represents the geometric time weighted average price of the pool, in
     /// log base sqrt(1.0001) of currency1 / currency0. The TickMath library can be used to go from a tick value to a ratio.
     /// @param secondsAgos From how long ago each cumulative tick and liquidity value should be returned
-    /// @return tickCumulatives Cumulative tick values as of each `secondsAgos` from the current block timestamp
+    /// @return tickCumulatives Cumulative inverse tick values as of each `secondsAgos` from the current block timestamp
     /// @return secondsPerLiquidityCumulativeX128s Cumulative seconds per liquidity-in-range value as of each `secondsAgos` from the current block
     /// timestamp
     function observe(
