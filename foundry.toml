@@ -1,6 +1,6 @@
 [profile.default]
 src = 'src'
-test = 'testt'
+test = 'test'
 out = 'out'
 libs = ['lib']
 no_match_path = "src/*"
