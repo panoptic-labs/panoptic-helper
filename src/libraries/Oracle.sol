@@ -16,16 +16,15 @@ library Oracle {
 
     /// @notice Type representing a single price observation entry
     /// @param blockTimestamp The block timestamp at which the observation was taken
+    /// @param prevTruncatedTick The truncated oracle at the time the last observation was taken
     /// @param tickCumulative The tick accumulator value at the time of the observation, i.e. tick * time elapsed since the pool was first initialized
-    /// @param legacy_0 Legacy member to maintain compatibility with V3 oracle (aloways 0)
+    /// @param tickCumulativeTruncated The truncated tick accumulator value at the time of the observation, i.e. tick * time (limited by maxAbsTickDelta) elapsed since the pool was first initialized
+    /// @param initialized Whether or not the observation is initialized
     struct Observation {
-        // the block timestamp of the observation
         uint32 blockTimestamp;
-        // the tick accumulator, i.e. tick * time elapsed since the pool was first initialized
+        int24 prevTruncatedTick;
         int56 tickCumulative;
-        // legacy member to maintain compatibility with V3 oracle
-        uint160 legacy_0;
-        // whether or not the observation is initialized
+        int56 tickCumulativeTruncated;
         bool initialized;
     }
 
@@ -34,19 +33,35 @@ library Oracle {
     /// @param last The specified observation to be transformed
     /// @param blockTimestamp The timestamp of the new observation
     /// @param tick The active tick at the time of the new observation
+    /// @param maxAbsTickDelta The maximum absolute tick delta that can be realized in a single block
     /// @return The newly populated observation
     function transform(
         Observation memory last,
         uint32 blockTimestamp,
-        int24 tick
+        int24 tick,
+        int24 maxAbsTickDelta
     ) private pure returns (Observation memory) {
         unchecked {
+            int24 truncatedTick = tick;
+
+            int24 tickDelta = tick - last.prevTruncatedTick;
+
+            // optimize for negative case
+            if (tickDelta > maxAbsTickDelta || tickDelta < -maxAbsTickDelta) {
+                truncatedTick =
+                    last.prevTruncatedTick +
+                    (tickDelta > 0 ? maxAbsTickDelta : -maxAbsTickDelta);
+            }
+
             uint32 delta = blockTimestamp - last.blockTimestamp;
             return
                 Observation({
                     blockTimestamp: blockTimestamp,
+                    prevTruncatedTick: truncatedTick,
                     tickCumulative: last.tickCumulative + int56(tick) * int56(uint56(delta)),
-                    legacy_0: 0,
+                    tickCumulativeTruncated: last.tickCumulativeTruncated +
+                        int56(truncatedTick) *
+                        int56(uint56(delta)),
                     initialized: true
                 });
         }
@@ -55,18 +70,22 @@ library Oracle {
     /// @notice Initialize the oracle array by writing the first slot. Called once for the lifecycle of the observations array.
     /// @param self The stored oracle array
     /// @param time The time of the oracle initialization, via block.timestamp truncated to uint32
+    /// @param tick The initial tick
     /// @return The number of populated elements in the oracle array
     /// @return The new length of the oracle array, independent of population
     function initialize(
         Observation[65535] storage self,
-        uint32 time
+        uint32 time,
+        int24 tick
     ) internal returns (uint16, uint16) {
         self[0] = Observation({
             blockTimestamp: time,
+            prevTruncatedTick: tick,
             tickCumulative: 0,
-            legacy_0: 0,
+            tickCumulativeTruncated: 0,
             initialized: true
         });
+
         return (1, 1);
     }
 
@@ -88,7 +107,8 @@ library Oracle {
         uint32 blockTimestamp,
         int24 tick,
         uint16 cardinality,
-        uint16 cardinalityNext
+        uint16 cardinalityNext,
+        int24 maxAbsTickDelta
     ) internal returns (uint16 indexUpdated, uint16 cardinalityUpdated) {
         unchecked {
             Observation memory last = self[index];
@@ -104,7 +124,7 @@ library Oracle {
             }
 
             indexUpdated = (index + 1) % cardinalityUpdated;
-            self[indexUpdated] = transform(last, blockTimestamp, tick);
+            self[indexUpdated] = transform(last, blockTimestamp, tick, maxAbsTickDelta);
         }
     }
 
@@ -211,7 +231,8 @@ library Oracle {
         uint32 target,
         int24 tick,
         uint16 index,
-        uint16 cardinality
+        uint16 cardinality,
+        int24 maxAbsTickDelta
     ) private view returns (Observation memory beforeOrAt, Observation memory atOrAfter) {
         unchecked {
             // optimistically set before to the newest observation
@@ -224,7 +245,7 @@ library Oracle {
                     return (beforeOrAt, atOrAfter);
                 } else {
                     // otherwise, we need to transform
-                    return (beforeOrAt, transform(beforeOrAt, target, tick));
+                    return (beforeOrAt, transform(beforeOrAt, target, tick, maxAbsTickDelta));
                 }
             }
 
@@ -253,20 +274,24 @@ library Oracle {
     /// @param tick The current tick
     /// @param index The index of the observation that was most recently written to the observations array
     /// @param cardinality The number of populated elements in the oracle array
+    /// @param maxAbsTickDelta The maximum absolute tick delta that can be realized in a single block
     /// @return The tick * time elapsed since the pool was first initialized, as of `secondsAgo`
+    /// @return The truncated tick * time elapsed since the pool was first initialized, as of `secondsAgo`
     function observeSingle(
         Observation[65535] storage self,
         uint32 time,
         uint32 secondsAgo,
         int24 tick,
         uint16 index,
-        uint16 cardinality
-    ) internal view returns (int56) {
+        uint16 cardinality,
+        int24 maxAbsTickDelta
+    ) internal view returns (int56, int56) {
         unchecked {
             if (secondsAgo == 0) {
                 Observation memory last = self[index];
-                if (last.blockTimestamp != time) last = transform(last, time, tick);
-                return last.tickCumulative;
+                if (last.blockTimestamp != time)
+                    last = transform(last, time, tick, maxAbsTickDelta);
+                return (last.tickCumulative, last.tickCumulativeTruncated);
             }
 
             uint32 target = time - secondsAgo;
@@ -274,22 +299,36 @@ library Oracle {
             (
                 Observation memory beforeOrAt,
                 Observation memory atOrAfter
-            ) = getSurroundingObservations(self, time, target, tick, index, cardinality);
+            ) = getSurroundingObservations(
+                    self,
+                    time,
+                    target,
+                    tick,
+                    index,
+                    cardinality,
+                    maxAbsTickDelta
+                );
 
             if (target == beforeOrAt.blockTimestamp) {
                 // we're at the left boundary
-                return beforeOrAt.tickCumulative;
+                return (beforeOrAt.tickCumulative, beforeOrAt.tickCumulativeTruncated);
             } else if (target == atOrAfter.blockTimestamp) {
                 // we're at the right boundary
-                return atOrAfter.tickCumulative;
+                return (atOrAfter.tickCumulative, atOrAfter.tickCumulativeTruncated);
             } else {
                 // we're in the middle
                 uint32 observationTimeDelta = atOrAfter.blockTimestamp - beforeOrAt.blockTimestamp;
                 uint32 targetDelta = target - beforeOrAt.blockTimestamp;
-                return (beforeOrAt.tickCumulative +
-                    ((atOrAfter.tickCumulative - beforeOrAt.tickCumulative) /
-                        int56(uint56(observationTimeDelta))) *
-                    int56(uint56(targetDelta)));
+                return (
+                    beforeOrAt.tickCumulative +
+                        ((atOrAfter.tickCumulative - beforeOrAt.tickCumulative) /
+                            int56(uint56(observationTimeDelta))) *
+                        int56(uint56(targetDelta)),
+                    beforeOrAt.tickCumulativeTruncated +
+                        ((atOrAfter.tickCumulativeTruncated - beforeOrAt.tickCumulativeTruncated) /
+                            int56(uint56(observationTimeDelta))) *
+                        int56(uint56(targetDelta))
+                );
             }
         }
     }
@@ -303,24 +342,31 @@ library Oracle {
     /// @param index The index of the observation that was most recently written to the observations array
     /// @param cardinality The number of populated elements in the oracle array
     /// @return tickCumulatives The tick * time elapsed since the pool was first initialized, as of each `secondsAgo`
+    /// @return tickCumulativeTruncated The truncated tick * time elapsed since the pool was first initialized, as of each `secondsAgo`
     function observe(
         Observation[65535] storage self,
         uint32 time,
         uint32[] memory secondsAgos,
         int24 tick,
         uint16 index,
-        uint16 cardinality
-    ) internal view returns (int56[] memory tickCumulatives) {
+        uint16 cardinality,
+        int24 maxAbsTickDelta
+    )
+        internal
+        view
+        returns (int56[] memory tickCumulatives, int56[] memory tickCumulativeTruncated)
+    {
         unchecked {
             tickCumulatives = new int56[](secondsAgos.length);
             for (uint256 i = 0; i < secondsAgos.length; i++) {
-                tickCumulatives[i] = observeSingle(
+                (tickCumulatives[i], tickCumulativeTruncated[i]) = observeSingle(
                     self,
                     time,
                     secondsAgos[i],
                     tick,
                     index,
-                    cardinality
+                    cardinality,
+                    maxAbsTickDelta
                 );
             }
         }

@@ -10,6 +10,8 @@ import {BaseHook} from "v4-periphery/base/hooks/BaseHook.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
+import {V3OracleAdapter} from "../adapters/V3OracleAdapter.sol";
+import {V3TruncatedOracleAdapter} from "../adapters/V3TruncatedOracleAdapter.sol";
 
 /// @notice A hook for a pool that allows a Uniswap V4 pool to expose a V3-compatible oracle interface
 contract V3StyleOracle is BaseHook {
@@ -19,9 +21,6 @@ contract V3StyleOracle is BaseHook {
     /// @notice Only the canonical Uniswap pool manager may call this function
     error NotManager();
 
-    /// @notice This oracle contract can only respond to hook calls related to the `underlyingPoolId` set during construction
-    error PoolNotUnderlying();
-
     /// @notice Emitted by the hook for increases to the number of observations that can be stored.
     /// @dev `observationCardinalityNext` is not the observation cardinality until an observation is written at the index
     /// just before a mint/swap/burn.
@@ -30,6 +29,15 @@ contract V3StyleOracle is BaseHook {
     event IncreaseObservationCardinalityNext(
         uint16 observationCardinalityNextOld,
         uint16 observationCardinalityNextNew
+    );
+
+    /// @notice Emitted when adapter contracts are deployed for a pool
+    /// @param poolId The ID of the pool
+    /// @param truncatedAdapter The address of the truncated V3 oracle adapter
+    event OracleInitialized(
+        PoolId indexed poolId,
+        address standardAdapter,
+        address truncatedAdapter
     );
 
     /// @notice Contains information about the current number of observations stored.
@@ -42,17 +50,23 @@ contract V3StyleOracle is BaseHook {
         uint16 observationCardinalityNext;
     }
 
-    /// @notice The pool id (hashed pool key) of the underlying pool.
-    PoolId public immutable underlyingPoolId;
-
     /// @notice The canonical Uniswap V4 pool manager.
     IPoolManager public immutable manager;
 
-    /// @notice Returns information about the current number of observations stored.
-    ObservationState public observationState;
+    /// @notice The maximum absolute tick delta that can be observed for the truncated oracle.
+    int24 public immutable MAX_ABS_TICK_DELTA;
 
-    /// @notice Returns data about a specific observation index.
-    Oracle.Observation[65535] public observations;
+    /// @notice The list of observations for a given pool ID
+    mapping(PoolId => Oracle.Observation[65535]) public observationsById;
+
+    /// @notice The current observation array state for the given pool ID
+    mapping(PoolId => ObservationState) public stateById;
+
+    /// @notice Maps pool IDs to their standard V3 oracle adapters
+    mapping(PoolId => address) public standardAdapter;
+
+    /// @notice Maps pool IDs to their truncated V3 oracle adapters
+    mapping(PoolId => address) public truncatedAdapter;
 
     /// @notice Reverts if the caller is not the canonical Uniswap V4 pool manager.
     modifier onlyByManager() {
@@ -62,41 +76,18 @@ contract V3StyleOracle is BaseHook {
 
     /// @notice Initializes a Uniswap V4 pool with this hook, stores baseline observation state, and optionally performs a cardinality increase.
     /// @param _manager The canonical Uniswap V4 pool manager
-    /// @param underlyingPool The pool key of the underlying pool (the hook address will be replaced with this contract's address)
-    /// @param sqrtPriceX96 The initial sqrt(price) of the pool as a Q64.96
-    /// @param cardinalityIncrease The number of slots (if any) to increase the observation cardinality by
-    constructor(
-        IPoolManager _manager,
-        PoolKey memory underlyingPool,
-        uint160 sqrtPriceX96,
-        uint16 cardinalityIncrease
-    ) BaseHook(_manager) {
-        underlyingPool.hooks = IHooks(address(this));
-
-        underlyingPoolId = underlyingPool.toId();
-
-        _manager.initialize(underlyingPool, sqrtPriceX96);
-
-        (uint16 cardinality, uint16 cardinalityNext) = observations.initialize(
-            uint32(block.timestamp)
-        );
-
+    /// @param _maxAbsTickDelta The maximum absolute tick delta that can be observed for the truncated oracle
+    constructor(IPoolManager _manager, int24 _maxAbsTickDelta) BaseHook(_manager) {
         manager = _manager;
-        observationState = ObservationState({
-            observationIndex: 0,
-            observationCardinality: cardinality,
-            observationCardinalityNext: cardinalityNext
-        });
-
-        if (cardinalityIncrease > 0) increaseObservationCardinalityNext(cardinalityIncrease);
+        MAX_ABS_TICK_DELTA = _maxAbsTickDelta;
     }
 
     /// @inheritdoc BaseHook
     function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
         return
             Hooks.Permissions({
-                beforeInitialize: true,
-                afterInitialize: false,
+                beforeInitialize: false,
+                afterInitialize: true,
                 beforeAddLiquidity: false,
                 beforeRemoveLiquidity: false,
                 afterAddLiquidity: false,
@@ -113,63 +104,68 @@ contract V3StyleOracle is BaseHook {
     }
 
     /// @inheritdoc BaseHook
-    function beforeInitialize(
+    function afterInitialize(
         address,
         PoolKey calldata key,
-        uint160
-    ) external view override onlyByManager returns (bytes4) {
-        if (PoolId.unwrap(key.toId()) != PoolId.unwrap(underlyingPoolId))
-            revert PoolNotUnderlying();
+        uint160,
+        int24 tick
+    ) external virtual override onlyByManager returns (bytes4) {
+        PoolId poolId = key.toId();
+        (uint16 cardinality, uint16 cardinalityNext) = observationsById[poolId].initialize(
+            uint32(block.timestamp),
+            tick
+        );
 
-        return this.beforeInitialize.selector;
+        stateById[poolId] = ObservationState({
+            observationIndex: 0,
+            observationCardinality: cardinality,
+            observationCardinalityNext: cardinalityNext
+        });
+
+        // Deploy adapter contracts
+        V3OracleAdapter _standardAdapter = new V3OracleAdapter(this, poolId);
+        V3TruncatedOracleAdapter _truncatedAdapter = new V3TruncatedOracleAdapter(this, poolId);
+
+        // Store adapter addresses
+        standardAdapter[poolId] = address(_standardAdapter);
+        truncatedAdapter[poolId] = address(_truncatedAdapter);
+
+        // Emit event for adapter deployment
+        emit OracleInitialized(poolId, address(_standardAdapter), address(_truncatedAdapter));
+
+        return this.afterInitialize.selector;
     }
 
     /// @inheritdoc BaseHook
     function beforeSwap(
         address,
-        PoolKey calldata,
+        PoolKey calldata key,
         IPoolManager.SwapParams calldata,
         bytes calldata
     ) external override onlyByManager returns (bytes4, BeforeSwapDelta, uint24) {
-        ObservationState memory _observationState = observationState;
+        PoolId poolId = key.toId();
 
-        (, int24 tick, , ) = manager.getSlot0(underlyingPoolId);
+        ObservationState memory _observationState = stateById[poolId];
 
-        (observationState.observationIndex, observationState.observationCardinality) = observations
-            .write(
-                _observationState.observationIndex,
-                uint32(block.timestamp),
-                tick,
-                _observationState.observationCardinality,
-                _observationState.observationCardinalityNext
-            );
+        (, int24 tick, , ) = manager.getSlot0(poolId);
+
+        (
+            _observationState.observationIndex,
+            _observationState.observationCardinality
+        ) = observationsById[poolId].write(
+            _observationState.observationIndex,
+            uint32(block.timestamp),
+            tick,
+            _observationState.observationCardinality,
+            _observationState.observationCardinalityNext,
+            MAX_ABS_TICK_DELTA
+        );
+
+        stateById[poolId] = _observationState;
         return (this.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
 
-    /// @notice Emulates the behavior of the exposed zeroth slot of a Uniswap V3 pool.
-    /// @dev The last two values are not meaningful in the context of this oracle contract, but are returned to maintain interface compatibility.
-    /// @return The current price of the oracle as a sqrt(currency1/currency0) Q64.96 value
-    /// @return The current tick of the oracle, i.e. according to the last tick transition that was run.
-    /// This value may not always be equal to SqrtTickMath.getTickAtSqrtRatio(sqrtPriceX96) if the price is on a tick
-    /// boundary
-    /// @return The index of the last oracle observation that was written
-    /// @return The current maximum number of observations stored in the oracle
-    /// @return The next maximum number of observations that can be stored in the oracle once the highest observation index is written
-    function slot0() external view returns (uint160, int24, uint16, uint16, uint16, uint8, bool) {
-        (uint160 sqrtPriceX96, int24 tick, , ) = manager.getSlot0(underlyingPoolId);
-
-        return (
-            sqrtPriceX96,
-            tick,
-            observationState.observationIndex,
-            observationState.observationCardinality,
-            observationState.observationCardinalityNext,
-            0,
-            true
-        );
-    }
-
-    /// @notice Returns the cumulative tick as of each timestamp `secondsAgo` from the current block timestamp.
+    /// @notice Returns the cumulative tick as of each timestamp `secondsAgo` from the current block timestamp on `underlyingPoolId`.
     /// @dev Note that the second return value, seconds per liquidity, is not implemented in this oracle hook and will always return 0 -- it has been retained for interface compatibility.
     /// @dev To get a time weighted average tick, you must call this with two values, one representing
     /// the beginning of the period and another for the end of the period. E.g., to get the last hour time-weighted average tick,
@@ -177,35 +173,42 @@ contract V3StyleOracle is BaseHook {
     /// @dev The time weighted average tick represents the geometric time weighted average price of the pool, in
     /// log base sqrt(1.0001) of currency1 / currency0. The TickMath library can be used to go from a tick value to a ratio.
     /// @param secondsAgos From how long ago each cumulative tick and liquidity value should be returned
-    /// @return tickCumulatives Cumulative tick values as of each `secondsAgos` from the current block timestamp
+    /// @param underlyingPoolId The pool ID of the underlying V4 pool
+    /// @return Cumulative tick values as of each `secondsAgos` from the current block timestamp
+    /// @return Truncated cumulative tick values as of each `secondsAgos` from the current block timestamp
     function observe(
-        uint32[] calldata secondsAgos
-    ) external view returns (int56[] memory tickCumulatives, uint160[] memory) {
-        ObservationState memory _observationState = observationState;
+        uint32[] calldata secondsAgos,
+        PoolId underlyingPoolId
+    ) external view returns (int56[] memory, int56[] memory) {
+        ObservationState memory _observationState = stateById[underlyingPoolId];
 
         (, int24 tick, , ) = manager.getSlot0(underlyingPoolId);
 
-        return (
-            observations.observe(
+        return
+            observationsById[underlyingPoolId].observe(
                 uint32(block.timestamp),
                 secondsAgos,
                 tick,
                 _observationState.observationIndex,
-                _observationState.observationCardinality
-            ),
-            new uint160[](0)
-        );
+                _observationState.observationCardinality,
+                MAX_ABS_TICK_DELTA
+            );
     }
 
-    /// @notice Increase the maximum number of price and liquidity observations that this oracle will store.
+    /// @notice Increase the maximum number of price and liquidity observations that the oracle of `underlyingPoolId`.
     /// @param observationCardinalityNext The desired minimum number of observations for the oracle to store
-    function increaseObservationCardinalityNext(uint16 observationCardinalityNext) public {
-        uint16 observationCardinalityNextOld = observationState.observationCardinalityNext; // for the event
-        uint16 observationCardinalityNextNew = observations.grow(
+    /// @param underlyingPoolId The pool ID of the underlying V4 pool
+    function increaseObservationCardinalityNext(
+        uint16 observationCardinalityNext,
+        PoolId underlyingPoolId
+    ) public {
+        uint16 observationCardinalityNextOld = stateById[underlyingPoolId]
+            .observationCardinalityNext; // for the event
+        uint16 observationCardinalityNextNew = observationsById[underlyingPoolId].grow(
             observationCardinalityNextOld,
             observationCardinalityNext
         );
-        observationState.observationCardinalityNext = observationCardinalityNextNew;
+        stateById[underlyingPoolId].observationCardinalityNext = observationCardinalityNextNew;
         if (observationCardinalityNextOld != observationCardinalityNextNew)
             emit IncreaseObservationCardinalityNext(
                 observationCardinalityNextOld,
