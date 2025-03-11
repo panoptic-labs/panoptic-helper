@@ -25,7 +25,8 @@ contract V3TruncatedOracleAdapter {
     /// @notice Initializes the adapter with the V3StyleOracle contract and pool ID.
     /// @param _v3StyleOracle The V3StyleOracle contract
     /// @param _poolId The pool ID of the underlying V4 pool
-    constructor(V3StyleOracle _v3StyleOracle, PoolId _poolId) {
+    constructor(IPoolManager _manager, V3StyleOracle _v3StyleOracle, PoolId _poolId) {
+        manager = _manager;
         v3StyleOracle = _v3StyleOracle;
         poolId = _poolId;
     }

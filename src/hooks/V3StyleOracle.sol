@@ -123,8 +123,12 @@ contract V3StyleOracle is BaseHook {
         });
 
         // Deploy adapter contracts
-        V3OracleAdapter _standardAdapter = new V3OracleAdapter(this, poolId);
-        V3TruncatedOracleAdapter _truncatedAdapter = new V3TruncatedOracleAdapter(this, poolId);
+        V3OracleAdapter _standardAdapter = new V3OracleAdapter(manager, this, poolId);
+        V3TruncatedOracleAdapter _truncatedAdapter = new V3TruncatedOracleAdapter(
+            manager,
+            this,
+            poolId
+        );
 
         // Store adapter addresses
         standardAdapter[poolId] = address(_standardAdapter);

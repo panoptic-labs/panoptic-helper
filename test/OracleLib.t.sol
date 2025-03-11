@@ -4,6 +4,8 @@ pragma solidity ^0.8.0;
 import "forge-std/Test.sol";
 // import {OracleTest} from "univ3-core/test/OracleTest.sol";
 import {V3StyleOracle} from "../src/hooks/V3StyleOracle.sol";
+import {V3OracleAdapter} from "../src/adapters/V3OracleAdapter.sol";
+import {V3TruncatedOracleAdapter} from "../src/adapters/V3TruncatedOracleAdapter.sol";
 import {PoolManager} from "v4-core/PoolManager.sol";
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 import {ERC20S} from "@testutils-v1-core/ERC20S.sol";
@@ -17,8 +19,12 @@ import {Hooks} from "v4-core/libraries/Hooks.sol";
 contract OracleTestV4 is Test {
     IPoolManager public immutable manager;
 
-    V3StyleOracle public constant oracle =
-        V3StyleOracle(address(uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.BEFORE_INITIALIZE_FLAG)));
+    V3StyleOracle public constant oracleBase =
+        V3StyleOracle(address(uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_INITIALIZE_FLAG)));
+
+    V3OracleAdapter public oracleAdapter;
+
+    V3TruncatedOracleAdapter public truncatedOracleAdapter;
 
     V4RouterSimple public routerV4;
 
@@ -53,21 +59,18 @@ contract OracleTestV4 is Test {
 
     function initialize(InitializeParams memory params) public {
         vm.warp(params.time);
-        deployCodeTo(
-            "V3StyleOracle.sol",
-            abi.encode(
-                manager,
-                PoolKey({
-                    currency0: Currency.wrap(address(token0)),
-                    currency1: Currency.wrap(address(token1)),
-                    fee: 3000,
-                    tickSpacing: 1,
-                    hooks: IHooks(address(0))
-                }),
-                TickMath.getSqrtRatioAtTick(params.tick),
-                0
-            ),
-            address(oracle)
+        deployCodeTo("V3StyleOracle.sol", abi.encode(manager, int24(9116)), address(oracleBase));
+        vm.recordLogs();
+
+        manager.initialize(
+            PoolKey({
+                currency0: Currency.wrap(address(token0)),
+                currency1: Currency.wrap(address(token1)),
+                fee: 3000,
+                tickSpacing: 1,
+                hooks: IHooks(address(oracleBase))
+            }),
+            TickMath.getSqrtRatioAtTick(params.tick)
         );
 
         poolKey = PoolKey({
@@ -75,14 +78,20 @@ contract OracleTestV4 is Test {
             currency1: Currency.wrap(address(token1)),
             fee: 3000,
             tickSpacing: 1,
-            hooks: IHooks(address(oracle))
+            hooks: IHooks(address(oracleBase))
         });
+
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        (oracleAdapter, truncatedOracleAdapter) = abi.decode(
+            entries[1].data,
+            (V3OracleAdapter, V3TruncatedOracleAdapter)
+        );
 
         routerV4.modifyLiquidity(address(0), poolKey, -887270, 887270, 100);
     }
 
     function grow(uint16 _cardinality) public {
-        oracle.increaseObservationCardinalityNext(_cardinality);
+        oracleAdapter.increaseObservationCardinalityNext(_cardinality);
     }
 
     function update(UpdateParams memory params) public {
@@ -91,17 +100,17 @@ contract OracleTestV4 is Test {
     }
 
     function index() public view returns (uint16) {
-        (, , uint16 observationIndex, , , , ) = oracle.slot0();
+        (, , uint16 observationIndex, , , , ) = oracleAdapter.slot0();
         return observationIndex;
     }
 
     function cardinality() public view returns (uint16) {
-        (, , , uint16 observationCardinality, , , ) = oracle.slot0();
+        (, , , uint16 observationCardinality, , , ) = oracleAdapter.slot0();
         return observationCardinality;
     }
 
     function cardinalityNext() public view returns (uint16) {
-        (, , , , uint16 observationCardinalityNext, , ) = oracle.slot0();
+        (, , , , uint16 observationCardinalityNext, , ) = oracleAdapter.slot0();
         return observationCardinalityNext;
     }
 
@@ -117,12 +126,13 @@ contract OracleTestV4 is Test {
             bool initialized
         )
     {
-        return oracle.observations(_index);
+        return oracleAdapter.observations(_index);
     }
 }
 
 contract OracleLibTest is Test {
     OracleTestV4 public oracle;
+    V3OracleAdapter public oracleAdapter;
     uint256 constant TEST_POOL_START_TIME = 1;
     uint128 constant MAX_UINT128 = type(uint128).max;
 
