@@ -358,6 +358,7 @@ library Oracle {
     {
         unchecked {
             tickCumulatives = new int56[](secondsAgos.length);
+            tickCumulativeTruncated = new int56[](secondsAgos.length);
             for (uint256 i = 0; i < secondsAgos.length; i++) {
                 (tickCumulatives[i], tickCumulativeTruncated[i]) = observeSingle(
                     self,
