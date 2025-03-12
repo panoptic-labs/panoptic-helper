@@ -1,19 +1,21 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+// Interfaces
 import {ERC20Minimal} from "@tokens/ERC20Minimal.sol";
-import {Math} from "@libraries/Math.sol";
-import {Constants} from "@libraries/Constants.sol";
-import {PanopticMath} from "@libraries/PanopticMath.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IVaultAccountant} from "./interfaces/IVaultAccountant.sol";
+// Base
+import {Multicall} from "@base/Multicall.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+// Libraries
+import {Address} from "@openzeppelin/contracts/utils/Address.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeTransferLib} from "@libraries/SafeTransferLib.sol";
-import {TokenId} from "@types/TokenId.sol";
-import {PanopticPool} from "@contracts/PanopticPool.sol";
-import {CollateralTracker} from "@contracts/CollateralTracker.sol";
-import {IUniswapV3Pool} from "univ3-core/interfaces/IUniswapV3Pool.sol";
-import {IQuoter} from "univ3-periphery/interfaces/IQuoter.sol";
 
 /// @author dyedm1
-contract HypoVault is ERC20Minimal {
+contract HypoVault is ERC20Minimal, Multicall, Ownable {
+    using Address for address;
     /*//////////////////////////////////////////////////////////////
                                  TYPES
     //////////////////////////////////////////////////////////////*/
@@ -29,75 +31,59 @@ contract HypoVault is ERC20Minimal {
     }
 
     /*//////////////////////////////////////////////////////////////
+                                 ERRORS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Only the vault manager is authorized to call this function
+    error NotManager();
+
+    /*//////////////////////////////////////////////////////////////
                                 STORAGE
     //////////////////////////////////////////////////////////////*/
 
-    // timestamp of the *end* of the current epoch
-    uint128 currentEpoch;
+    address public immutable underlyingToken;
 
-    uint256 immutable epochLength;
+    address public manager;
 
-    int24 immutable width;
+    IVaultAccountant public accountant;
 
-    int24 immutable tickSpacing;
+    uint128 depositEpoch = 1;
 
-    address immutable token0;
-
-    address immutable token1;
-
-    uint24 immutable fee;
-
-    address immutable underlying;
-
-    bool immutable underlyingIsToken0;
-
-    IQuoter immutable quoter;
-
-    PanopticPool immutable pp;
-
-    IUniswapV3Pool immutable univ3pool;
-
-    uint64 immutable poolId;
-
-    CollateralTracker immutable ct0;
-    CollateralTracker immutable ct1;
-
-    mapping(uint256 epoch => EpochState) closeState;
-
-    mapping(address user => PendingAction queue) queuedDeposit;
-    mapping(address user => PendingAction queue) queuedWithdrawal;
+    uint128 withdrawalEpoch = 1;
 
     uint256 sharesPendingWithdrawal;
 
     uint256 assetsPendingDeposit;
 
-    constructor() {
-        epochLength = 7 days;
-        underlying = address(0);
-        quoter = IQuoter(address(0));
-        pp = PanopticPool(address(0));
-        ct0 = pp.collateralToken0();
-        ct1 = pp.collateralToken1();
+    uint256 withdrawableAssets;
 
-        IUniswapV3Pool _univ3pool = pp.univ3pool();
+    mapping(uint256 epoch => EpochState) depositEpochState;
+    mapping(uint256 epoch => EpochState) withdrawalEpochState;
 
-        poolId = 0;
+    mapping(address user => PendingAction queue) queuedDeposit;
+    mapping(address user => PendingAction queue) queuedWithdrawal;
 
-        // ~6% assuming 30bps pool
-        width = 10;
-        tickSpacing = _univ3pool.tickSpacing();
+    constructor(address _underlyingToken, address _manager, IVaultAccountant _accountant) {
+        underlyingToken = _underlyingToken;
+        manager = _manager;
+        accountant = _accountant;
+    }
 
-        token0 = _univ3pool.token0();
-        token1 = _univ3pool.token1();
-        fee = _univ3pool.fee();
+    /*//////////////////////////////////////////////////////////////
+                                  AUTH
+    //////////////////////////////////////////////////////////////*/
 
-        univ3pool = _univ3pool;
+    modifier onlyManager() {
+        if (msg.sender != manager) revert NotManager();
+        _;
+    }
 
-        underlyingIsToken0 = _univ3pool.token0() == underlying;
+    function setManager(address _manager) external onlyOwner {
+        manager = _manager;
+    }
 
-        // first "epoch" only lasts 3 days and only accepts deposits - the first trade is executed at the start of the second epoch
-        uint256 preDepositPeriod = 3 days;
-        currentEpoch = uint128(block.timestamp + preDepositPeriod);
+    function setAccountant(address _accountant) external onlyOwner {
+        accountant = IVaultAccountant(_accountant);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -108,23 +94,23 @@ contract HypoVault is ERC20Minimal {
     function editDepositQueue(uint128 updatedDepositAssets) external {
         PendingAction memory pendingDeposit = queuedDeposit[msg.sender];
 
-        uint128 _currentEpoch = currentEpoch;
+        uint128 currentEpoch = depositEpoch;
 
         int256 depositDelta;
-        // if the previous queued deposit has already gone into effect, reset the queued deposit state and mint shares
-        if (pendingDeposit.epoch > 0 && _currentEpoch > pendingDeposit.epoch) {
-            EpochState memory depositEpochState = closeState[_currentEpoch];
+        // if the previous queued deposit has already been processed, reset the queued deposit state and mint shares
+        if (pendingDeposit.epoch > 0 && currentEpoch > pendingDeposit.epoch) {
+            EpochState memory _depositEpochState = depositEpochState[currentEpoch];
 
             // shares from pending deposits are already added to the supply at the start of every new epoch
             balanceOf[msg.sender] += Math.mulDiv(
                 pendingDeposit.amount,
-                depositEpochState.totalShares,
-                depositEpochState.totalAssets
+                _depositEpochState.totalShares,
+                _depositEpochState.totalAssets
             );
 
             queuedDeposit[msg.sender] = PendingAction({
                 amount: updatedDepositAssets,
-                epoch: _currentEpoch
+                epoch: currentEpoch
             });
 
             depositDelta = int256(uint256(updatedDepositAssets));
@@ -132,35 +118,38 @@ contract HypoVault is ERC20Minimal {
             depositDelta =
                 int256(uint256(updatedDepositAssets)) -
                 int256(uint256(pendingDeposit.amount));
-            queuedDeposit[msg.sender].amount = updatedDepositAssets;
+            queuedDeposit[msg.sender] = PendingAction({
+                amount: updatedDepositAssets,
+                epoch: currentEpoch
+            });
         }
 
         assetsPendingDeposit = uint256(int256(assetsPendingDeposit) + depositDelta);
 
         if (depositDelta > 0)
             SafeTransferLib.safeTransferFrom(
-                underlying,
+                underlyingToken,
                 msg.sender,
                 address(this),
                 uint256(depositDelta)
             );
         else if (depositDelta < 0)
-            SafeTransferLib.safeTransfer(underlying, msg.sender, uint256(-depositDelta));
+            SafeTransferLib.safeTransfer(underlyingToken, msg.sender, uint256(-depositDelta));
     }
 
     // convert an active pending deposit into shares
     function executeDeposit(address user) external {
         PendingAction memory pendingDeposit = queuedDeposit[user];
 
-        require(currentEpoch > pendingDeposit.epoch, "HypoVault: deposit not yet active");
+        require(depositEpoch > pendingDeposit.epoch, "HypoVault: deposit not yet processed");
 
-        EpochState memory depositEpochState = closeState[pendingDeposit.epoch];
+        EpochState memory _depositEpochState = depositEpochState[pendingDeposit.epoch];
 
         // shares from pending deposits are already added to the supply at the start of every new epoch
         balanceOf[user] += Math.mulDiv(
             pendingDeposit.amount,
-            depositEpochState.totalShares,
-            depositEpochState.totalAssets
+            _depositEpochState.totalShares,
+            _depositEpochState.totalAssets
         );
 
         queuedDeposit[user] = PendingAction(0, 0);
@@ -170,15 +159,15 @@ contract HypoVault is ERC20Minimal {
     function editWithdrawalQueue(uint128 updatedWithdrawalShares) external {
         PendingAction memory pendingWithdrawal = queuedWithdrawal[msg.sender];
 
-        uint128 _currentEpoch = currentEpoch;
+        uint128 currentEpoch = withdrawalEpoch;
 
-        // if the previous queued withdrawal has already gone into effect, reset the queued withdrawal state and distribute tokens
-        if (pendingWithdrawal.epoch > 0 && _currentEpoch > pendingWithdrawal.epoch) {
-            EpochState memory withdrawalEpochState = closeState[_currentEpoch];
+        // if the previous queued withdrawal has already been processed, reset the queued withdrawal state and distribute tokens
+        if (pendingWithdrawal.epoch > 0 && currentEpoch > pendingWithdrawal.epoch) {
+            EpochState memory _withdrawalEpochState = withdrawalEpochState[currentEpoch];
 
             queuedWithdrawal[msg.sender] = PendingAction({
                 amount: updatedWithdrawalShares,
-                epoch: _currentEpoch
+                epoch: currentEpoch
             });
 
             balanceOf[msg.sender] -= updatedWithdrawalShares;
@@ -188,16 +177,19 @@ contract HypoVault is ERC20Minimal {
             );
 
             SafeTransferLib.safeTransfer(
-                underlying,
+                underlyingToken,
                 msg.sender,
                 Math.mulDiv(
                     pendingWithdrawal.amount,
-                    withdrawalEpochState.totalAssets,
-                    withdrawalEpochState.totalShares
+                    _withdrawalEpochState.totalAssets,
+                    _withdrawalEpochState.totalShares
                 )
             );
         } else {
-            queuedWithdrawal[msg.sender].amount = updatedWithdrawalShares;
+            queuedWithdrawal[msg.sender] = PendingAction({
+                amount: updatedWithdrawalShares,
+                epoch: currentEpoch
+            });
 
             int256 withdrawalDelta = int256(uint256(updatedWithdrawalShares)) -
                 int256(uint256(pendingWithdrawal.amount));
@@ -213,9 +205,12 @@ contract HypoVault is ERC20Minimal {
     function executeWithdrawal(address user) external {
         PendingAction memory pendingWithdrawal = queuedWithdrawal[user];
 
-        require(currentEpoch > pendingWithdrawal.epoch, "HypoVault: withdrawal not yet active");
+        require(
+            withdrawalEpoch > pendingWithdrawal.epoch,
+            "HypoVault: withdrawal not yet processed"
+        );
 
-        EpochState memory withdrawalEpochState = closeState[pendingWithdrawal.epoch];
+        EpochState memory _withdrawalEpochState = withdrawalEpochState[pendingWithdrawal.epoch];
 
         sharesPendingWithdrawal = uint256(
             int256(sharesPendingWithdrawal) - int256(uint256(pendingWithdrawal.amount))
@@ -223,171 +218,89 @@ contract HypoVault is ERC20Minimal {
 
         queuedWithdrawal[user] = PendingAction(0, 0);
 
-        SafeTransferLib.safeTransfer(
-            underlying,
-            user,
-            Math.mulDiv(
-                pendingWithdrawal.amount,
-                withdrawalEpochState.totalAssets,
-                withdrawalEpochState.totalShares
-            )
+        uint256 assetsToWithdraw = Math.mulDiv(
+            pendingWithdrawal.amount,
+            _withdrawalEpochState.totalAssets,
+            _withdrawalEpochState.totalShares
         );
+
+        withdrawableAssets -= assetsToWithdraw;
+
+        SafeTransferLib.safeTransfer(underlyingToken, user, assetsToWithdraw);
     }
 
     /*//////////////////////////////////////////////////////////////
-                             STRATEGY LOGIC
+                            VAULT MANAGEMENT
     //////////////////////////////////////////////////////////////*/
 
-    // advances the epoch, rebalancing positions and processing deposits/withdrawals if epoch length has passed or rebalance criteria are met
-    function advanceEpoch(TokenId currentPosition) external {
-        (int24 currentTick, , int24 slowOracleTick, , ) = pp.getOracleTicks();
+    /// @notice Allows `manager` to make an arbitrary function call from this contract.
+    function manage(
+        address target,
+        bytes calldata data,
+        uint256 value
+    ) external onlyManager returns (bytes memory result) {
+        result = target.functionCallWithValue(data, value);
+    }
 
-        require(
-            block.timestamp > currentEpoch || needsRebalance(currentPosition, slowOracleTick),
-            "HypoVault: epoch not yet over"
-        );
+    /// @notice Allows `manager` to make arbitrary function calls from this contract.
+    function manage(
+        address[] calldata targets,
+        bytes[] calldata data,
+        uint256[] calldata values
+    ) external onlyManager returns (bytes[] memory results) {
+        uint256 targetsLength = targets.length;
+        results = new bytes[](targetsLength);
+        for (uint256 i; i < targetsLength; ++i) {
+            results[i] = targets[i].functionCallWithValue(data[i], values[i]);
+        }
+    }
 
-        // just an example -- we can set slippage however we want
-        int24 minTick = slowOracleTick - 512;
-        int24 maxTick = slowOracleTick + 512;
+    // assigns a share price for all deposits in the current epoch and increments the deposit epoch
+    function fulfillDeposits(bytes memory managerInput) external onlyManager {
+        uint256 totalAssets = accountant.computeNAV(address(this), managerInput) -
+            assetsPendingDeposit -
+            withdrawableAssets;
 
-        closePositions(currentPosition, minTick, maxTick);
+        uint256 currentEpoch = depositEpoch;
 
-        openPositions(currentTick, slowOracleTick, minTick, maxTick);
+        uint256 _totalSupply = totalSupply;
+        depositEpochState[currentEpoch] = EpochState({
+            totalAssets: uint128(totalAssets),
+            totalShares: uint128(_totalSupply)
+        });
 
-        currentEpoch = uint128(block.timestamp + epochLength);
         assetsPendingDeposit = 0;
+
+        totalSupply = _totalSupply + Math.mulDiv(assetsPendingDeposit, _totalSupply, totalAssets);
+
+        depositEpoch = uint128(currentEpoch + 1);
+    }
+
+    // assigns a share price for all withdrawals in the current epoch and increments the withdrawal epoch
+    function fulfillWithdrawals(bytes memory managerInput) external onlyManager {
+        uint256 _withdrawableAssets = withdrawableAssets;
+        uint256 totalAssets = accountant.computeNAV(address(this), managerInput) -
+            assetsPendingDeposit -
+            _withdrawableAssets;
+
+        uint256 currentEpoch = withdrawalEpoch;
+
+        uint256 _totalSupply = totalSupply;
+
+        withdrawalEpochState[currentEpoch] = EpochState({
+            totalAssets: uint128(totalAssets),
+            totalShares: uint128(_totalSupply)
+        });
+
+        uint256 _sharesPendingWithdrawal = sharesPendingWithdrawal;
+        totalSupply = _totalSupply - sharesPendingWithdrawal;
+
+        withdrawableAssets =
+            _withdrawableAssets +
+            Math.mulDiv(_sharesPendingWithdrawal, _withdrawableAssets, _totalSupply);
+
         sharesPendingWithdrawal = 0;
-    }
 
-    function openPositions(
-        int24 currentTick,
-        int24 slowOracleTick,
-        int24 minTick,
-        int24 maxTick
-    ) internal {
-        if (underlyingIsToken0) {
-            uint256 collateralAssets = ct0.convertToAssets(ct0.balanceOf(address(this)));
-
-            // we are going to create a position with:
-            // width = width
-            // strike ~= slowOracleTick
-            // notional value = collateralAssets - zappedUnderlyingEstimate
-
-            TokenId[] memory positionList = new TokenId[](1);
-            positionList[0] = TokenId.wrap(0).addPoolId(poolId).addLeg({
-                legIndex: 0,
-                _optionRatio: 0,
-                _asset: 0,
-                _isLong: 0,
-                _tokenType: 0,
-                _riskPartner: 0,
-                _strike: (slowOracleTick / tickSpacing) * tickSpacing,
-                _width: width
-            });
-
-            (, uint256 comp1) = Math.getAmountsForLiquidity(
-                currentTick,
-                PanopticMath.getLiquidityChunk(positionList[0], 0, uint128(collateralAssets - 1))
-            );
-
-            // overestimate -- we will mint at this size or below
-            uint256 zapQuote = quoter.quoteExactOutputSingle(
-                token0,
-                token1,
-                3000,
-                comp1,
-                Constants.MIN_V3POOL_SQRT_RATIO
-            );
-
-            pp.mintOptions(positionList, uint128(collateralAssets - zapQuote), 0, maxTick, minTick);
-        } else {
-            // vice versa
-        }
-    }
-
-    function closePositions(TokenId currentPosition, int24 minTick, int24 maxTick) internal {
-        // for our example, we are going to 100% collateralize the notional value of the position we mint in the borrowed token
-        // thus, a position will never require more tokens to close (w/o zapping) than collateral we have on hand (unless protocol loss occurs)
-        // skip burn on first epoch
-        if (TokenId.unwrap(currentPosition) != 0)
-            pp.burnOptions(currentPosition, new TokenId[](0), minTick, maxTick);
-
-        // now withdraw any collateral of the *non-underlying* token
-        // if this fails, we just delay the next epoch until the withdrawal can go through. any better solution for this is more complicated
-        // and would involve distributing collateral shares pro-rata at some point and dissolving the vault
-        if (underlyingIsToken0) {
-            uint256 assetsToSwap = ct1.redeem(
-                ct1.balanceOf(address(this)),
-                address(this),
-                address(this)
-            );
-
-            int256 amount0;
-            // pretend this swap works all the time and we implemented the callback
-            // ideally this is an asynchronous auction using something like CoWswap or Enso -- so the epoch advancement would be divided into two parts
-            // we would also want to do only one swap for both the position close and the position open -- the reason we are doing two
-            // in this prototype is so we can easily get a NAV figure to close this epoch's price at
-            if (assetsToSwap > 0)
-                (amount0, ) = univ3pool.swap(
-                    address(this),
-                    !underlyingIsToken0,
-                    int256(assetsToSwap),
-                    underlyingIsToken0
-                        ? Math.getSqrtRatioAtTick(maxTick)
-                        : Math.getSqrtRatioAtTick(minTick),
-                    ""
-                );
-
-            amount0 = -amount0;
-
-            // NAV is the sum of the underlying received from the swap and the collateral balance
-            uint256 nav = uint256(amount0) + ct0.convertToAssets(ct0.balanceOf(address(this)));
-
-            uint256 previousTotalSupply = totalSupply;
-
-            uint256 _currentEpoch = currentEpoch;
-
-            closeState[_currentEpoch] = EpochState({
-                totalAssets: uint128(nav),
-                totalShares: uint128(previousTotalSupply)
-            });
-
-            uint256 _sharesPendingWithdrawal = sharesPendingWithdrawal;
-            uint256 _assetsPendingDeposit = assetsPendingDeposit;
-
-            // determine how many assets, if any, must be removed from the collateral pool to facilitate withdrawals
-            int256 assetsToWithdraw = int256(
-                Math.mulDiv(_sharesPendingWithdrawal, nav, previousTotalSupply)
-            ) -
-                int256(_assetsPendingDeposit) -
-                amount0;
-
-            if (assetsToWithdraw > 0)
-                ct0.withdraw(uint256(assetsToWithdraw), address(this), address(this));
-                // ensure all collateral is deposited -- this initial version of the vault assumes that the tokenType = underlying and uses zapping
-            else if (assetsToWithdraw < 0) ct0.deposit(uint256(-assetsToWithdraw), address(this));
-
-            totalSupply = uint256(
-                int256(totalSupply) -
-                    int256(_sharesPendingWithdrawal) +
-                    int256(Math.mulDiv(_assetsPendingDeposit, previousTotalSupply, nav))
-            );
-        } else {
-            // vice versa
-        }
-    }
-
-    function needsRebalance(
-        TokenId currentPosition,
-        int24 oracleTick
-    ) internal view returns (bool) {
-        // if we were minting <100% collateralized strategies or long options, account health would also be considered
-        // but for now, we're just checking whether the position has moved far-out-of-range to determine if it's worth rebalancing
-        (int24 tickLower, int24 tickUpper) = currentPosition.asTicks(0);
-
-        return
-            oracleTick - tickUpper > width * tickSpacing ||
-            tickLower - oracleTick > width * tickSpacing;
+        withdrawalEpoch = uint128(currentEpoch + 1);
     }
 }
