@@ -22,12 +22,13 @@ contract HypoVault is ERC20Minimal, Multicall, Ownable {
 
     struct PendingAction {
         uint128 amount; // assets for deposits, shares for withdrawals
-        uint128 epoch; // epoch *after* which the withdrawal can be processed
+        uint128 fulfillmentAccumulatorLast; // shares for deposits, assets for withdrawals
     }
 
     struct EpochState {
-        uint128 totalAssets;
-        uint128 totalShares;
+        uint128 availableAssets; // assets that have been deposited or can be withdrawn
+        uint128 availableShares; // shares that have been withdrawn or can be redeemed
+        uint128 amountPending; // assets for deposits, shares for withdrawals
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -47,26 +48,33 @@ contract HypoVault is ERC20Minimal, Multicall, Ownable {
 
     IVaultAccountant public accountant;
 
-    uint128 depositEpoch = 1;
+    uint256 public performanceFeeBps;
 
-    uint128 withdrawalEpoch = 1;
+    uint128 withdrawalEpoch;
 
-    uint256 sharesPendingWithdrawal;
-
-    uint256 assetsPendingDeposit;
+    uint128 depositEpoch;
 
     uint256 withdrawableAssets;
+
+    uint256 maxSharePriceX128;
 
     mapping(uint256 epoch => EpochState) depositEpochState;
     mapping(uint256 epoch => EpochState) withdrawalEpochState;
 
-    mapping(address user => PendingAction queue) queuedDeposit;
-    mapping(address user => PendingAction queue) queuedWithdrawal;
+    mapping(address user => mapping(uint256 epoch => PendingAction queue)) queuedDeposit;
+    mapping(address user => mapping(uint256 epoch => PendingAction queue)) queuedWithdrawal;
 
-    constructor(address _underlyingToken, address _manager, IVaultAccountant _accountant) {
+    constructor(
+        address _underlyingToken,
+        address _manager,
+        IVaultAccountant _accountant,
+        uint256 _performanceFeeBps
+    ) {
         underlyingToken = _underlyingToken;
         manager = _manager;
         accountant = _accountant;
+        performanceFeeBps = _performanceFeeBps;
+        totalSupply = 1_000_000;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -90,141 +98,75 @@ contract HypoVault is ERC20Minimal, Multicall, Ownable {
                           DEPOSIT/REDEEM LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    // queues a deposit that becomes active at the beginning of the next epoch
-    function editDepositQueue(uint128 updatedDepositAssets) external {
-        PendingAction memory pendingDeposit = queuedDeposit[msg.sender];
+    function requestDeposit(uint128 assets, address receiver) external {
+        uint256 currentEpoch = depositEpoch;
+        PendingAction memory pendingDeposit = queuedDeposit[receiver][currentEpoch];
 
-        uint128 currentEpoch = depositEpoch;
+        queuedDeposit[receiver][currentEpoch] = PendingAction({
+            amount: pendingDeposit.amount + assets,
+            fulfillmentAccumulatorLast: 0
+        });
 
-        int256 depositDelta;
-        // if the previous queued deposit has already been processed, reset the queued deposit state and mint shares
-        if (pendingDeposit.epoch > 0 && currentEpoch > pendingDeposit.epoch) {
-            EpochState memory _depositEpochState = depositEpochState[currentEpoch];
+        depositEpochState[currentEpoch].availableAssets += assets;
 
-            // shares from pending deposits are already added to the supply at the start of every new epoch
-            balanceOf[msg.sender] += Math.mulDiv(
-                pendingDeposit.amount,
-                _depositEpochState.totalShares,
-                _depositEpochState.totalAssets
-            );
-
-            queuedDeposit[msg.sender] = PendingAction({
-                amount: updatedDepositAssets,
-                epoch: currentEpoch
-            });
-
-            depositDelta = int256(uint256(updatedDepositAssets));
-        } else {
-            depositDelta =
-                int256(uint256(updatedDepositAssets)) -
-                int256(uint256(pendingDeposit.amount));
-            queuedDeposit[msg.sender] = PendingAction({
-                amount: updatedDepositAssets,
-                epoch: currentEpoch
-            });
-        }
-
-        assetsPendingDeposit = uint256(int256(assetsPendingDeposit) + depositDelta);
-
-        if (depositDelta > 0)
-            SafeTransferLib.safeTransferFrom(
-                underlyingToken,
-                msg.sender,
-                address(this),
-                uint256(depositDelta)
-            );
-        else if (depositDelta < 0)
-            SafeTransferLib.safeTransfer(underlyingToken, msg.sender, uint256(-depositDelta));
+        SafeTransferLib.safeTransferFrom(underlyingToken, msg.sender, address(this), assets);
     }
 
     // convert an active pending deposit into shares
-    function executeDeposit(address user) external {
-        PendingAction memory pendingDeposit = queuedDeposit[user];
+    // can be called multiple times as more of the deposit becomes fulfilled
+    function executeDeposit(address user, uint256 epoch) external {
+        require(depositEpoch > epoch, "HypoVault: deposit not yet processed");
 
-        require(depositEpoch > pendingDeposit.epoch, "HypoVault: deposit not yet processed");
-
-        EpochState memory _depositEpochState = depositEpochState[pendingDeposit.epoch];
+        PendingAction memory pendingDeposit = queuedDeposit[user][epoch];
+        EpochState memory _depositEpochState = depositEpochState[epoch];
 
         // shares from pending deposits are already added to the supply at the start of every new epoch
         balanceOf[user] += Math.mulDiv(
             pendingDeposit.amount,
-            _depositEpochState.totalShares,
-            _depositEpochState.totalAssets
+            _depositEpochState.availableShares - pendingDeposit.fulfillmentAccumulatorLast,
+            _depositEpochState.availableAssets
         );
 
-        queuedDeposit[user] = PendingAction(0, 0);
+        queuedDeposit[user][epoch] = PendingAction({
+            amount: pendingDeposit.amount,
+            fulfillmentAccumulatorLast: _depositEpochState.availableShares
+        });
     }
 
     // queues a withdrawal that executes at the beginning of the next epoch
-    function editWithdrawalQueue(uint128 updatedWithdrawalShares) external {
-        PendingAction memory pendingWithdrawal = queuedWithdrawal[msg.sender];
+    function requestWithdrawal(uint128 shares, address receiver) external {
+        PendingAction memory pendingWithdrawal = queuedWithdrawal[receiver][withdrawalEpoch];
 
-        uint128 currentEpoch = withdrawalEpoch;
+        queuedWithdrawal[receiver][withdrawalEpoch] = PendingAction({
+            amount: pendingWithdrawal.amount + shares,
+            fulfillmentAccumulatorLast: 0
+        });
 
-        // if the previous queued withdrawal has already been processed, reset the queued withdrawal state and distribute tokens
-        if (pendingWithdrawal.epoch > 0 && currentEpoch > pendingWithdrawal.epoch) {
-            EpochState memory _withdrawalEpochState = withdrawalEpochState[currentEpoch];
+        withdrawalEpochState[withdrawalEpoch].availableShares += shares;
 
-            queuedWithdrawal[msg.sender] = PendingAction({
-                amount: updatedWithdrawalShares,
-                epoch: currentEpoch
-            });
-
-            balanceOf[msg.sender] -= updatedWithdrawalShares;
-
-            sharesPendingWithdrawal = uint256(
-                int256(sharesPendingWithdrawal) + int256(uint256(updatedWithdrawalShares))
-            );
-
-            SafeTransferLib.safeTransfer(
-                underlyingToken,
-                msg.sender,
-                Math.mulDiv(
-                    pendingWithdrawal.amount,
-                    _withdrawalEpochState.totalAssets,
-                    _withdrawalEpochState.totalShares
-                )
-            );
-        } else {
-            queuedWithdrawal[msg.sender] = PendingAction({
-                amount: updatedWithdrawalShares,
-                epoch: currentEpoch
-            });
-
-            int256 withdrawalDelta = int256(uint256(updatedWithdrawalShares)) -
-                int256(uint256(pendingWithdrawal.amount));
-
-            if (withdrawalDelta > 0) balanceOf[msg.sender] -= uint256(withdrawalDelta);
-            else balanceOf[msg.sender] = uint256(int256(balanceOf[msg.sender]) - withdrawalDelta);
-
-            sharesPendingWithdrawal = uint256(int256(sharesPendingWithdrawal) + withdrawalDelta);
-        }
+        balanceOf[msg.sender] -= shares;
     }
 
     // convert an active pending withdrawal into assets
-    function executeWithdrawal(address user) external {
-        PendingAction memory pendingWithdrawal = queuedWithdrawal[user];
+    function executeWithdrawal(address user, uint256 epoch) external {
+        require(withdrawalEpoch > epoch, "HypoVault: withdrawal not yet processed");
 
-        require(
-            withdrawalEpoch > pendingWithdrawal.epoch,
-            "HypoVault: withdrawal not yet processed"
-        );
+        PendingAction memory pendingWithdrawal = queuedWithdrawal[user][epoch];
 
-        EpochState memory _withdrawalEpochState = withdrawalEpochState[pendingWithdrawal.epoch];
-
-        sharesPendingWithdrawal = uint256(
-            int256(sharesPendingWithdrawal) - int256(uint256(pendingWithdrawal.amount))
-        );
-
-        queuedWithdrawal[user] = PendingAction(0, 0);
+        EpochState memory _withdrawalEpochState = withdrawalEpochState[epoch];
 
         uint256 assetsToWithdraw = Math.mulDiv(
             pendingWithdrawal.amount,
-            _withdrawalEpochState.totalAssets,
-            _withdrawalEpochState.totalShares
+            _withdrawalEpochState.availableAssets - pendingWithdrawal.fulfillmentAccumulatorLast,
+            _withdrawalEpochState.availableShares
         );
 
         withdrawableAssets -= assetsToWithdraw;
+
+        queuedWithdrawal[user][epoch] = PendingAction({
+            amount: pendingWithdrawal.amount,
+            fulfillmentAccumulatorLast: _withdrawalEpochState.availableAssets
+        });
 
         SafeTransferLib.safeTransfer(underlyingToken, user, assetsToWithdraw);
     }
@@ -256,51 +198,97 @@ contract HypoVault is ERC20Minimal, Multicall, Ownable {
     }
 
     // assigns a share price for all deposits in the current epoch and increments the deposit epoch
-    function fulfillDeposits(bytes memory managerInput) external onlyManager {
-        uint256 totalAssets = accountant.computeNAV(address(this), managerInput) -
-            assetsPendingDeposit -
-            withdrawableAssets;
-
+    function fulfillDeposits(
+        uint256 assetsToFulfill,
+        bytes memory managerInput
+    ) external onlyManager {
         uint256 currentEpoch = depositEpoch;
 
+        EpochState memory epochState = depositEpochState[currentEpoch];
+
+        EpochState memory previousEpochState;
+        unchecked {
+            // for epoch 0, point the previous epoch state to a blank slot (depositEpochState[UINT256_MAX])
+            previousEpochState = depositEpochState[currentEpoch - 1];
+        }
+
+        uint256 totalAssets = accountant.computeNAV(address(this), managerInput) -
+            previousEpochState.amountPending -
+            epochState.availableAssets -
+            withdrawableAssets;
+
+        if (totalAssets == 0) totalAssets = 1;
+
+        // if the previous epoch has not been fulfilled completely, this operation must occur on the previous epoch
+        if (previousEpochState.amountPending > 0) {
+            currentEpoch--;
+            epochState = previousEpochState;
+        } else if (epochState.amountPending == 0) {
+            // increment the epoch for new deposits if the previous epoch has been fulfilled completely
+            depositEpoch = uint128(currentEpoch + 1);
+            epochState.amountPending = epochState.availableAssets;
+        }
+
         uint256 _totalSupply = totalSupply;
+
+        uint256 sharesReceived = Math.mulDiv(assetsToFulfill, _totalSupply, totalAssets);
+
         depositEpochState[currentEpoch] = EpochState({
-            totalAssets: uint128(totalAssets),
-            totalShares: uint128(_totalSupply)
+            availableAssets: uint128(epochState.availableAssets),
+            availableShares: uint128(epochState.availableShares + sharesReceived),
+            amountPending: uint128(epochState.amountPending - assetsToFulfill)
         });
 
-        assetsPendingDeposit = 0;
-
-        totalSupply = _totalSupply + Math.mulDiv(assetsPendingDeposit, _totalSupply, totalAssets);
-
-        depositEpoch = uint128(currentEpoch + 1);
+        totalSupply = _totalSupply + Math.mulDiv(assetsToFulfill, _totalSupply, totalAssets);
     }
 
     // assigns a share price for all withdrawals in the current epoch and increments the withdrawal epoch
-    function fulfillWithdrawals(bytes memory managerInput) external onlyManager {
+    function fulfillWithdrawals(
+        uint256 sharesToFulfill,
+        uint256 maxAssetsReceived,
+        bytes memory managerInput
+    ) external onlyManager {
+        uint256 depositEpochCurrent = depositEpoch;
+
         uint256 _withdrawableAssets = withdrawableAssets;
         uint256 totalAssets = accountant.computeNAV(address(this), managerInput) -
-            assetsPendingDeposit -
+            depositEpochState[depositEpochCurrent - 1].amountPending -
+            depositEpochState[depositEpochCurrent].availableAssets -
             _withdrawableAssets;
 
         uint256 currentEpoch = withdrawalEpoch;
 
+        EpochState memory epochState = withdrawalEpochState[currentEpoch];
+
+        EpochState memory previousEpochState = withdrawalEpochState[currentEpoch - 1];
+
         uint256 _totalSupply = totalSupply;
 
+        // if the previous epoch has not been fulfilled completely, this operation must occur on the previous epoch
+        if (previousEpochState.amountPending > 0) {
+            currentEpoch--;
+            epochState = previousEpochState;
+        } else if (epochState.amountPending == 0) {
+            // increment the epoch for new withdrawals if the previous epoch has been fulfilled completely
+            withdrawalEpoch = uint128(currentEpoch + 1);
+            epochState.amountPending = epochState.availableShares;
+        }
+
+        uint256 assetsReceived = Math.mulDiv(sharesToFulfill, totalAssets, _totalSupply);
+
+        require(
+            assetsReceived <= maxAssetsReceived,
+            "HypoVault: assets received exceeds max assets received"
+        );
+
         withdrawalEpochState[currentEpoch] = EpochState({
-            totalAssets: uint128(totalAssets),
-            totalShares: uint128(_totalSupply)
+            availableAssets: uint128(epochState.availableAssets + assetsReceived),
+            availableShares: uint128(epochState.availableShares),
+            amountPending: uint128(epochState.amountPending - sharesToFulfill)
         });
 
-        uint256 _sharesPendingWithdrawal = sharesPendingWithdrawal;
-        totalSupply = _totalSupply - sharesPendingWithdrawal;
+        totalSupply = _totalSupply - sharesToFulfill;
 
-        withdrawableAssets =
-            _withdrawableAssets +
-            Math.mulDiv(_sharesPendingWithdrawal, _withdrawableAssets, _totalSupply);
-
-        sharesPendingWithdrawal = 0;
-
-        withdrawalEpoch = uint128(currentEpoch + 1);
+        withdrawableAssets = _withdrawableAssets + assetsReceived;
     }
 }
