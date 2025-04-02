@@ -12,6 +12,7 @@ import {ERC20S} from "@testutils-v1-core/ERC20S.sol";
 import {V4RouterSimple} from "@testutils-v1-core/V4RouterSimple.sol";
 import {TickMath} from "univ3-core/libraries/TickMath.sol";
 import {PoolKey} from "v4-core/types/PoolKey.sol";
+import {PoolId} from "v4-core/types/PoolId.sol";
 import {Currency} from "v4-core/types/Currency.sol";
 import {IHooks} from "v4-core/interfaces/IHooks.sol";
 import {Hooks} from "v4-core/libraries/Hooks.sol";
@@ -94,6 +95,10 @@ contract OracleTestV4 is Test {
         oracleAdapter.increaseObservationCardinalityNext(_cardinality);
     }
 
+    function growTruncated(uint16 _cardinality) public {
+        truncatedOracleAdapter.increaseObservationCardinalityNext(_cardinality);
+    }
+
     function update(UpdateParams memory params) public {
         vm.warp(block.timestamp + params.advanceTimeBy);
 
@@ -101,6 +106,23 @@ contract OracleTestV4 is Test {
         routerV4.swapTo(address(0), poolKey, TickMath.getSqrtRatioAtTick(params.tick) + 1);
 
         (uint160 sqrtPriceX96, int24 tick, , , , , ) = oracleAdapter.slot0();
+        console2.log("sqrtPriceX96", sqrtPriceX96);
+        console2.log(
+            "tickMath.getSqrtRatioAtTick(params.tick)",
+            TickMath.getSqrtRatioAtTick(params.tick)
+        );
+        console2.log("tick", tick);
+        console2.log("params.tick", params.tick);
+        require(tick == params.tick, "tick mismatch");
+    }
+
+    function updateTruncated(UpdateParams memory params) public {
+        vm.warp(block.timestamp + params.advanceTimeBy);
+
+        // +1 to avoid tick transition
+        routerV4.swapTo(address(0), poolKey, TickMath.getSqrtRatioAtTick(params.tick) + 1);
+
+        (uint160 sqrtPriceX96, int24 tick, , , , , ) = truncatedOracleAdapter.slot0();
         console2.log("sqrtPriceX96", sqrtPriceX96);
         console2.log(
             "tickMath.getSqrtRatioAtTick(params.tick)",
@@ -120,13 +142,28 @@ contract OracleTestV4 is Test {
         return observationIndex;
     }
 
+    function indexTruncated() public view returns (uint16) {
+        (, , uint16 observationIndex, , , , ) = truncatedOracleAdapter.slot0();
+        return observationIndex;
+    }
+
     function cardinality() public view returns (uint16) {
         (, , , uint16 observationCardinality, , , ) = oracleAdapter.slot0();
         return observationCardinality;
     }
 
+    function cardinalityTruncated() public view returns (uint16) {
+        (, , , uint16 observationCardinality, , , ) = truncatedOracleAdapter.slot0();
+        return observationCardinality;
+    }
+
     function cardinalityNext() public view returns (uint16) {
         (, , , , uint16 observationCardinalityNext, , ) = oracleAdapter.slot0();
+        return observationCardinalityNext;
+    }
+
+    function cardinalityNextTruncated() public view returns (uint16) {
+        (, , , , uint16 observationCardinalityNext, , ) = truncatedOracleAdapter.slot0();
         return observationCardinalityNext;
     }
 
@@ -145,10 +182,31 @@ contract OracleTestV4 is Test {
         return oracleAdapter.observations(_index);
     }
 
+    function observationsTruncated(
+        uint256 _index
+    )
+        public
+        view
+        returns (
+            uint32 blockTimestamp,
+            int56 tickCumulative,
+            uint160 secondsPerLiquidityCumulativeX128,
+            bool initialized
+        )
+    {
+        return truncatedOracleAdapter.observations(_index);
+    }
+
     function observe(
         uint32[] memory secondsAgos
     ) public view returns (int56[] memory, uint160[] memory) {
         return oracleAdapter.observe(secondsAgos);
+    }
+
+    function observeTruncated(
+        uint32[] memory secondsAgos
+    ) public view returns (int56[] memory, uint160[] memory) {
+        return truncatedOracleAdapter.observe(secondsAgos);
     }
 }
 
@@ -158,8 +216,11 @@ contract OracleLibTest is Test {
     uint256 constant TEST_POOL_START_TIME = 1601906400;
     uint128 constant MAX_UINT128 = type(uint128).max;
 
+    PoolId public poolId;
+
     function setUp() public {
         oracle = new OracleTestV4(new PoolManager(address(this)));
+        poolId = oracle.poolKey().toId();
     }
 
     function test_initialize_indexIsZero() public {
@@ -167,14 +228,29 @@ contract OracleLibTest is Test {
         assertEq(oracle.index(), 0);
     }
 
+    function test_truncated_initialize_indexIsZero() public {
+        oracle.initialize(OracleTestV4.InitializeParams({time: 1, tick: 1}));
+        assertEq(oracle.indexTruncated(), 0);
+    }
+
     function test_initialize_cardinalityIsOne() public {
         oracle.initialize(OracleTestV4.InitializeParams({time: 1, tick: 1}));
         assertEq(oracle.cardinality(), 1);
     }
 
+    function test_truncated_initialize_cardinalityIsOne() public {
+        oracle.initialize(OracleTestV4.InitializeParams({time: 1, tick: 1}));
+        assertEq(oracle.cardinalityTruncated(), 1);
+    }
+
     function test_initialize_cardinalityNextIsOne() public {
         oracle.initialize(OracleTestV4.InitializeParams({time: 1, tick: 1}));
         assertEq(oracle.cardinalityNext(), 1);
+    }
+
+    function test_truncated_initialize_cardinalityNextIsOne() public {
+        oracle.initialize(OracleTestV4.InitializeParams({time: 1, tick: 1}));
+        assertEq(oracle.cardinalityNextTruncated(), 1);
     }
 
     function test_initialize_firstSlotTimestamp() public {
@@ -191,12 +267,34 @@ contract OracleLibTest is Test {
         assertEq(secondsPerLiquidityCumulativeX128, 0);
     }
 
+    function test_truncated_initialize_firstSlotTimestamp() public {
+        oracle.initialize(OracleTestV4.InitializeParams({time: 1, tick: 1}));
+        (
+            uint32 blockTimestamp,
+            int56 tickCumulative,
+            uint160 secondsPerLiquidityCumulativeX128,
+            bool initialized
+        ) = oracle.observationsTruncated(0);
+        assertTrue(initialized);
+        assertEq(blockTimestamp, 1);
+        assertEq(tickCumulative, 0);
+        assertEq(secondsPerLiquidityCumulativeX128, 0);
+    }
+
     function test_grow_increasesCardinalityNext() public {
         oracle.initialize(OracleTestV4.InitializeParams({time: 0, tick: 0}));
         oracle.grow(5);
         assertEq(oracle.index(), 0);
         assertEq(oracle.cardinality(), 1);
         assertEq(oracle.cardinalityNext(), 5);
+    }
+
+    function test_truncated_grow_increasesCardinalityNext() public {
+        oracle.initialize(OracleTestV4.InitializeParams({time: 0, tick: 0}));
+        oracle.growTruncated(5);
+        assertEq(oracle.indexTruncated(), 0);
+        assertEq(oracle.cardinalityTruncated(), 1);
+        assertEq(oracle.cardinalityNextTruncated(), 5);
     }
 
     function test_grow_doesNotTouchFirstSlot() public {
@@ -214,6 +312,21 @@ contract OracleLibTest is Test {
         assertEq(secondsPerLiquidityCumulativeX128, 0);
     }
 
+    function test_truncated_grow_doesNotTouchFirstSlot() public {
+        oracle.initialize(OracleTestV4.InitializeParams({time: 0, tick: 0}));
+        oracle.growTruncated(5);
+        (
+            uint32 blockTimestamp,
+            int56 tickCumulative,
+            uint160 secondsPerLiquidityCumulativeX128,
+            bool initialized
+        ) = oracle.observationsTruncated(0);
+        assertTrue(initialized);
+        assertEq(blockTimestamp, 0);
+        assertEq(tickCumulative, 0);
+        assertEq(secondsPerLiquidityCumulativeX128, 0);
+    }
+
     function test_grow_isNoOpIfAlreadyLargerSize() public {
         oracle.initialize(OracleTestV4.InitializeParams({time: 0, tick: 0}));
         oracle.grow(5);
@@ -221,6 +334,15 @@ contract OracleLibTest is Test {
         assertEq(oracle.index(), 0);
         assertEq(oracle.cardinality(), 1);
         assertEq(oracle.cardinalityNext(), 5);
+    }
+
+    function test_truncated_grow_isNoOpIfAlreadyLargerSize() public {
+        oracle.initialize(OracleTestV4.InitializeParams({time: 0, tick: 0}));
+        oracle.growTruncated(5);
+        oracle.growTruncated(3);
+        assertEq(oracle.indexTruncated(), 0);
+        assertEq(oracle.cardinalityTruncated(), 1);
+        assertEq(oracle.cardinalityNextTruncated(), 5);
     }
 
     function test_update_singleElementArrayOverwrite() public {
@@ -242,6 +364,26 @@ contract OracleLibTest is Test {
         assertEq(tickCumulative, 10);
     }
 
+    function test_truncated_update_singleElementArrayOverwrite() public {
+        oracle.initialize(OracleTestV4.InitializeParams({time: 0, tick: 0}));
+
+        // First update
+        oracle.updateTruncated(OracleTestV4.UpdateParams({advanceTimeBy: 1, tick: 2}));
+        assertEq(oracle.indexTruncated(), 0);
+        (uint32 blockTimestamp, int56 tickCumulative, , bool initialized) = oracle
+            .observationsTruncated(0);
+        assertTrue(initialized);
+        assertEq(blockTimestamp, 1);
+        assertEq(tickCumulative, 0);
+
+        // Second update
+        oracle.updateTruncated(OracleTestV4.UpdateParams({advanceTimeBy: 5, tick: -1}));
+        (blockTimestamp, tickCumulative, , initialized) = oracle.observationsTruncated(0);
+        assertTrue(initialized);
+        assertEq(blockTimestamp, 6);
+        assertEq(tickCumulative, 10);
+    }
+
     function test_update_doesNothingIfTimeHasNotChanged() public {
         oracle.initialize(OracleTestV4.InitializeParams({time: 0, tick: 0}));
         oracle.grow(2);
@@ -251,6 +393,17 @@ contract OracleLibTest is Test {
 
         oracle.update(OracleTestV4.UpdateParams({advanceTimeBy: 0, tick: -5}));
         assertEq(oracle.index(), 1);
+    }
+
+    function test_truncated_update_doesNothingIfTimeHasNotChanged() public {
+        oracle.initialize(OracleTestV4.InitializeParams({time: 0, tick: 0}));
+        oracle.growTruncated(2);
+
+        oracle.updateTruncated(OracleTestV4.UpdateParams({advanceTimeBy: 1, tick: 3}));
+        assertEq(oracle.indexTruncated(), 1);
+
+        oracle.updateTruncated(OracleTestV4.UpdateParams({advanceTimeBy: 0, tick: -5}));
+        assertEq(oracle.indexTruncated(), 1);
     }
 
     function test_update_writesIndexIfTimeHasChanged() public {
@@ -269,6 +422,28 @@ contract OracleLibTest is Test {
             uint160 secondsPerLiquidityCumulativeX128,
             bool initialized
         ) = oracle.observations(1);
+        assertTrue(initialized);
+        assertEq(blockTimestamp, 6);
+        assertEq(tickCumulative, 0);
+        assertEq(secondsPerLiquidityCumulativeX128, 0);
+    }
+
+    function test_truncated_update_writesIndexIfTimeHasChanged() public {
+        oracle.initialize(OracleTestV4.InitializeParams({time: 0, tick: 0}));
+        oracle.growTruncated(3);
+
+        oracle.updateTruncated(OracleTestV4.UpdateParams({advanceTimeBy: 6, tick: 3}));
+        assertEq(oracle.indexTruncated(), 1);
+
+        oracle.updateTruncated(OracleTestV4.UpdateParams({advanceTimeBy: 4, tick: -5}));
+        assertEq(oracle.indexTruncated(), 2);
+
+        (
+            uint32 blockTimestamp,
+            int56 tickCumulative,
+            uint160 secondsPerLiquidityCumulativeX128,
+            bool initialized
+        ) = oracle.observationsTruncated(1);
         assertTrue(initialized);
         assertEq(blockTimestamp, 6);
         assertEq(tickCumulative, 0);
@@ -297,12 +472,42 @@ contract OracleLibTest is Test {
         assertEq(secondsPerLiquidityCumulativeX128, 0);
     }
 
+    function test_truncated_update_wrapsAround() public {
+        oracle.initialize(OracleTestV4.InitializeParams({time: 0, tick: 0}));
+        oracle.growTruncated(3);
+
+        oracle.updateTruncated(OracleTestV4.UpdateParams({advanceTimeBy: 3, tick: 1}));
+        oracle.updateTruncated(OracleTestV4.UpdateParams({advanceTimeBy: 4, tick: 2}));
+        oracle.updateTruncated(OracleTestV4.UpdateParams({advanceTimeBy: 5, tick: 3}));
+
+        assertEq(oracle.indexTruncated(), 0);
+
+        (
+            uint32 blockTimestamp,
+            int56 tickCumulative,
+            uint160 secondsPerLiquidityCumulativeX128,
+            bool initialized
+        ) = oracle.observationsTruncated(0);
+        assertTrue(initialized);
+        assertEq(blockTimestamp, 12);
+        assertEq(tickCumulative, 14);
+        assertEq(secondsPerLiquidityCumulativeX128, 0);
+    }
+
     function test_observe_fails_if_older_observation_not_exist() public {
         oracle.initialize(OracleTestV4.InitializeParams({time: 5, tick: 2}));
         uint32[] memory secondsAgos = new uint32[](1);
         secondsAgos[0] = 1;
         vm.expectRevert();
         oracle.observe(secondsAgos);
+    }
+
+    function test_truncated_observe_fails_if_older_observation_not_exist() public {
+        oracle.initialize(OracleTestV4.InitializeParams({time: 5, tick: 2}));
+        uint32[] memory secondsAgos = new uint32[](1);
+        secondsAgos[0] = 1;
+        vm.expectRevert();
+        oracle.observeTruncated(secondsAgos);
     }
 
     function test_observe_works_across_overflow_boundary() public {
@@ -314,6 +519,19 @@ contract OracleLibTest is Test {
             int56[] memory tickCumulatives,
             uint160[] memory secondsPerLiquidityCumulativeX128s
         ) = oracle.observe(secondsAgos);
+        assertEq(tickCumulatives[0], 2);
+        assertEq(secondsPerLiquidityCumulativeX128s[0], 0);
+    }
+
+    function test_truncated_observe_works_across_overflow_boundary() public {
+        oracle.initialize(OracleTestV4.InitializeParams({time: type(uint32).max - 1, tick: 2}));
+        oracle.advanceTime(2);
+        uint32[] memory secondsAgos = new uint32[](1);
+        secondsAgos[0] = 1;
+        (
+            int56[] memory tickCumulatives,
+            uint160[] memory secondsPerLiquidityCumulativeX128s
+        ) = oracle.observeTruncated(secondsAgos);
         assertEq(tickCumulatives[0], 2);
         assertEq(secondsPerLiquidityCumulativeX128s[0], 0);
     }
@@ -330,6 +548,18 @@ contract OracleLibTest is Test {
         assertEq(secondsPerLiquidityCumulativeX128s[0], 0);
     }
 
+    function test_truncated_observe_single_observation_at_current_time() public {
+        oracle.initialize(OracleTestV4.InitializeParams({time: 5, tick: 2}));
+        uint32[] memory secondsAgos = new uint32[](1);
+        secondsAgos[0] = 0;
+        (
+            int56[] memory tickCumulatives,
+            uint160[] memory secondsPerLiquidityCumulativeX128s
+        ) = oracle.observeTruncated(secondsAgos);
+        assertEq(tickCumulatives[0], 0);
+        assertEq(secondsPerLiquidityCumulativeX128s[0], 0);
+    }
+
     function test_observe_single_observation_in_past_but_not_earlier_than_secondsAgo() public {
         oracle.initialize(OracleTestV4.InitializeParams({time: 5, tick: 2}));
         oracle.advanceTime(3);
@@ -337,6 +567,17 @@ contract OracleLibTest is Test {
         secondsAgos[0] = 4;
         vm.expectRevert();
         oracle.observe(secondsAgos);
+    }
+
+    function test_truncated_observe_single_observation_in_past_but_not_earlier_than_secondsAgo()
+        public
+    {
+        oracle.initialize(OracleTestV4.InitializeParams({time: 5, tick: 2}));
+        oracle.advanceTime(3);
+        uint32[] memory secondsAgos = new uint32[](1);
+        secondsAgos[0] = 4;
+        vm.expectRevert();
+        oracle.observeTruncated(secondsAgos);
     }
 
     function test_observe_single_observation_in_past_at_exactly_seconds_ago() public {
@@ -348,6 +589,19 @@ contract OracleLibTest is Test {
             int56[] memory tickCumulatives,
             uint160[] memory secondsPerLiquidityCumulativeX128s
         ) = oracle.observe(secondsAgos);
+        assertEq(tickCumulatives[0], 0);
+        assertEq(secondsPerLiquidityCumulativeX128s[0], 0);
+    }
+
+    function test_truncated_observe_single_observation_in_past_at_exactly_seconds_ago() public {
+        oracle.initialize(OracleTestV4.InitializeParams({time: 5, tick: 2}));
+        oracle.advanceTime(3);
+        uint32[] memory secondsAgos = new uint32[](1);
+        secondsAgos[0] = 3;
+        (
+            int56[] memory tickCumulatives,
+            uint160[] memory secondsPerLiquidityCumulativeX128s
+        ) = oracle.observeTruncated(secondsAgos);
         assertEq(tickCumulatives[0], 0);
         assertEq(secondsPerLiquidityCumulativeX128s[0], 0);
     }
@@ -365,6 +619,19 @@ contract OracleLibTest is Test {
         assertEq(secondsPerLiquidityCumulativeX128s[0], 0);
     }
 
+    function test_truncated_observe_single_observation_in_past_counterfactual_in_past() public {
+        oracle.initialize(OracleTestV4.InitializeParams({time: 5, tick: 2}));
+        oracle.advanceTime(3);
+        uint32[] memory secondsAgos = new uint32[](1);
+        secondsAgos[0] = 1;
+        (
+            int56[] memory tickCumulatives,
+            uint160[] memory secondsPerLiquidityCumulativeX128s
+        ) = oracle.observeTruncated(secondsAgos);
+        assertEq(tickCumulatives[0], 4);
+        assertEq(secondsPerLiquidityCumulativeX128s[0], 0);
+    }
+
     function test_observe_single_observation_in_past_counterfactual_now() public {
         oracle.initialize(OracleTestV4.InitializeParams({time: 5, tick: 2}));
         oracle.advanceTime(3);
@@ -374,6 +641,19 @@ contract OracleLibTest is Test {
             int56[] memory tickCumulatives,
             uint160[] memory secondsPerLiquidityCumulativeX128s
         ) = oracle.observe(secondsAgos);
+        assertEq(tickCumulatives[0], 6);
+        assertEq(secondsPerLiquidityCumulativeX128s[0], 0);
+    }
+
+    function test_truncated_observe_single_observation_in_past_counterfactual_now() public {
+        oracle.initialize(OracleTestV4.InitializeParams({time: 5, tick: 2}));
+        oracle.advanceTime(3);
+        uint32[] memory secondsAgos = new uint32[](1);
+        secondsAgos[0] = 0;
+        (
+            int56[] memory tickCumulatives,
+            uint160[] memory secondsPerLiquidityCumulativeX128s
+        ) = oracle.observeTruncated(secondsAgos);
         assertEq(tickCumulatives[0], 6);
         assertEq(secondsPerLiquidityCumulativeX128s[0], 0);
     }
@@ -388,6 +668,20 @@ contract OracleLibTest is Test {
             int56[] memory tickCumulatives,
             uint160[] memory secondsPerLiquidityCumulativeX128s
         ) = oracle.observe(secondsAgos);
+        assertEq(tickCumulatives[0], 0);
+        assertEq(secondsPerLiquidityCumulativeX128s[0], 0);
+    }
+
+    function test_truncated_observe_singleObservation() public {
+        oracle.initialize(OracleTestV4.InitializeParams({time: 2, tick: 2}));
+
+        uint32[] memory secondsAgos = new uint32[](1);
+        secondsAgos[0] = 0;
+
+        (
+            int56[] memory tickCumulatives,
+            uint160[] memory secondsPerLiquidityCumulativeX128s
+        ) = oracle.observeTruncated(secondsAgos);
         assertEq(tickCumulatives[0], 0);
         assertEq(secondsPerLiquidityCumulativeX128s[0], 0);
     }
@@ -414,6 +708,28 @@ contract OracleLibTest is Test {
         assertEq(secondsPerLiquidityCumulativeX128s.length, 3);
     }
 
+    function test_truncated_observe_multipleObservations() public {
+        oracle.initialize(OracleTestV4.InitializeParams({time: 1, tick: 3}));
+        oracle.growTruncated(4);
+
+        oracle.updateTruncated(OracleTestV4.UpdateParams({advanceTimeBy: 1, tick: 5}));
+        oracle.updateTruncated(OracleTestV4.UpdateParams({advanceTimeBy: 1, tick: 7}));
+
+        uint32[] memory secondsAgos = new uint32[](3);
+        secondsAgos[0] = 0; // current
+        secondsAgos[1] = 1; // 1 second ago
+        secondsAgos[2] = 2; // 2 seconds ago
+
+        (
+            int56[] memory tickCumulatives,
+            uint160[] memory secondsPerLiquidityCumulativeX128s
+        ) = oracle.observeTruncated(secondsAgos);
+
+        // Verify the observations
+        assertEq(tickCumulatives.length, 3);
+        assertEq(secondsPerLiquidityCumulativeX128s.length, 3);
+    }
+
     function test_observe_fetch_multiple_observations() public {
         oracle.initialize(OracleTestV4.InitializeParams({time: 5, tick: 2}));
         oracle.grow(4);
@@ -432,6 +748,42 @@ contract OracleLibTest is Test {
             int56[] memory tickCumulatives,
             uint160[] memory secondsPerLiquidityCumulativeX128s
         ) = oracle.observe(secondsAgos);
+
+        assertEq(tickCumulatives.length, 6);
+        assertEq(tickCumulatives[0], 56);
+        assertEq(tickCumulatives[1], 38);
+        assertEq(tickCumulatives[2], 20);
+        assertEq(tickCumulatives[3], 10);
+        assertEq(tickCumulatives[4], 6);
+        assertEq(tickCumulatives[5], 0);
+
+        assertEq(secondsPerLiquidityCumulativeX128s.length, 6);
+        assertEq(secondsPerLiquidityCumulativeX128s[0], 0);
+        assertEq(secondsPerLiquidityCumulativeX128s[1], 0);
+        assertEq(secondsPerLiquidityCumulativeX128s[2], 0);
+        assertEq(secondsPerLiquidityCumulativeX128s[3], 0);
+        assertEq(secondsPerLiquidityCumulativeX128s[4], 0);
+        assertEq(secondsPerLiquidityCumulativeX128s[5], 0);
+    }
+
+    function test_truncated_observe_fetch_multiple_observations() public {
+        oracle.initialize(OracleTestV4.InitializeParams({time: 5, tick: 2}));
+        oracle.growTruncated(4);
+        oracle.updateTruncated(OracleTestV4.UpdateParams({advanceTimeBy: 13, tick: 6}));
+        oracle.advanceTime(5);
+
+        uint32[] memory secondsAgos = new uint32[](6);
+        secondsAgos[0] = 0;
+        secondsAgos[1] = 3;
+        secondsAgos[2] = 8;
+        secondsAgos[3] = 13;
+        secondsAgos[4] = 15;
+        secondsAgos[5] = 18;
+
+        (
+            int56[] memory tickCumulatives,
+            uint160[] memory secondsPerLiquidityCumulativeX128s
+        ) = oracle.observeTruncated(secondsAgos);
 
         assertEq(tickCumulatives.length, 6);
         assertEq(tickCumulatives[0], 56);
@@ -484,6 +836,39 @@ contract OracleLibTest is Test {
         assertEq(oracle.index(), 165);
     }
 
+    function test_truncated_full_oracle_setup() public {
+        // Initialize oracle
+        oracle.initialize(
+            OracleTestV4.InitializeParams({time: uint32(TEST_POOL_START_TIME), tick: 0})
+        );
+
+        // Grow oracle to max size in batches
+        uint16 cardinalityNext = oracle.cardinalityNextTruncated();
+        uint16 batchSize = 300;
+        while (cardinalityNext < type(uint16).max) {
+            uint16 growTo = uint16(
+                min(uint256(type(uint16).max), uint256(cardinalityNext) + batchSize)
+            );
+            oracle.growTruncated(growTo);
+            cardinalityNext = growTo;
+        }
+
+        console2.log("update", block.timestamp);
+        // Perform batch updates
+        for (uint256 i = 0; i < 65535; i += batchSize) {
+            for (uint256 j = 0; j < batchSize; j++) {
+                oracle.updateTruncated(
+                    OracleTestV4.UpdateParams({advanceTimeBy: 13, tick: -int24(int256(i + j))})
+                );
+            }
+        }
+
+        // Verify the oracle state
+        assertEq(oracle.cardinalityNextTruncated(), type(uint16).max);
+        assertEq(oracle.cardinalityTruncated(), type(uint16).max);
+        assertEq(oracle.indexTruncated(), 165);
+    }
+
     function test_full_oracle_observe_into_ordered_portion_exact() public {
         test_full_oracle_setup();
 
@@ -493,6 +878,20 @@ contract OracleLibTest is Test {
             int56[] memory tickCumulatives,
             uint160[] memory secondsPerLiquidityCumulativeX128s
         ) = oracle.observe(secondsAgos);
+
+        assertEq(tickCumulatives[0], -27970560813);
+        assertEq(secondsPerLiquidityCumulativeX128s[0], 0);
+    }
+
+    function test_truncated_full_oracle_observe_into_ordered_portion_exact() public {
+        test_truncated_full_oracle_setup();
+
+        uint32[] memory secondsAgos = new uint32[](1);
+        secondsAgos[0] = 100 * 13;
+        (
+            int56[] memory tickCumulatives,
+            uint160[] memory secondsPerLiquidityCumulativeX128s
+        ) = oracle.observeTruncated(secondsAgos);
 
         assertEq(tickCumulatives[0], -27970560813);
         assertEq(secondsPerLiquidityCumulativeX128s[0], 0);
@@ -512,6 +911,20 @@ contract OracleLibTest is Test {
         assertEq(secondsPerLiquidityCumulativeX128s[0], 0);
     }
 
+    function test_truncated_full_oracle_observe_into_ordered_portion_unexact() public {
+        test_truncated_full_oracle_setup();
+
+        uint32[] memory secondsAgos = new uint32[](1);
+        secondsAgos[0] = 100 * 13 + 5;
+        (
+            int56[] memory tickCumulatives,
+            uint160[] memory secondsPerLiquidityCumulativeX128s
+        ) = oracle.observeTruncated(secondsAgos);
+
+        assertEq(tickCumulatives[0], -27970232823);
+        assertEq(secondsPerLiquidityCumulativeX128s[0], 0);
+    }
+
     function test_full_oracle_observe_at_latest() public {
         test_full_oracle_setup();
 
@@ -521,6 +934,20 @@ contract OracleLibTest is Test {
             int56[] memory tickCumulatives,
             uint160[] memory secondsPerLiquidityCumulativeX128s
         ) = oracle.observe(secondsAgos);
+
+        assertEq(tickCumulatives[0], -28055903863);
+        assertEq(secondsPerLiquidityCumulativeX128s[0], 0);
+    }
+
+    function test_truncated_full_oracle_observe_at_latest() public {
+        test_truncated_full_oracle_setup();
+
+        uint32[] memory secondsAgos = new uint32[](1);
+        secondsAgos[0] = 0;
+        (
+            int56[] memory tickCumulatives,
+            uint160[] memory secondsPerLiquidityCumulativeX128s
+        ) = oracle.observeTruncated(secondsAgos);
 
         assertEq(tickCumulatives[0], -28055903863);
         assertEq(secondsPerLiquidityCumulativeX128s[0], 0);
@@ -536,6 +963,21 @@ contract OracleLibTest is Test {
             int56[] memory tickCumulatives,
             uint160[] memory secondsPerLiquidityCumulativeX128s
         ) = oracle.observe(secondsAgos);
+
+        assertEq(tickCumulatives[0], -28055903863);
+        assertEq(secondsPerLiquidityCumulativeX128s[0], 0);
+    }
+
+    function test_truncated_full_oracle_observe_at_latest_after_time() public {
+        test_truncated_full_oracle_setup();
+        oracle.advanceTime(5);
+
+        uint32[] memory secondsAgos = new uint32[](1);
+        secondsAgos[0] = 5;
+        (
+            int56[] memory tickCumulatives,
+            uint160[] memory secondsPerLiquidityCumulativeX128s
+        ) = oracle.observeTruncated(secondsAgos);
 
         assertEq(tickCumulatives[0], -28055903863);
         assertEq(secondsPerLiquidityCumulativeX128s[0], 0);
@@ -557,6 +999,22 @@ contract OracleLibTest is Test {
         assertEq(secondsPerLiquidityCumulativeX128s[0], 0);
     }
 
+    function test_truncated_observe_after_latest_observation_counterfactual() public {
+        test_truncated_full_oracle_setup();
+        oracle.advanceTime(5);
+
+        uint32[] memory secondsAgos = new uint32[](1);
+        secondsAgos[0] = 3;
+        (
+            int56[] memory tickCumulatives,
+            uint160[] memory secondsPerLiquidityCumulativeX128s
+        ) = oracle.observeTruncated(secondsAgos);
+
+        // Values based on the Hardhat test case
+        assertEq(tickCumulatives[0], -28056035261);
+        assertEq(secondsPerLiquidityCumulativeX128s[0], 0);
+    }
+
     function test_observe_into_unordered_portion_exact_seconds() public {
         test_full_oracle_setup();
 
@@ -566,6 +1024,21 @@ contract OracleLibTest is Test {
             int56[] memory tickCumulatives,
             uint160[] memory secondsPerLiquidityCumulativeX128s
         ) = oracle.observe(secondsAgos);
+
+        // Values based on the Hardhat test case
+        assertEq(tickCumulatives[0], -27885347763);
+        assertEq(secondsPerLiquidityCumulativeX128s[0], 0);
+    }
+
+    function test_truncated_observe_into_unordered_portion_exact_seconds() public {
+        test_truncated_full_oracle_setup();
+
+        uint32[] memory secondsAgos = new uint32[](1);
+        secondsAgos[0] = 200 * 13;
+        (
+            int56[] memory tickCumulatives,
+            uint160[] memory secondsPerLiquidityCumulativeX128s
+        ) = oracle.observeTruncated(secondsAgos);
 
         // Values based on the Hardhat test case
         assertEq(tickCumulatives[0], -27885347763);
@@ -587,6 +1060,21 @@ contract OracleLibTest is Test {
         assertEq(secondsPerLiquidityCumulativeX128s[0], 0);
     }
 
+    function test_truncated_observe_into_unordered_portion_between_observations() public {
+        test_truncated_full_oracle_setup();
+
+        uint32[] memory secondsAgos = new uint32[](1);
+        secondsAgos[0] = 200 * 13 + 5;
+        (
+            int56[] memory tickCumulatives,
+            uint160[] memory secondsPerLiquidityCumulativeX128s
+        ) = oracle.observeTruncated(secondsAgos);
+
+        // Values based on the Hardhat test case
+        assertEq(tickCumulatives[0], -27885020273);
+        assertEq(secondsPerLiquidityCumulativeX128s[0], 0);
+    }
+
     function test_observe_oldest_observation() public {
         test_full_oracle_setup();
 
@@ -596,6 +1084,21 @@ contract OracleLibTest is Test {
             int56[] memory tickCumulatives,
             uint160[] memory secondsPerLiquidityCumulativeX128s
         ) = oracle.observe(secondsAgos);
+
+        // Values based on the Hardhat test case
+        assertEq(tickCumulatives[0], -175890);
+        assertEq(secondsPerLiquidityCumulativeX128s[0], 0);
+    }
+
+    function test_truncated_observe_oldest_observation() public {
+        test_truncated_full_oracle_setup();
+
+        uint32[] memory secondsAgos = new uint32[](1);
+        secondsAgos[0] = 13 * 65534;
+        (
+            int56[] memory tickCumulatives,
+            uint160[] memory secondsPerLiquidityCumulativeX128s
+        ) = oracle.observeTruncated(secondsAgos);
 
         // Values based on the Hardhat test case
         assertEq(tickCumulatives[0], -175890);
@@ -612,6 +1115,22 @@ contract OracleLibTest is Test {
             int56[] memory tickCumulatives,
             uint160[] memory secondsPerLiquidityCumulativeX128s
         ) = oracle.observe(secondsAgos);
+
+        // Values based on the Hardhat test case
+        assertEq(tickCumulatives[0], -175890);
+        assertEq(secondsPerLiquidityCumulativeX128s[0], 0);
+    }
+
+    function test_truncated_observe_oldest_observation_after_time_elapsed() public {
+        test_truncated_full_oracle_setup();
+        oracle.advanceTime(5);
+
+        uint32[] memory secondsAgos = new uint32[](1);
+        secondsAgos[0] = 13 * 65534 + 5;
+        (
+            int56[] memory tickCumulatives,
+            uint160[] memory secondsPerLiquidityCumulativeX128s
+        ) = oracle.observeTruncated(secondsAgos);
 
         // Values based on the Hardhat test case
         assertEq(tickCumulatives[0], -175890);
