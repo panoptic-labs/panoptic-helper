@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 import "forge-std/Test.sol";
 // import {OracleTest} from "univ3-core/test/OracleTest.sol";
-import {V3StyleOracle} from "../src/hooks/V3StyleOracle.sol";
+import {V3StyleOracleHook} from "../src/hooks/V3StyleOracleHook.sol";
 import {V3OracleAdapter} from "../src/adapters/V3OracleAdapter.sol";
 import {V3TruncatedOracleAdapter} from "../src/adapters/V3TruncatedOracleAdapter.sol";
 import {PoolManager} from "v4-core/PoolManager.sol";
@@ -21,8 +21,8 @@ import {Math} from "@libraries/Math.sol";
 contract OracleTestV4 is Test {
     IPoolManager public immutable manager;
 
-    V3StyleOracle public constant oracleBase =
-        V3StyleOracle(address(uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_INITIALIZE_FLAG)));
+    V3StyleOracleHook public constant oracleBase =
+        V3StyleOracleHook(address(uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_INITIALIZE_FLAG)));
 
     V3OracleAdapter public oracleAdapter;
 
@@ -277,12 +277,16 @@ contract OracleLibTest is Test {
     PoolManager public manager;
     uint256 constant TEST_POOL_START_TIME = 1601906400;
     uint128 constant MAX_UINT128 = type(uint128).max;
-    V3StyleOracle public constant oracleBase =
-        V3StyleOracle(address(uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_INITIALIZE_FLAG)));
+    V3StyleOracleHook public constant oracleBase =
+        V3StyleOracleHook(address(uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_INITIALIZE_FLAG)));
 
     function setUp() public {
         manager = new PoolManager(address(this));
-        deployCodeTo("V3StyleOracle.sol", abi.encode(manager, int24(9116)), address(oracleBase));
+        deployCodeTo(
+            "V3StyleOracleHook.sol",
+            abi.encode(manager, int24(9116)),
+            address(oracleBase)
+        );
 
         oracle = new OracleTestV4(manager);
     }
@@ -2063,7 +2067,11 @@ contract OracleLibTest is Test {
     function test_all_tests_with_second_pool() public {
         // Initialize manager and oracle
         manager = new PoolManager(address(this));
-        deployCodeTo("V3StyleOracle.sol", abi.encode(manager, int24(9116)), address(oracleBase));
+        deployCodeTo(
+            "V3StyleOracleHook.sol",
+            abi.encode(manager, int24(9116)),
+            address(oracleBase)
+        );
         oracle = new OracleTestV4(manager);
 
         // Test initialize_indexIsZero

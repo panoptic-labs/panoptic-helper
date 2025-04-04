@@ -14,7 +14,7 @@ import {V3OracleAdapter} from "../adapters/V3OracleAdapter.sol";
 import {V3TruncatedOracleAdapter} from "../adapters/V3TruncatedOracleAdapter.sol";
 
 /// @notice A hook for a pool that allows a Uniswap V4 pool to expose a V3-compatible oracle interface
-contract V3StyleOracle is BaseHook {
+contract V3StyleOracleHook is BaseHook {
     using Oracle for Oracle.Observation[65535];
     using StateLibrary for IPoolManager;
 
@@ -33,6 +33,7 @@ contract V3StyleOracle is BaseHook {
 
     /// @notice Emitted when adapter contracts are deployed for a pool
     /// @param poolId The ID of the pool
+    /// @param standardAdapter The address of the standard V3 oracle adapter
     /// @param truncatedAdapter The address of the truncated V3 oracle adapter
     event OracleInitialized(
         PoolId indexed poolId,

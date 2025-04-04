@@ -2,19 +2,19 @@
 pragma solidity ^0.8.19;
 
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
-import {V3StyleOracle} from "../hooks/V3StyleOracle.sol";
+import {V3StyleOracleHook} from "../hooks/V3StyleOracleHook.sol";
 import {Oracle} from "../libraries/Oracle.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 
 /// @title V3TruncatedOracleAdapter
-/// @notice Adapter contract that provides a Uniswap V3-compatible oracle interface for V3StyleOracle.
-/// @dev This adapter exposes the truncated tickCumulative values from V3StyleOracle.
+/// @notice Adapter contract that provides a Uniswap V3-compatible oracle interface for V3StyleOracleHook.
+/// @dev This adapter exposes the truncated tickCumulative values from V3StyleOracleHook.
 contract V3TruncatedOracleAdapter {
     using StateLibrary for IPoolManager;
 
-    /// @notice The V3StyleOracle contract this adapter interacts with.
-    V3StyleOracle public immutable v3StyleOracle;
+    /// @notice The V3StyleOracleHook contract this adapter interacts with.
+    V3StyleOracleHook public immutable v3StyleOracle;
 
     /// @notice The canonical Uniswap V4 pool manager.
     IPoolManager public immutable manager;
@@ -22,10 +22,10 @@ contract V3TruncatedOracleAdapter {
     /// @notice The pool ID of the underlying V4 pool.
     PoolId public immutable poolId;
 
-    /// @notice Initializes the adapter with the V3StyleOracle contract and pool ID.
-    /// @param _v3StyleOracle The V3StyleOracle contract
+    /// @notice Initializes the adapter with the V3StyleOracleHook contract and pool ID.
+    /// @param _v3StyleOracle The V3StyleOracleHook contract
     /// @param _poolId The pool ID of the underlying V4 pool
-    constructor(IPoolManager _manager, V3StyleOracle _v3StyleOracle, PoolId _poolId) {
+    constructor(IPoolManager _manager, V3StyleOracleHook _v3StyleOracle, PoolId _poolId) {
         manager = _manager;
         v3StyleOracle = _v3StyleOracle;
         poolId = _poolId;

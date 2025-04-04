@@ -40,7 +40,7 @@ library Oracle {
         uint32 blockTimestamp,
         int24 tick,
         int24 maxAbsTickDelta
-    ) private pure returns (Observation memory) {
+    ) internal pure returns (Observation memory) {
         unchecked {
             int24 truncatedTick = tick;
 
@@ -53,15 +53,15 @@ library Oracle {
                     (tickDelta > 0 ? maxAbsTickDelta : -maxAbsTickDelta);
             }
 
-            uint32 delta = blockTimestamp - last.blockTimestamp;
+            uint32 timeDelta = blockTimestamp - last.blockTimestamp;
             return
                 Observation({
                     blockTimestamp: blockTimestamp,
                     prevTruncatedTick: truncatedTick,
-                    tickCumulative: last.tickCumulative + int56(tick) * int56(uint56(delta)),
+                    tickCumulative: last.tickCumulative + int56(tick) * int56(uint56(timeDelta)),
                     tickCumulativeTruncated: last.tickCumulativeTruncated +
                         int56(truncatedTick) *
-                        int56(uint56(delta)),
+                        int56(uint56(timeDelta)),
                     initialized: true
                 });
         }
@@ -143,8 +143,8 @@ library Oracle {
             if (next <= current) return current;
             // store in each slot to prevent fresh SSTOREs in swaps
             // this data will not be used because the initialized boolean is still false
-            for (uint16 i = current; i < next; i++) {
-                self[i].blockTimestamp = 1;
+            for (; current < next; current++) {
+                self[current].blockTimestamp = 1;
             }
             return next;
         }
@@ -156,7 +156,7 @@ library Oracle {
     /// @param a A comparison timestamp from which to determine the relative position of `time`
     /// @param b From which to determine the relative position of `time`
     /// @return Whether `a` is chronologically <= `b`
-    function lte(uint32 time, uint32 a, uint32 b) private pure returns (bool) {
+    function lte(uint32 time, uint32 a, uint32 b) internal pure returns (bool) {
         unchecked {
             // if there hasn't been overflow, no need to adjust
             if (a <= time && b <= time) return a <= b;
@@ -185,7 +185,7 @@ library Oracle {
         uint32 target,
         uint16 index,
         uint16 cardinality
-    ) private view returns (Observation memory beforeOrAt, Observation memory atOrAfter) {
+    ) internal view returns (Observation memory beforeOrAt, Observation memory atOrAfter) {
         unchecked {
             uint256 l = (index + 1) % cardinality; // oldest observation
             uint256 r = l + cardinality - 1; // newest observation
@@ -233,7 +233,7 @@ library Oracle {
         uint16 index,
         uint16 cardinality,
         int24 maxAbsTickDelta
-    ) private view returns (Observation memory beforeOrAt, Observation memory atOrAfter) {
+    ) internal view returns (Observation memory beforeOrAt, Observation memory atOrAfter) {
         unchecked {
             // optimistically set before to the newest observation
             beforeOrAt = self[index];
