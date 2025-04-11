@@ -27,9 +27,7 @@ contract HypoVault is ERC20Minimal, Multicall, Ownable {
 
     struct PendingWithdrawal {
         uint128 amount; // shares for withdrawals
-        uint128 assetsFulfilledLast; // the amount of assets in the epoch that have received their corresponding shares
         uint128 basis; // the amount of assets used to mint the shares requested
-        uint128 amountPendingLast; // the amount of shares yet to be  fulfilled in the epoch when the withdrawal was last executed
     }
 
     struct EpochState {
@@ -128,6 +126,25 @@ contract HypoVault is ERC20Minimal, Multicall, Ownable {
         SafeTransferLib.safeTransferFrom(underlyingToken, msg.sender, address(this), assets);
     }
 
+    // cancels a pending deposit in the current epoch
+    function cancelDeposit(address cancellee, uint128 canceledAssets) external onlyManager {
+        uint256 currentEpoch = depositEpoch;
+        EpochState memory _depositEpochState = depositEpochState[currentEpoch];
+
+        // reduced original deposit amount based on the amount of assets that have been fulfilled
+        uint128 reduceBy = uint128(
+            Math.mulDivRoundingUp(
+                canceledAssets,
+                _depositEpochState.availableAssets,
+                _depositEpochState.amountPending
+            )
+        );
+
+        queuedDeposit[cancellee][currentEpoch].amount -= reduceBy;
+
+        _depositEpochState.availableAssets -= reduceBy;
+    }
+
     // convert an active pending deposit into shares
     // can be called multiple times as more of the deposit becomes fulfilled
     function executeDeposit(address user, uint256 epoch) external {
@@ -162,18 +179,21 @@ contract HypoVault is ERC20Minimal, Multicall, Ownable {
     function requestWithdrawal(uint128 shares, address receiver) external {
         PendingWithdrawal memory pendingWithdrawal = queuedWithdrawal[receiver][withdrawalEpoch];
 
+        uint256 previousBasis = userBasis[msg.sender];
+        uint256 withdrawalBasis = Math.mulDivRoundingUp(
+            shares,
+            previousBasis,
+            balanceOf[msg.sender]
+        );
+
+        userBasis[msg.sender] = previousBasis - withdrawalBasis;
+
         queuedWithdrawal[receiver][withdrawalEpoch] = PendingWithdrawal({
             amount: pendingWithdrawal.amount + shares,
-            assetsFulfilledLast: 0,
-            basis: 0,
-            amountPendingLast: 0
+            basis: uint128(withdrawalBasis)
         });
 
         withdrawalEpochState[withdrawalEpoch].availableShares += shares;
-
-        uint256 shareBalance = balanceOf[msg.sender];
-
-        userBasis[msg.sender] -= Math.mulDivRoundingUp(shares, userBasis[msg.sender], shareBalance);
 
         _burnVirtual(msg.sender, shares);
     }
@@ -187,9 +207,9 @@ contract HypoVault is ERC20Minimal, Multicall, Ownable {
         EpochState memory _withdrawalEpochState = withdrawalEpochState[epoch];
 
         uint256 assetsToWithdraw = Math.mulDiv(
-            pendingWithdrawal.amount,
-            _withdrawalEpochState.availableAssets - pendingWithdrawal.assetsFulfilledLast,
-            _withdrawalEpochState.availableShares
+            pendingWithdrawal.amount * _withdrawalEpochState.amountPending,
+            _withdrawalEpochState.availableAssets,
+            _withdrawalEpochState.availableShares ** 2
         );
 
         withdrawableAssets -= assetsToWithdraw;
@@ -198,17 +218,24 @@ contract HypoVault is ERC20Minimal, Multicall, Ownable {
             int256(
                 Math.mulDivRoundingUp(
                     pendingWithdrawal.basis,
-                    _withdrawalEpochState.amountPending - pendingWithdrawal.amountPendingLast,
+                    _withdrawalEpochState.amountPending,
                     _withdrawalEpochState.availableAssets
                 )
             )) * int256(performanceFeeBps)) / 10_000;
 
-        queuedWithdrawal[user][epoch] = PendingWithdrawal({
-            amount: pendingWithdrawal.amount,
-            assetsFulfilledLast: _withdrawalEpochState.availableAssets,
-            basis: pendingWithdrawal.basis,
-            amountPendingLast: pendingWithdrawal.amountPendingLast
-        });
+        queuedWithdrawal[user][epoch] = PendingWithdrawal({amount: 0, basis: 0});
+
+        if (_withdrawalEpochState.amountPending > 0) {
+            PendingWithdrawal memory nextQueuedWithdrawal = queuedWithdrawal[user][epoch + 1];
+            queuedWithdrawal[user][epoch + 1] = PendingWithdrawal({
+                amount: nextQueuedWithdrawal.amount +
+                    (pendingWithdrawal.amount * _withdrawalEpochState.amountPending) /
+                    _withdrawalEpochState.availableShares,
+                basis: nextQueuedWithdrawal.basis +
+                    (pendingWithdrawal.basis * _withdrawalEpochState.amountPending) /
+                    _withdrawalEpochState.availableShares
+            });
+        }
 
         if (performanceFee > 0) {
             assetsToWithdraw -= uint256(performanceFee);
@@ -313,19 +340,7 @@ contract HypoVault is ERC20Minimal, Multicall, Ownable {
 
         EpochState memory epochState = withdrawalEpochState[currentEpoch];
 
-        EpochState memory previousEpochState = withdrawalEpochState[currentEpoch - 1];
-
         uint256 _totalSupply = totalSupply;
-
-        // if the previous epoch has not been fulfilled completely, this operation must occur on the previous epoch
-        if (previousEpochState.amountPending > 0) {
-            currentEpoch--;
-            epochState = previousEpochState;
-        } else if (epochState.amountPending == 0) {
-            // increment the epoch for new withdrawals if the previous epoch has been fulfilled completely
-            withdrawalEpoch = uint128(currentEpoch + 1);
-            epochState.amountPending = epochState.availableShares;
-        }
 
         uint256 assetsReceived = Math.mulDiv(sharesToFulfill, totalAssets, _totalSupply);
 
@@ -334,10 +349,22 @@ contract HypoVault is ERC20Minimal, Multicall, Ownable {
             "HypoVault: assets received exceeds max assets received"
         );
 
+        uint256 sharesRemaining = epochState.amountPending - sharesToFulfill;
+
         withdrawalEpochState[currentEpoch] = EpochState({
-            availableAssets: uint128(epochState.availableAssets + assetsReceived),
+            availableAssets: uint128(assetsReceived),
             availableShares: uint128(epochState.availableShares),
-            amountPending: uint128(epochState.amountPending - sharesToFulfill)
+            amountPending: uint128(sharesRemaining)
+        });
+
+        currentEpoch++;
+
+        withdrawalEpoch = uint128(currentEpoch);
+
+        withdrawalEpochState[currentEpoch] = EpochState({
+            availableAssets: 0,
+            availableShares: uint128(sharesRemaining),
+            amountPending: 0
         });
 
         totalSupply = _totalSupply - sharesToFulfill;
