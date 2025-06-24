@@ -687,7 +687,6 @@ contract PanopticQueryTest is PositionUtils {
         uint256 deposit1 = uint256(positionSizeSeed);
         uint256 deposit0 = ((((uint256(positionSizeSeed) * 2 ** 96) / currentSqrtPriceX96) *
             2 ** 96) / currentSqrtPriceX96);
-        console.log("pp", currentSqrtPriceX96, positionSizeSeed, deposit0);
         ct0.deposit(deposit0, Alice);
         ct1.deposit(deposit1, Alice);
         /// position size is denominated in the opposite of asset, so we do it in the token that is not WETH
@@ -719,7 +718,7 @@ contract PanopticQueryTest is PositionUtils {
 
             pp.mintOptions(
                 posIdList,
-                uint128(positionSizeSeed * 1),
+                uint128((positionSizeSeed * 85) / 100),
                 0,
                 Constants.MAX_V3POOL_TICK,
                 Constants.MIN_V3POOL_TICK
@@ -733,7 +732,7 @@ contract PanopticQueryTest is PositionUtils {
 
             pp.mintOptions(
                 posIdList,
-                uint128(positionSizeSeed * 1),
+                uint128((positionSizeSeed * 85) / 100),
                 0,
                 Constants.MAX_V3POOL_TICK,
                 Constants.MIN_V3POOL_TICK
@@ -797,6 +796,12 @@ contract PanopticQueryTest is PositionUtils {
                 posIdList
             );
             assertTrue(collateralBalance < requiredCollateral, "liquidatable");
+
+            (uint256[2][] memory data, int256[] memory ticks, ) = pq.checkCollateralListOutput(
+                pp,
+                Alice,
+                posIdList
+            );
         }
     }
 
