@@ -220,8 +220,9 @@ contract PanopticQuery {
     /// @param pool The PanopticPool instance to check collateral on
     /// @param account Address of the user that owns the positions
     /// @param positionIdList List of positions. Written as [tokenId1, tokenId2, ...]
-    /// @return collateralBalances0 The total combined balances of token0 and token1 for a user in terms of token0
+    /// @return collateralBalances The total combined balances and required tokens for the positions list.
     /// @return tickList The list of ticks where each collateral and required quantities are computed at
+    /// @return liquidationPrices The liauidation prices on the way up or down
     function checkCollateralListOutput(
         PanopticPool pool,
         address account,
