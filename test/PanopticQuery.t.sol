@@ -718,7 +718,7 @@ contract PanopticQueryTest is PositionUtils {
 
             pp.mintOptions(
                 posIdList,
-                uint128((positionSizeSeed * 85) / 100),
+                uint128((positionSizeSeed * 250) / 100),
                 0,
                 Constants.MAX_V3POOL_TICK,
                 Constants.MIN_V3POOL_TICK
@@ -732,7 +732,7 @@ contract PanopticQueryTest is PositionUtils {
 
             pp.mintOptions(
                 posIdList,
-                uint128((positionSizeSeed * 85) / 100),
+                uint128((positionSizeSeed * 250) / 100),
                 0,
                 Constants.MAX_V3POOL_TICK,
                 Constants.MIN_V3POOL_TICK
