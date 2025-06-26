@@ -678,6 +678,133 @@ contract PanopticQueryTest is PositionUtils {
         }
     }
 
+    function test_Success_checkCollateral_LiquidationPrices(uint256 x) public {
+        _initPool(x);
+
+        uint256 positionSizeSeed = 2 ** 96;
+        ct0.redeem(ct0.maxRedeem(Alice), Alice, Alice);
+        ct1.redeem(ct1.maxRedeem(Alice), Alice, Alice);
+        uint256 deposit1 = uint256(positionSizeSeed);
+        uint256 deposit0 = ((((uint256(positionSizeSeed) * 2 ** 96) / currentSqrtPriceX96) *
+            2 ** 96) / currentSqrtPriceX96);
+        ct0.deposit(deposit0, Alice);
+        ct1.deposit(deposit1, Alice);
+        /// position size is denominated in the opposite of asset, so we do it in the token that is not WETH
+        // leg 1
+        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            isWETH,
+            0,
+            0,
+            0,
+            (currentTick / tickSpacing) * tickSpacing,
+            30
+        );
+        // leg 2
+        TokenId tokenId2 = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            isWETH,
+            0,
+            1,
+            0,
+            (currentTick / tickSpacing) * tickSpacing,
+            30
+        );
+        {
+            TokenId[] memory posIdList = new TokenId[](1);
+            posIdList[0] = tokenId;
+
+            pp.mintOptions(
+                posIdList,
+                uint128((positionSizeSeed * 250) / 100),
+                0,
+                Constants.MAX_V3POOL_TICK,
+                Constants.MIN_V3POOL_TICK
+            );
+        }
+
+        {
+            TokenId[] memory posIdList = new TokenId[](2);
+            posIdList[0] = tokenId;
+            posIdList[1] = tokenId2;
+
+            pp.mintOptions(
+                posIdList,
+                uint128((positionSizeSeed * 250) / 100),
+                0,
+                Constants.MAX_V3POOL_TICK,
+                Constants.MIN_V3POOL_TICK
+            );
+
+            int24 liquidationPriceUp;
+            int24 liquidationPriceDown;
+            if (currentTick < 0) {
+                (
+                    collateralBalance,
+                    requiredCollateral,
+                    ,
+                    ,
+                    liquidationPriceDown,
+                    liquidationPriceUp
+                ) = pq.checkCollateralAndGetLiquidationPrices(pp, Alice, posIdList);
+            } else {
+                (
+                    collateralBalance,
+                    requiredCollateral,
+                    ,
+                    ,
+                    liquidationPriceDown,
+                    liquidationPriceUp
+                ) = pq.checkCollateralAndGetLiquidationPrices(pp, Alice, posIdList);
+            }
+
+            // make sure it's liquidatable
+            assertTrue(liquidationPriceUp < int24(2 ** 22), "not liquidatable up");
+            assertTrue(liquidationPriceDown > -int24(2 ** 22), "not liquidatable down");
+
+            // check that the account is liquidatble
+            (collateralBalance, requiredCollateral, , ) = pq.checkCollateral(
+                pp,
+                Alice,
+                liquidationPriceDown + 1,
+                posIdList
+            );
+            assertTrue(collateralBalance > requiredCollateral, "not liquidatable");
+
+            (collateralBalance, requiredCollateral, , ) = pq.checkCollateral(
+                pp,
+                Alice,
+                liquidationPriceDown - 1,
+                posIdList
+            );
+            assertTrue(collateralBalance < requiredCollateral, "liquidatable");
+
+            (collateralBalance, requiredCollateral, , ) = pq.checkCollateral(
+                pp,
+                Alice,
+                liquidationPriceUp - 1,
+                posIdList
+            );
+            assertTrue(collateralBalance > requiredCollateral, "not liquidatable");
+
+            (collateralBalance, requiredCollateral, , ) = pq.checkCollateral(
+                pp,
+                Alice,
+                liquidationPriceUp + 1,
+                posIdList
+            );
+            assertTrue(collateralBalance < requiredCollateral, "liquidatable");
+
+            (uint256[2][] memory data, int256[] memory ticks, ) = pq.checkCollateralListOutput(
+                pp,
+                Alice,
+                posIdList
+            );
+        }
+    }
+
     function test_computeMinimumSize_returns_zero_if_no_purchase(
         uint256 x,
         uint256 widthSeed,

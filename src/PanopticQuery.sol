@@ -24,6 +24,11 @@ contract PanopticQuery {
     /// @notice The SemiFungiblePositionManager of the Panoptic instance this querying helper is intended for.
     SemiFungiblePositionManager internal immutable SFPM;
 
+    int24 constant MIN_TICK = -887272;
+    int24 constant MAX_TICK = 887272;
+
+    int24 constant TICK_PRECISION = 1;
+
     /// @notice Construct the PanopticQuery and store the SFPM address.
     /// @param SFPM_ The canonical SFPM address for the Panoptic instance this helper queries
     constructor(SemiFungiblePositionManager SFPM_) payable {
@@ -131,6 +136,263 @@ contract PanopticQuery {
                 requiredCollaterals1[i]
             ) = checkCollateral(pool, account, ticks[i], positionIdList);
         }
+    }
+
+    /// @notice Compute the total amount of collateral needed to cover the existing list of active positions in positionIdList at currentTick and finds the liquidation price(s).
+    /// @param pool The PanopticPool instance to check collateral on
+    /// @param account Address of the user that owns the positions
+    /// @param positionIdList List of positions. Written as [tokenId1, tokenId2, ...]
+    /// @return collateralBalance0 The total combined balance of token0 and token1 for a user in terms of token0
+    /// @return requiredCollateral0 The combined collateral requirement for a user in terms of token0
+    /// @return collateralBalance1 The total combined balance of token0 and token1 for a user in terms of token1
+    /// @return requiredCollateral1 The combined collateral requirement for a user in terms of token1
+    /// @return liquidationPriceDown The liquidation price below currentTick (returns type(int24).min if none)
+    /// @return liquidationPriceUp The liquidation price above currentTick (returns type(int24).max if none)
+    function checkCollateralAndGetLiquidationPrices(
+        PanopticPool pool,
+        address account,
+        TokenId[] calldata positionIdList
+    )
+        public
+        view
+        returns (
+            uint256 collateralBalance0,
+            uint256 requiredCollateral0,
+            uint256 collateralBalance1,
+            uint256 requiredCollateral1,
+            int24 liquidationPriceDown,
+            int24 liquidationPriceUp
+        )
+    {
+        liquidationPriceUp = type(int24).max;
+        liquidationPriceDown = type(int24).min;
+        int24 currentTick;
+        (currentTick, , , , ) = pool.getOracleTicks();
+
+        (
+            collateralBalance0,
+            requiredCollateral0,
+            collateralBalance1,
+            requiredCollateral1
+        ) = checkCollateral(pool, account, currentTick, positionIdList);
+
+        {
+            (uint256 collateralMin, uint256 requiredMin, , ) = checkCollateral(
+                pool,
+                account,
+                MIN_TICK,
+                positionIdList
+            );
+            if (collateralMin < requiredMin) {
+                // There's a liquidation price somewhere below current tick
+                liquidationPriceDown = binarySearchDown(
+                    pool,
+                    account,
+                    MIN_TICK,
+                    currentTick,
+                    positionIdList
+                );
+            }
+        }
+        {
+            (, , uint256 collateralMax, uint256 requiredMax) = checkCollateral(
+                pool,
+                account,
+                MAX_TICK,
+                positionIdList
+            );
+
+            // Find liquidation price above current tick (liquidationPriceUp)
+            if (collateralMax < requiredMax) {
+                // There's a liquidation price somewhere above current tick
+                liquidationPriceUp = binarySearchUp(
+                    pool,
+                    account,
+                    currentTick,
+                    MAX_TICK,
+                    positionIdList
+                );
+            }
+        }
+    }
+
+    /// @notice Compute the total amount of collateral needed to cover the existing list of active positions in positionIdList at various prices.
+    /// @param pool The PanopticPool instance to check collateral on
+    /// @param account Address of the user that owns the positions
+    /// @param positionIdList List of positions. Written as [tokenId1, tokenId2, ...]
+    /// @return collateralBalances The total combined balances and required tokens for the positions list.
+    /// @return tickList The list of ticks where each collateral and required quantities are computed at
+    /// @return liquidationPrices The liauidation prices on the way up or down
+    function checkCollateralListOutput(
+        PanopticPool pool,
+        address account,
+        TokenId[] calldata positionIdList
+    ) public view returns (uint256[2][] memory, int256[] memory, int24[] memory) {
+        int256[] memory tickData = new int256[](301);
+        int24[] memory liquidationPrices = new int24[](2);
+        {
+            int24 scaledTick;
+            {
+                (int24 currentTick, , , , ) = pool.getOracleTicks();
+                int24 tickSpacing = pool.univ3pool().tickSpacing();
+                scaledTick = ((currentTick / tickSpacing) * tickSpacing);
+            }
+
+            (
+                ,
+                ,
+                ,
+                ,
+                int24 liquidationPriceDown,
+                int24 liquidationPriceUp
+            ) = checkCollateralAndGetLiquidationPrices(pool, account, positionIdList);
+            liquidationPrices[0] = liquidationPriceDown;
+            liquidationPrices[1] = liquidationPriceUp;
+            tickData[0] = MIN_TICK;
+            tickData[300] = MAX_TICK;
+            int24 tickSpacing = pool.univ3pool().tickSpacing();
+
+            int24 startTick = scaledTick - int24(25000); // Default start
+            int24 endTick = scaledTick + int24(25000); // Default end
+
+            // Expand range to include liquidation prices if they exist
+            if ((liquidationPriceDown < startTick) && (liquidationPriceDown != type(int24).min)) {
+                startTick = liquidationPriceDown - 10000;
+            }
+            if ((liquidationPriceUp > endTick) && (liquidationPriceUp != type(int24).max)) {
+                endTick = liquidationPriceUp + 10000;
+            }
+
+            int256 tickRange = int256(endTick) - int256(startTick);
+            int256 step = tickRange / 298; // 298 slots between MIN_TICK and MAX_TICK
+
+            for (uint256 i = 1; i < 300; i++) {
+                int256 tick = int256(startTick) + (int256(i - 1) * step);
+                // Round to tick spacing
+                tickData[i] = (tick / tickSpacing) * tickSpacing;
+            }
+        }
+        uint256[2][] memory balanceRequired = new uint256[2][](301);
+
+        for (uint256 i; i < 301; ) {
+            {
+                uint256 collateralBalance;
+                uint256 requiredCollateral;
+                uint160 sqrtPriceX96 = Math.getSqrtRatioAtTick(int24(tickData[i]));
+                if (tickData[150] < 0) {
+                    (collateralBalance, requiredCollateral, , ) = checkCollateral(
+                        pool,
+                        account,
+                        int24(tickData[i]),
+                        positionIdList
+                    );
+                    collateralBalance = (collateralBalance * sqrtPriceX96) >> 96;
+                    requiredCollateral = (requiredCollateral * sqrtPriceX96) >> 96;
+                } else {
+                    (, , collateralBalance, requiredCollateral) = checkCollateral(
+                        pool,
+                        account,
+                        int24(tickData[i]),
+                        positionIdList
+                    );
+                    collateralBalance = (collateralBalance << 96) / sqrtPriceX96;
+                    requiredCollateral = (requiredCollateral << 96) / sqrtPriceX96;
+                }
+
+                balanceRequired[i][0] = collateralBalance;
+                balanceRequired[i][1] = requiredCollateral;
+            }
+            ++i;
+        }
+
+        return (balanceRequired, tickData, liquidationPrices);
+    }
+
+    /**
+     * @notice Binary search for liquidation price going down from current tick
+     * @dev Finds the tick where collateral transitions from >= required to < required
+     */
+    function binarySearchDown(
+        PanopticPool pool,
+        address account,
+        int24 lowerBound,
+        int24 upperBound,
+        TokenId[] calldata positionIdList
+    ) internal view returns (int24) {
+        while (upperBound - lowerBound > TICK_PRECISION) {
+            int24 midTick = (lowerBound + upperBound) / 2;
+            uint256 collateralBalance;
+            uint256 requiredCollateral;
+            if (midTick < 0) {
+                (collateralBalance, requiredCollateral, , ) = checkCollateral(
+                    pool,
+                    account,
+                    midTick,
+                    positionIdList
+                );
+            } else {
+                (, , collateralBalance, requiredCollateral) = checkCollateral(
+                    pool,
+                    account,
+                    midTick,
+                    positionIdList
+                );
+            }
+
+            if (collateralBalance >= requiredCollateral) {
+                // Still solvent at midTick, liquidation is lower
+                upperBound = midTick;
+            } else {
+                // Insolvent at midTick, liquidation is higher
+                lowerBound = midTick;
+            }
+        }
+
+        // Return the tick just before insolvency
+        return upperBound;
+    }
+
+    /**
+     * @notice Binary search for liquidation price going up from current tick
+     * @dev Finds the tick where collateral transitions from >= required to < required
+     */
+    function binarySearchUp(
+        PanopticPool pool,
+        address account,
+        int24 lowerBound,
+        int24 upperBound,
+        TokenId[] calldata positionIdList
+    ) internal view returns (int24) {
+        while (upperBound - lowerBound > TICK_PRECISION) {
+            int24 midTick = (lowerBound + upperBound) / 2;
+            uint256 collateralBalance;
+            uint256 requiredCollateral;
+            if (midTick < 0) {
+                (collateralBalance, requiredCollateral, , ) = checkCollateral(
+                    pool,
+                    account,
+                    midTick,
+                    positionIdList
+                );
+            } else {
+                (, , collateralBalance, requiredCollateral) = checkCollateral(
+                    pool,
+                    account,
+                    midTick,
+                    positionIdList
+                );
+            }
+            if (collateralBalance >= requiredCollateral) {
+                // Still solvent at midTick, liquidation is higher
+                lowerBound = midTick;
+            } else {
+                // Insolvent at midTick, liquidation is lower
+                upperBound = midTick;
+            }
+        }
+
+        // Return the tick just before insolvency
+        return lowerBound;
     }
 
     /*//////////////////////////////////////////////////////////////
