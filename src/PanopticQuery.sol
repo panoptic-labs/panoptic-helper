@@ -256,10 +256,10 @@ contract PanopticQuery {
             int24 endTick = scaledTick + int24(25000); // Default end
 
             // Expand range to include liquidation prices if they exist
-            if (liquidationPriceDown < startTick) {
+            if ((liquidationPriceDown < startTick) && (liquidationPriceDown != type(int24).min)) {
                 startTick = liquidationPriceDown - 10000;
             }
-            if (liquidationPriceUp > endTick) {
+            if ((liquidationPriceUp > endTick) && (liquidationPriceUp != type(int24).max)) {
                 endTick = liquidationPriceUp + 10000;
             }
 
