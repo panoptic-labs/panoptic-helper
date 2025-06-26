@@ -234,7 +234,7 @@ contract PanopticQuery {
             int24 scaledTick;
             {
                 (int24 currentTick, , , , ) = pool.getOracleTicks();
-                int24 tickSpacing = pool.poolKey().tickSpacing();
+                int24 tickSpacing = pool.poolKey().tickSpacing;
                 scaledTick = ((currentTick / tickSpacing) * tickSpacing);
             }
 
@@ -250,7 +250,7 @@ contract PanopticQuery {
             liquidationPrices[1] = liquidationPriceUp;
             tickData[0] = MIN_TICK;
             tickData[300] = MAX_TICK;
-            int24 tickSpacing = pool.poolKey().tickSpacing();
+            int24 tickSpacing = pool.poolKey().tickSpacing;
 
             int24 startTick = scaledTick - int24(25000); // Default start
             int24 endTick = scaledTick + int24(25000); // Default end
