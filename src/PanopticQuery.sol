@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 // Interfaces
 import {IUniswapV3Pool} from "univ3-core/interfaces/IUniswapV3Pool.sol";
 import {PanopticPool} from "@contracts/PanopticPool.sol";
+import {CollateralTracker} from "@contracts/CollateralTracker.sol";
 import {ISemiFungiblePositionManager} from "@contracts/interfaces/ISemiFungiblePositionManager.sol";
 import {IRiskEngine} from "@contracts/interfaces/IRiskEngine.sol";
 // Libraries
@@ -22,6 +23,8 @@ import {PositionBalance, PositionBalanceLibrary} from "@types/PositionBalance.so
 /// @title Utility contract for token ID construction and advanced queries.
 /// @author Axicon Labs Limited
 contract PanopticQuery {
+    using Math for uint256;
+
     /// @notice The SemiFungiblePositionManager of the Panoptic instance this querying helper is intended for.
     ISemiFungiblePositionManager internal immutable SFPM;
 
@@ -52,43 +55,60 @@ contract PanopticQuery {
         int24 atTick
     ) public view returns (uint256, uint256, uint256, uint256) {
         // Compute premia for all options (includes short+long premium)
+        (LeftRightUnsigned tokenData0, LeftRightUnsigned tokenData1) = _getMargin(
+            pool,
+            atTick,
+            account,
+            positionIdList
+        );
+        int24 _atTick;
+        // convert (using atTick) and return the total collateral balance and required balance in terms of tokenType
+        uint256 collateralBalance0 = tokenData0.rightSlot() +
+            PanopticMath.convert1to0(tokenData1.rightSlot(), Math.getSqrtRatioAtTick(_atTick));
+        uint256 requiredCollateral0 = tokenData0.leftSlot() +
+            PanopticMath.convert1to0RoundingUp(
+                tokenData1.leftSlot(),
+                Math.getSqrtRatioAtTick(_atTick)
+            );
+
+        uint256 collateralBalance1 = tokenData1.rightSlot() +
+            PanopticMath.convert0to1(tokenData0.rightSlot(), Math.getSqrtRatioAtTick(_atTick));
+        uint256 requiredCollateral1 = tokenData1.leftSlot() +
+            PanopticMath.convert0to1RoundingUp(
+                tokenData0.leftSlot(),
+                Math.getSqrtRatioAtTick(_atTick)
+            );
+        return (collateralBalance0, requiredCollateral0, collateralBalance1, requiredCollateral1);
+    }
+
+    function _getMargin(
+        PanopticPool pool,
+        int24 atTick,
+        address account,
+        TokenId[] calldata positionIdList
+    ) internal view returns (LeftRightUnsigned tokenData0, LeftRightUnsigned tokenData1) {
         (
             LeftRightUnsigned shortPremium,
             LeftRightUnsigned longPremium,
             PositionBalance[] memory positionBalanceArray
         ) = pool.getAccumulatedFeesAndPositionsData(account, false, positionIdList);
 
+        CollateralTracker ct0 = pool.collateralToken0();
+        CollateralTracker ct1 = pool.collateralToken1();
+
+        //TokenId[] memory _positionIdList = positionIdList;
+
         // Query the current and required collateral amounts for the two tokens
-        (LeftRightUnsigned tokenData0, LeftRightUnsigned tokenData1, ) = pool
-            .riskEngine()
-            .getMargin(
-                positionBalanceArray,
-                atTick,
-                account,
-                positionIdList,
-                shortPremium,
-                longPremium,
-                pool.collateralToken0(),
-                pool.collateralToken1()
-            );
-
-        // convert (using atTick) and return the total collateral balance and required balance in terms of tokenType
-        uint256 collateralBalance0 = tokenData0.rightSlot() +
-            PanopticMath.convert1to0(tokenData1.rightSlot(), Math.getSqrtRatioAtTick(atTick));
-        uint256 requiredCollateral0 = tokenData0.leftSlot() +
-            PanopticMath.convert1to0RoundingUp(
-                tokenData1.leftSlot(),
-                Math.getSqrtRatioAtTick(atTick)
-            );
-
-        uint256 collateralBalance1 = tokenData1.rightSlot() +
-            PanopticMath.convert0to1(tokenData0.rightSlot(), Math.getSqrtRatioAtTick(atTick));
-        uint256 requiredCollateral1 = tokenData1.leftSlot() +
-            PanopticMath.convert0to1RoundingUp(
-                tokenData0.leftSlot(),
-                Math.getSqrtRatioAtTick(atTick)
-            );
-        return (collateralBalance0, requiredCollateral0, collateralBalance1, requiredCollateral1);
+        (tokenData0, tokenData1, ) = pool.riskEngine().getMargin(
+            positionBalanceArray,
+            atTick,
+            account,
+            positionIdList,
+            LeftRightUnsigned.wrap(0), //shortPremium,
+            LeftRightUnsigned.wrap(0), //longPremium,
+            ct0,
+            ct1
+        );
     }
 
     /// @notice Compute the total amount of collateral needed to cover the existing list of active positions in positionIdList at (currentTick, fastOracleTick, slowOracleTick, latestObservation).
@@ -458,13 +478,13 @@ contract PanopticQuery {
 
                 if (tokenId.isLong(leg) == 0) {
                     unchecked {
-                        value0 += int256(amount0);
-                        value1 += int256(amount1);
+                        value0 += (amount0).toInt256();
+                        value1 += (amount1).toInt256();
                     }
                 } else {
                     unchecked {
-                        value0 -= int256(amount0);
-                        value1 -= int256(amount1);
+                        value0 -= (amount0).toInt256();
+                        value1 -= (amount1).toInt256();
                     }
                 }
 
@@ -833,13 +853,13 @@ contract PanopticQuery {
 
                 if (tokenId.isLong(leg) == 0) {
                     unchecked {
-                        value0 += int256(amount0);
-                        value1 += int256(amount1);
+                        value0 += (amount0).toInt256();
+                        value1 += (amount1).toInt256();
                     }
                 } else {
                     unchecked {
-                        value0 -= int256(amount0);
-                        value1 -= int256(amount1);
+                        value0 -= (amount0).toInt256();
+                        value1 -= (amount1).toInt256();
                     }
                 }
 
@@ -865,5 +885,231 @@ contract PanopticQuery {
         value1 +=
             int256(uint256(shortPremium.leftSlot())) -
             int256(uint256(longPremium.leftSlot()));
+    }
+
+    /// @notice Optimize the risk partnering of all legs within a tokenId.
+    /// @param pool The PanopticPool instance to optimize the tokenId for
+    /// @param atTick The price at which the collateral requirement is evaluated
+    /// @param tokenId the input tokenId
+    /// @return the optimized tokenId
+    function optimizeRiskPartners(
+        PanopticPool pool,
+        int24 atTick,
+        TokenId tokenId
+    ) public view returns (TokenId) {
+        uint256 numberOfLegs = tokenId.countLegs();
+        if (numberOfLegs == 1) {
+            return tokenId;
+        } else {
+            TokenId _tempTokenId = TokenId.wrap(
+                TokenId.unwrap(tokenId) &
+                    0xFFFFFFFFF3FFFFFFFFFFF3FFFFFFFFFFF3FFFFFFFFFFF3FFFFFFFFFFFFFFFFFF
+            );
+            TokenId[] memory tokenIdList;
+            uint256 N;
+
+            if (numberOfLegs == 2) {
+                N = 2;
+                tokenIdList = new TokenId[](N);
+
+                tokenIdList[0] = _tempTokenId.addRiskPartner(0, 0).addRiskPartner(1, 1);
+                tokenIdList[1] = _tempTokenId.addRiskPartner(1, 0).addRiskPartner(0, 1);
+            } else if (numberOfLegs == 3) {
+                N = 4;
+                tokenIdList = new TokenId[](N);
+
+                tokenIdList[0] = _tempTokenId
+                    .addRiskPartner(0, 0)
+                    .addRiskPartner(1, 1)
+                    .addRiskPartner(2, 2);
+
+                tokenIdList[1] = _tempTokenId
+                    .addRiskPartner(1, 0)
+                    .addRiskPartner(0, 1)
+                    .addRiskPartner(2, 2);
+                tokenIdList[2] = _tempTokenId
+                    .addRiskPartner(2, 0)
+                    .addRiskPartner(1, 1)
+                    .addRiskPartner(0, 2);
+                tokenIdList[3] = _tempTokenId
+                    .addRiskPartner(0, 0)
+                    .addRiskPartner(2, 1)
+                    .addRiskPartner(1, 2);
+            } else {
+                N = 10;
+                tokenIdList = new TokenId[](N);
+
+                tokenIdList[0] = _tempTokenId
+                    .addRiskPartner(0, 0)
+                    .addRiskPartner(1, 1)
+                    .addRiskPartner(2, 2)
+                    .addRiskPartner(3, 3);
+
+                tokenIdList[1] = _tempTokenId
+                    .addRiskPartner(1, 0)
+                    .addRiskPartner(0, 1)
+                    .addRiskPartner(2, 2)
+                    .addRiskPartner(3, 3);
+                tokenIdList[2] = _tempTokenId
+                    .addRiskPartner(2, 0)
+                    .addRiskPartner(1, 1)
+                    .addRiskPartner(0, 2)
+                    .addRiskPartner(3, 3);
+                tokenIdList[3] = _tempTokenId
+                    .addRiskPartner(3, 0)
+                    .addRiskPartner(1, 1)
+                    .addRiskPartner(2, 2)
+                    .addRiskPartner(0, 3);
+
+                tokenIdList[4] = _tempTokenId
+                    .addRiskPartner(0, 0)
+                    .addRiskPartner(2, 1)
+                    .addRiskPartner(1, 2)
+                    .addRiskPartner(3, 3);
+                tokenIdList[5] = _tempTokenId
+                    .addRiskPartner(0, 0)
+                    .addRiskPartner(3, 1)
+                    .addRiskPartner(2, 2)
+                    .addRiskPartner(1, 3);
+                tokenIdList[6] = _tempTokenId
+                    .addRiskPartner(0, 0)
+                    .addRiskPartner(1, 1)
+                    .addRiskPartner(3, 2)
+                    .addRiskPartner(2, 3);
+
+                tokenIdList[7] = _tempTokenId
+                    .addRiskPartner(1, 0)
+                    .addRiskPartner(0, 1)
+                    .addRiskPartner(3, 2)
+                    .addRiskPartner(2, 3);
+                tokenIdList[8] = _tempTokenId
+                    .addRiskPartner(2, 0)
+                    .addRiskPartner(3, 1)
+                    .addRiskPartner(0, 2)
+                    .addRiskPartner(1, 3);
+                tokenIdList[9] = _tempTokenId
+                    .addRiskPartner(3, 0)
+                    .addRiskPartner(2, 1)
+                    .addRiskPartner(0, 2)
+                    .addRiskPartner(0, 3);
+            }
+
+            uint256 lowestCollateralRequirement = this.getRequiredBase(
+                pool,
+                tokenIdList[0],
+                atTick
+            );
+            TokenId lowestTokenId = tokenIdList[0];
+
+            for (uint256 i = 1; i < N; ++i) {
+                try this.getRequiredBase(pool, tokenIdList[i], atTick) returns (
+                    uint256 _collateralRequirement
+                ) {
+                    if (_collateralRequirement < lowestCollateralRequirement) {
+                        lowestTokenId = tokenIdList[i];
+                        lowestCollateralRequirement = _collateralRequirement;
+                    }
+                } catch {}
+            }
+            return lowestTokenId;
+        }
+    }
+
+    /// @notice An external function that returns the collateral needed for a single tokenId at the provided tick.
+    /// @param pool The PanopticPool instance to optimize the tokenId for
+    /// @param atTick The price at which the collateral requirement is evaluated
+    /// @param tokenId the input tokenId
+    /// @return the required collateral for that position in terms of token0
+    function getRequiredBase(
+        PanopticPool pool,
+        TokenId tokenId,
+        int24 atTick
+    ) external view returns (uint256) {
+        try this.validateTokenId(tokenId) {
+            PositionBalance[] memory positionBalanceArray = new PositionBalance[](1);
+            TokenId[] memory positionIdList = new TokenId[](1);
+
+            positionIdList[0] = tokenId;
+            // Create a synthetic position balance with type(uint104).max size and max utilization
+            positionBalanceArray[0] = PositionBalanceLibrary.storeBalanceData(
+                type(uint104).max,
+                (10000 + (10000 << 16)),
+                0,
+                0,
+                0,
+                false
+            );
+
+            if (checkTokenId(tokenId, type(uint128).max)) {
+                CollateralTracker ct0 = pool.collateralToken0();
+                CollateralTracker ct1 = pool.collateralToken1();
+                (LeftRightUnsigned tokenData0, LeftRightUnsigned tokenData1, ) = pool
+                    .riskEngine()
+                    .getMargin(
+                        positionBalanceArray,
+                        atTick,
+                        address(0xdead),
+                        positionIdList,
+                        LeftRightUnsigned.wrap(0),
+                        LeftRightUnsigned.wrap(0),
+                        ct0,
+                        ct1
+                    );
+                (, uint256 required0) = PanopticMath.getCrossBalances(
+                    tokenData0,
+                    tokenData1,
+                    Math.getSqrtRatioAtTick(atTick)
+                );
+
+                return required0;
+            }
+            return type(uint128).max;
+        } catch {
+            return type(uint128).max;
+        }
+    }
+
+    /// @notice An external function that validates a tokenId.
+    /// @param self the tokenId to be tested
+    function validateTokenId(TokenId self) external pure {
+        self.validate();
+        for (uint256 leg; leg < self.countLegs(); ++leg) {
+            self.asTicks(leg);
+        }
+    }
+
+    /// @notice An external function that ensures that the proposed tokenId can be minted.
+    /// @param tokenId the input tokenId
+    /// @param positionSize the size of the position
+    /// @return a boolean value, valid = true / invalid = false
+    function checkTokenId(TokenId tokenId, uint128 positionSize) internal pure returns (bool) {
+        for (uint256 legIndex; legIndex < tokenId.countLegs(); ++legIndex) {
+            uint256 amount0;
+            uint256 amount1;
+            (int24 tickLower, int24 tickUpper) = tokenId.asTicks(legIndex);
+
+            // effective strike price of the option (avg. price over LP range)
+            // geometric mean of two numbers = √(x1 * x2) = √x1 * √x2
+            uint256 geometricMeanPriceX96 = Math.mulDiv96(
+                Math.getSqrtRatioAtTick(tickLower),
+                Math.getSqrtRatioAtTick(tickUpper)
+            );
+
+            if (geometricMeanPriceX96 == 0) return false;
+
+            if (tokenId.asset(legIndex) == 0) {
+                amount0 = positionSize * uint128(tokenId.optionRatio(legIndex));
+
+                amount1 = Math.mulDiv96RoundingUp(amount0, geometricMeanPriceX96);
+            } else {
+                amount1 = positionSize * uint128(tokenId.optionRatio(legIndex));
+
+                amount0 = Math.mulDivRoundingUp(amount1, 2 ** 96, geometricMeanPriceX96);
+            }
+            if ((amount0 > type(uint120).max) || (amount1 > type(uint120).max)) {
+                return false;
+            }
+        }
+        return true;
     }
 }
