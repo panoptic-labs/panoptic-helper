@@ -1,3 +1,4 @@
-[submodule "lib/panoptic-v1-core"]
-	path = lib/panoptic-v1-core
-	url = git@github.com:panoptic-labs/panoptic-v1-core.git
+[submodule "lib/panoptic-v2-core"]
+	path = lib/panoptic-v2-core
+	url = https://github.com/panoptic-labs/panoptic-next-core-private
+	branch = dev6
