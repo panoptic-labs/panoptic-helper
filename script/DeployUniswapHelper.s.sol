@@ -6,7 +6,7 @@ import "forge-std/Script.sol";
 // Interfaces
 import {IUniswapV3Factory} from "univ3-core/interfaces/IUniswapV3Factory.sol";
 import {INonfungiblePositionManager} from "v3-periphery/interfaces/INonfungiblePositionManager.sol";
-import {SemiFungiblePositionManager} from "@contracts/SemiFungiblePositionManager.sol";
+import {SemiFungiblePositionManager} from "@contracts/SemiFungiblePositionManagerV4.sol";
 // Contracts
 import {UniswapHelper} from "@helper/UniswapHelper.sol";
 

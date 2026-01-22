@@ -1,6 +1,6 @@
 forge-std/=lib/panoptic-v2-core/lib/forge-std/src/
 @openzeppelin/=lib/panoptic-v2-core/lib/openzeppelin-contracts/
-solmate/=lib/panoptic-v2-core/lib/solmate/src/
+solmate/=lib/panoptic-v2-core/lib/solmate/
 univ4-core/=lib/panoptic-v2-core/lib/v4-core/src/
 @contracts/=lib/panoptic-v2-core/contracts/
 @libraries/=lib/panoptic-v2-core/contracts/libraries/

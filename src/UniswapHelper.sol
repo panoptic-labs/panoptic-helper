@@ -6,7 +6,7 @@ pragma solidity ^0.8.18;
 import {IUniswapV3Pool} from "univ3-core/interfaces/IUniswapV3Pool.sol";
 import {IUniswapV3Factory} from "univ3-core/interfaces/IUniswapV3Factory.sol";
 import {INonfungiblePositionManager} from "v3-periphery/interfaces/INonfungiblePositionManager.sol";
-import {SemiFungiblePositionManager} from "@contracts/SemiFungiblePositionManager.sol";
+import {SemiFungiblePositionManager} from "@contracts/SemiFungiblePositionManagerV4.sol";
 // Libraries
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {Base64} from "@openzeppelin/contracts/utils/Base64.sol";

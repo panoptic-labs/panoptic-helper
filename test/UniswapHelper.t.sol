@@ -19,20 +19,25 @@ import {LiquidityAmounts} from "v3-periphery/libraries/LiquidityAmounts.sol";
 import {PoolAddress} from "v3-periphery/libraries/PoolAddress.sol";
 import {PositionKey} from "v3-periphery/libraries/PositionKey.sol";
 import {ISwapRouter} from "v3-periphery/interfaces/ISwapRouter.sol";
-import {SemiFungiblePositionManager} from "@contracts/SemiFungiblePositionManager.sol";
+import {SemiFungiblePositionManager} from "@contracts/SemiFungiblePositionManagerV4.sol";
+import {ISemiFungiblePositionManager} from "@contracts/interfaces/ISemiFungiblePositionManager.sol";
 import {INonfungiblePositionManager} from "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import {UniswapHelper} from "../src/UniswapHelper.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {PositionUtils} from "lib/panoptic-v1-core/test/foundry/testUtils/PositionUtils.sol";
-import {UniPoolPriceMock} from "lib/panoptic-v1-core/test/foundry/testUtils/PriceMocks.sol";
+import {PositionUtils} from "lib/panoptic-v2-core/test/foundry/testUtils/PositionUtils.sol";
+import {UniPoolPriceMock} from "lib/panoptic-v2-core/test/foundry/testUtils/PriceMocks.sol";
 import {Pointer} from "@types/Pointer.sol";
+import {PoolId} from "v4-core/types/PoolId.sol";
+import {PoolKey} from "v4-core/types/PoolKey.sol";
+import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
+import {PoolManager} from "v4-core/PoolManager.sol";
+import {Currency} from "v4-core/types/Currency.sol";
+import {IHooks} from "v4-core/interfaces/IHooks.sol";
 
 contract SemiFungiblePositionManagerHarness is SemiFungiblePositionManager {
-    constructor(IUniswapV3Factory _factory) SemiFungiblePositionManager(_factory, 10 ** 13, 0) {}
-
-    function addrToPoolId(address pool) public view returns (uint256) {
-        return s_AddrToPoolIdData[pool];
-    }
+    constructor(
+        IPoolManager _manager
+    ) SemiFungiblePositionManager(_manager, 10 ** 13, 10 ** 13, 0) {}
 }
 
 contract UniswapHelperHarness is UniswapHelper {
@@ -64,6 +69,10 @@ contract UniswapHelperTest is PositionUtils {
 
     // the instance of SFPM we are testing
     SemiFungiblePositionManagerHarness sfpm;
+    uint256 vegoid = 4;
+    IPoolManager manager;
+
+    PoolKey poolKey;
 
     // Mainnet factory address - SFPM is dependent on this for several checks and callbacks
     IUniswapV3Factory V3FACTORY = IUniswapV3Factory(0x1F98431c8aD98523631AE4a59f267346ea31F984);
@@ -168,7 +177,6 @@ contract UniswapHelperTest is PositionUtils {
 
     function _cacheWorldState(IUniswapV3Pool _pool) internal {
         pool = _pool;
-        poolId = PanopticMath.getPoolId(address(_pool), _pool.tickSpacing());
         token0 = _pool.token0();
         token1 = _pool.token1();
         isWETH = token0 == address(WETH) ? 0 : 1;
@@ -179,6 +187,17 @@ contract UniswapHelperTest is PositionUtils {
         feeGrowthGlobal1X128 = _pool.feeGrowthGlobal1X128();
         poolBalance0 = IERC20Partial(token0).balanceOf(address(_pool));
         poolBalance1 = IERC20Partial(token1).balanceOf(address(_pool));
+        poolKey = PoolKey(
+            Currency.wrap(token0),
+            Currency.wrap(token1),
+            fee,
+            tickSpacing,
+            IHooks(address(0))
+        );
+        {
+            poolId = uint40(uint256(PoolId.unwrap(poolKey.toId()))) + uint64(uint256(vegoid) << 40);
+            poolId += uint64(uint24(_pool.tickSpacing())) << 48;
+        }
     }
 
     function _initAccounts() internal {
@@ -224,7 +243,8 @@ contract UniswapHelperTest is PositionUtils {
     }
 
     function setUp() public {
-        sfpm = new SemiFungiblePositionManagerHarness(V3FACTORY);
+        manager = new PoolManager(address(0));
+        sfpm = new SemiFungiblePositionManagerHarness(manager);
         uh = new UniswapHelperHarness(V3FACTORY, V3NFPM, sfpm);
     }
 

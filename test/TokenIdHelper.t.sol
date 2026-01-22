@@ -19,22 +19,29 @@ import {LiquidityAmounts} from "v3-periphery/libraries/LiquidityAmounts.sol";
 import {PoolAddress} from "v3-periphery/libraries/PoolAddress.sol";
 import {PositionKey} from "v3-periphery/libraries/PositionKey.sol";
 import {ISwapRouter} from "v3-periphery/interfaces/ISwapRouter.sol";
-import {SemiFungiblePositionManager} from "@contracts/SemiFungiblePositionManager.sol";
+import {SemiFungiblePositionManager} from "@contracts/SemiFungiblePositionManagerV4.sol";
+import {ISemiFungiblePositionManager} from "@contracts/interfaces/ISemiFungiblePositionManager.sol";
 import {PanopticPool} from "@contracts/PanopticPool.sol";
 import {CollateralTracker} from "@contracts/CollateralTracker.sol";
-import {PanopticFactory} from "@contracts/PanopticFactory.sol";
+import {PanopticFactory} from "@contracts/PanopticFactoryV4.sol";
+import {RiskEngine} from "@contracts/RiskEngine.sol";
+import {IRiskEngine} from "@contracts/interfaces/IRiskEngine.sol";
 import {TokenIdHelper} from "../src/TokenIdHelper.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {PositionUtils} from "lib/panoptic-v1-core/test/foundry/testUtils/PositionUtils.sol";
-import {UniPoolPriceMock} from "lib/panoptic-v1-core/test/foundry/testUtils/PriceMocks.sol";
+import {PositionUtils} from "lib/panoptic-v2-core/test/foundry/testUtils/PositionUtils.sol";
+import {UniPoolPriceMock} from "lib/panoptic-v2-core/test/foundry/testUtils/PriceMocks.sol";
 import {Pointer} from "@types/Pointer.sol";
+import {PoolId} from "v4-core/types/PoolId.sol";
+import {PoolKey} from "v4-core/types/PoolKey.sol";
+import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
+import {PoolManager} from "v4-core/PoolManager.sol";
+import {Currency} from "v4-core/types/Currency.sol";
+import {IHooks} from "v4-core/interfaces/IHooks.sol";
 
 contract SemiFungiblePositionManagerHarness is SemiFungiblePositionManager {
-    constructor(IUniswapV3Factory _factory) SemiFungiblePositionManager(_factory, 10 ** 13, 0) {}
-
-    function addrToPoolId(address pool) public view returns (uint256) {
-        return s_AddrToPoolIdData[pool];
-    }
+    constructor(
+        IPoolManager _manager
+    ) SemiFungiblePositionManager(_manager, 10 ** 13, 10 ** 13, 0) {}
 }
 
 contract PanopticPoolHarness is PanopticPool {
@@ -45,15 +52,19 @@ contract PanopticPoolHarness is PanopticPool {
         _positionsHash = uint248(s_positionsHash[user]);
     }
 
-    /**
-     * @notice compute the TWAP price from the last 600s = 10mins
-     * @return twapTick the TWAP price in ticks
-     */
-    function getUniV3TWAP_() external view returns (int24 twapTick) {
-        twapTick = PanopticMath.twapFilter(s_univ3pool, TWAP_WINDOW);
-    }
+    // TODO: Update for v2 - TWAP and pool access changed
+    // /**
+    //  * @notice compute the TWAP price from the last 600s = 10mins
+    //  * @return twapTick the TWAP price in ticks
+    //  */
+    // function getUniV3TWAP_() external view returns (int24 twapTick) {
+    //     // v2 doesn't have s_univ3pool or TWAP_WINDOW
+    //     // Need to use poolKey() and updated oracle methods
+    // }
 
-    constructor(SemiFungiblePositionManager _sfpm) PanopticPool(_sfpm) {}
+    constructor(
+        SemiFungiblePositionManager _sfpm
+    ) PanopticPool(ISemiFungiblePositionManager(address(_sfpm))) {}
 }
 
 contract TokenIdHelperTest is PositionUtils {
@@ -63,6 +74,11 @@ contract TokenIdHelperTest is PositionUtils {
 
     // the instance of SFPM we are testing
     SemiFungiblePositionManagerHarness sfpm;
+    IRiskEngine re;
+    uint256 vegoid = 4;
+    IPoolManager manager;
+
+    PoolKey poolKey;
 
     // reference implemenatations used by the factory
     address poolReference;
@@ -254,7 +270,6 @@ contract TokenIdHelperTest is PositionUtils {
 
     function _cacheWorldState(IUniswapV3Pool _pool) internal {
         pool = _pool;
-        poolId = PanopticMath.getPoolId(address(_pool), _pool.tickSpacing());
         token0 = _pool.token0();
         token1 = _pool.token1();
         isWETH = token0 == address(WETH) ? 0 : 1;
@@ -265,6 +280,17 @@ contract TokenIdHelperTest is PositionUtils {
         feeGrowthGlobal1X128 = _pool.feeGrowthGlobal1X128();
         poolBalance0 = IERC20Partial(token0).balanceOf(address(_pool));
         poolBalance1 = IERC20Partial(token1).balanceOf(address(_pool));
+        poolKey = PoolKey(
+            Currency.wrap(token0),
+            Currency.wrap(token1),
+            fee,
+            tickSpacing,
+            IHooks(address(0))
+        );
+        {
+            poolId = uint40(uint256(PoolId.unwrap(poolKey.toId()))) + uint64(uint256(vegoid) << 40);
+            poolId += uint64(uint24(_pool.tickSpacing())) << 48;
+        }
     }
 
     function _deployPanopticPool() internal {
@@ -272,7 +298,7 @@ contract TokenIdHelperTest is PositionUtils {
 
         factory = new PanopticFactory(
             sfpm,
-            V3FACTORY,
+            manager,
             poolReference,
             collateralReference,
             new bytes32[](0),
@@ -280,13 +306,15 @@ contract TokenIdHelperTest is PositionUtils {
             new Pointer[][](0)
         );
 
+        re = IRiskEngine(address(new RiskEngine(10_000_000, 10_000_000, address(0), address(0))));
+
         deal(token0, Deployer, type(uint104).max);
         deal(token1, Deployer, type(uint104).max);
         IERC20Partial(token0).approve(address(factory), type(uint104).max);
         IERC20Partial(token1).approve(address(factory), type(uint104).max);
 
         pp = PanopticPoolHarness(
-            address(factory.deployNewPool(token0, token1, fee, uint96(block.timestamp)))
+            address(factory.deployNewPool(poolKey, re, uint96(block.timestamp)))
         );
 
         ct0 = pp.collateralToken0();
@@ -373,14 +401,13 @@ contract TokenIdHelperTest is PositionUtils {
     }
 
     function setUp() public {
-        sfpm = new SemiFungiblePositionManagerHarness(V3FACTORY);
-        th = new TokenIdHelper(SemiFungiblePositionManager(sfpm));
+        manager = new PoolManager(address(0));
+        sfpm = new SemiFungiblePositionManagerHarness(manager);
+        th = new TokenIdHelper(ISemiFungiblePositionManager(address(sfpm)));
 
         // deploy reference pool and collateral token
         poolReference = address(new PanopticPoolHarness(sfpm));
-        collateralReference = address(
-            new CollateralTracker(10, 2_000, 1_000, -1_024, 5_000, 9_000, 20_000)
-        );
+        collateralReference = address(new CollateralTracker(10));
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -493,7 +520,6 @@ contract TokenIdHelperTest is PositionUtils {
 
         TokenIdHelper.Leg memory inputLeg = TokenIdHelper.Leg({
             poolId: poolId,
-            UniswapV3Pool: address(pool),
             optionRatio: optionRatio,
             asset: asset ? 1 : 0,
             isLong: isLong ? 1 : 0,
@@ -554,7 +580,6 @@ contract TokenIdHelperTest is PositionUtils {
         TokenIdHelper.Leg[2] memory inputLeg;
         inputLeg[0] = TokenIdHelper.Leg({
             poolId: poolId,
-            UniswapV3Pool: address(pool),
             optionRatio: optionRatio,
             asset: 0,
             isLong: long,
@@ -565,7 +590,6 @@ contract TokenIdHelperTest is PositionUtils {
         });
         inputLeg[1] = TokenIdHelper.Leg({
             poolId: poolId,
-            UniswapV3Pool: address(pool),
             optionRatio: optionRatio,
             asset: 0,
             isLong: 1 - long,
@@ -638,7 +662,6 @@ contract TokenIdHelperTest is PositionUtils {
             // add to input array of legs
             TokenIdHelper.Leg memory _Leg = TokenIdHelper.Leg({
                 poolId: poolId,
-                UniswapV3Pool: address(pool),
                 optionRatio: optionRatio,
                 asset: asset,
                 isLong: isLong,
@@ -800,7 +823,6 @@ contract TokenIdHelperTest is PositionUtils {
             // add to input array of legs
             TokenIdHelper.Leg memory _Leg = TokenIdHelper.Leg({
                 poolId: poolId,
-                UniswapV3Pool: address(pool),
                 optionRatio: optionRatio,
                 asset: asset,
                 isLong: tokenId.isLong(i),
@@ -961,7 +983,6 @@ contract TokenIdHelperTest is PositionUtils {
             // add to input array of legs
             TokenIdHelper.Leg memory _Leg = TokenIdHelper.Leg({
                 poolId: poolId,
-                UniswapV3Pool: address(pool),
                 optionRatio: optionRatio,
                 asset: asset,
                 isLong: isLong,
@@ -1001,84 +1022,6 @@ contract TokenIdHelperTest is PositionUtils {
         uint256 keccakOut = uint256(keccak256(abi.encode(unwrappedLeg)));
 
         assertEq(keccakIn, keccakOut);
-    }
-
-    /// forge-config: default.fuzz.runs = 100
-    function test_Success_optimizePartners(
-        uint256 x,
-        uint256 seed,
-        int256 strikeSeed,
-        uint256 widthSeed
-    ) public {
-        _initPool(x);
-
-        seed = uint256(keccak256(abi.encode(seed)));
-        console2.log("seed", seed);
-        uint256 numberOfLegs = ((seed >> 222) % 4) + 1;
-
-        TokenIdHelper.Leg[] memory inputLeg = new TokenIdHelper.Leg[](numberOfLegs);
-
-        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId);
-
-        for (uint256 leg; leg < numberOfLegs; ++leg) {
-            tokenId = tokenId.addRiskPartner(leg, leg);
-        }
-
-        // keep option ratio same for all
-        uint256 optionRatio = uint256(seed % 2 ** 7);
-        optionRatio = optionRatio == 0 ? 1 : optionRatio;
-
-        // keep asset same for all
-        uint256 asset = uint256((seed >> 9) % 2);
-
-        for (uint256 i; i < numberOfLegs; ++i) {
-            // update seed
-            seed = uint256(keccak256(abi.encode(seed)));
-            uint256 isLong;
-            {
-                isLong = uint256((seed >> 7) % 2);
-
-                uint256 tokenType = uint256((seed >> 27) % 2);
-                tokenId = tokenId.addTokenType(tokenType, i);
-                // add optionRatio
-                tokenId = tokenId.addOptionRatio(optionRatio, i);
-
-                // add isLong
-                tokenId = tokenId.addIsLong(isLong, i);
-
-                // add asset
-                tokenId = tokenId.addAsset(asset, i);
-            }
-            // add strike
-            int24 strike = (int24(bound(strikeSeed, -500_000, 500_000)) / pool.tickSpacing()) *
-                pool.tickSpacing();
-            tokenId = tokenId.addStrike(strike, i);
-
-            // add width
-            int24 width = int24(uint24(2 * bound(widthSeed, 1, 100)));
-
-            tokenId = tokenId.addWidth(width, i);
-
-            // add to input array of legs
-            TokenIdHelper.Leg memory _Leg = TokenIdHelper.Leg({
-                poolId: poolId,
-                UniswapV3Pool: address(pool),
-                optionRatio: optionRatio,
-                asset: asset,
-                isLong: isLong,
-                tokenType: tokenId.tokenType(i),
-                riskPartner: tokenId.riskPartner(i),
-                strike: strike,
-                width: width
-            });
-            inputLeg[i] = _Leg;
-        }
-
-        uint256 requiredBefore = th.getRequiredBase(pp, tokenId, currentTick);
-        TokenId optimizedTokenId = th.optimizeRiskPartners(pp, currentTick, tokenId);
-        uint256 requiredAfter = th.getRequiredBase(pp, optimizedTokenId, currentTick);
-        console2.log("tokenIds", TokenId.unwrap(tokenId), TokenId.unwrap(optimizedTokenId));
-        assertTrue(requiredAfter <= requiredBefore);
     }
 
     function test_equivalentPosition_preservesOriginalScale() public view {

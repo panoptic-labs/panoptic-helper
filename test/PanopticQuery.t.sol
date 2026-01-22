@@ -18,24 +18,35 @@ import {IUniswapV3Factory} from "v3-core/interfaces/IUniswapV3Factory.sol";
 import {LiquidityAmounts} from "v3-periphery/libraries/LiquidityAmounts.sol";
 import {PoolAddress} from "v3-periphery/libraries/PoolAddress.sol";
 import {PositionKey} from "v3-periphery/libraries/PositionKey.sol";
+import {PositionBalance, PositionBalanceLibrary} from "@types/PositionBalance.sol";
 import {ISwapRouter} from "v3-periphery/interfaces/ISwapRouter.sol";
-import {SemiFungiblePositionManager} from "@contracts/SemiFungiblePositionManager.sol";
+import {SemiFungiblePositionManager} from "@contracts/SemiFungiblePositionManagerV4.sol";
+import {ISemiFungiblePositionManager} from "@contracts/interfaces/ISemiFungiblePositionManager.sol";
 import {PanopticPool} from "@contracts/PanopticPool.sol";
+import {RiskEngine} from "@contracts/RiskEngine.sol";
+import {IRiskEngine} from "@contracts/interfaces/IRiskEngine.sol";
 import {CollateralTracker} from "@contracts/CollateralTracker.sol";
-import {PanopticFactory} from "@contracts/PanopticFactory.sol";
+import {PanopticFactory} from "@contracts/PanopticFactoryV4.sol";
 import {PanopticQuery} from "../src/PanopticQuery.sol";
 import {TokenIdHelper} from "../src/TokenIdHelper.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {PositionUtils} from "lib/panoptic-v1-core/test/foundry/testUtils/PositionUtils.sol";
-import {UniPoolPriceMock} from "lib/panoptic-v1-core/test/foundry/testUtils/PriceMocks.sol";
+import {PositionUtils} from "lib/panoptic-v2-core/test/foundry/testUtils/PositionUtils.sol";
+import {UniPoolPriceMock} from "lib/panoptic-v2-core/test/foundry/testUtils/PriceMocks.sol";
 import {Pointer} from "@types/Pointer.sol";
+import {PoolId} from "v4-core/types/PoolId.sol";
+import {PoolKey} from "v4-core/types/PoolKey.sol";
+import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
+import {V4StateReader} from "@libraries/V4StateReader.sol";
+import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
+import {BalanceDelta} from "v4-core/types/BalanceDelta.sol";
+import {Currency} from "v4-core/types/Currency.sol";
+import {PoolManager} from "v4-core/PoolManager.sol";
+import {IHooks} from "v4-core/interfaces/IHooks.sol";
 
 contract SemiFungiblePositionManagerHarness is SemiFungiblePositionManager {
-    constructor(IUniswapV3Factory _factory) SemiFungiblePositionManager(_factory, 10 ** 13, 0) {}
-
-    function addrToPoolId(address pool) public view returns (uint256) {
-        return s_AddrToPoolIdData[pool];
-    }
+    constructor(
+        IPoolManager _manager
+    ) SemiFungiblePositionManager(_manager, 10 ** 13, 10 ** 13, 0) {}
 }
 
 contract PanopticPoolHarness is PanopticPool {
@@ -46,15 +57,17 @@ contract PanopticPoolHarness is PanopticPool {
         _positionsHash = uint248(s_positionsHash[user]);
     }
 
-    /**
-     * @notice compute the TWAP price from the last 600s = 10mins
-     * @return twapTick the TWAP price in ticks
-     */
-    function getUniV3TWAP_() external view returns (int24 twapTick) {
-        twapTick = PanopticMath.twapFilter(s_univ3pool, TWAP_WINDOW);
-    }
+    // TODO: Update for v2 - TWAP and pool access changed
+    // /**
+    //  * @notice compute the TWAP price from the last 600s = 10mins
+    //  * @return twapTick the TWAP price in ticks
+    //  */
+    // function getUniV3TWAP_() external view returns (int24 twapTick) {
+    //     // v2 doesn't have s_univ3pool or TWAP_WINDOW
+    //     // Need to use poolKey() and updated oracle methods
+    // }
 
-    constructor(SemiFungiblePositionManager _sfpm) PanopticPool(_sfpm) {}
+    constructor(ISemiFungiblePositionManager _sfpm) PanopticPool(_sfpm) {}
 }
 
 contract PanopticQueryTest is PositionUtils {
@@ -64,7 +77,11 @@ contract PanopticQueryTest is PositionUtils {
 
     // the instance of SFPM we are testing
     SemiFungiblePositionManagerHarness sfpm;
+    IRiskEngine re;
+    uint256 vegoid = 4;
+    IPoolManager manager;
 
+    PoolKey poolKey;
     // A TokenIdHelper for getting equivalent token IDs as need be
     TokenIdHelper tih;
 
@@ -216,6 +233,49 @@ contract PanopticQueryTest is PositionUtils {
 
     TokenId positionSolo;
 
+    function mintOptions(
+        PanopticPool pp,
+        TokenId[] memory positionIdList,
+        uint128 positionSize,
+        uint24 effectiveLiquidityLimitX32,
+        int24 tickLimitLow,
+        int24 tickLimitHigh,
+        bool premiaAsCollateral
+    ) internal {
+        uint128[] memory sizeList = new uint128[](1);
+        TokenId[] memory mintList = new TokenId[](1);
+        int24[3][] memory tickAndSpreadLimits = new int24[3][](1);
+
+        TokenId tokenId = positionIdList[positionIdList.length - 1];
+        sizeList[0] = positionSize;
+        mintList[0] = tokenId;
+        tickAndSpreadLimits[0][0] = tickLimitLow;
+        tickAndSpreadLimits[0][1] = tickLimitHigh;
+        tickAndSpreadLimits[0][2] = int24(uint24(effectiveLiquidityLimitX32));
+
+        pp.dispatch(mintList, positionIdList, sizeList, tickAndSpreadLimits, premiaAsCollateral, 0);
+    }
+
+    function burnOptions(
+        PanopticPoolHarness pp,
+        TokenId tokenId,
+        TokenId[] memory positionIdList,
+        int24 tickLimitLow,
+        int24 tickLimitHigh,
+        bool premiaAsCollateral
+    ) internal {
+        uint128[] memory sizeList = new uint128[](1);
+        TokenId[] memory burnList = new TokenId[](1);
+        int24[3][] memory tickAndSpreadLimits = new int24[3][](1);
+
+        sizeList[0] = 0;
+        burnList[0] = tokenId;
+        tickAndSpreadLimits[0][0] = tickLimitLow;
+        tickAndSpreadLimits[0][1] = tickLimitHigh;
+        tickAndSpreadLimits[0][2] = int24(uint24(type(uint24).max / 2));
+        pp.dispatch(burnList, positionIdList, sizeList, tickAndSpreadLimits, premiaAsCollateral, 0);
+    }
+
     /*//////////////////////////////////////////////////////////////
                                ENV SETUP
     //////////////////////////////////////////////////////////////*/
@@ -255,7 +315,7 @@ contract PanopticQueryTest is PositionUtils {
 
     function _cacheWorldState(IUniswapV3Pool _pool) internal {
         pool = _pool;
-        poolId = PanopticMath.getPoolId(address(_pool), _pool.tickSpacing());
+        poolId = sfpm.getPoolId(abi.encode(address(_pool)), 0); // vegoid = 0 for tests
         token0 = _pool.token0();
         token1 = _pool.token1();
         isWETH = token0 == address(WETH) ? 0 : 1;
@@ -266,6 +326,17 @@ contract PanopticQueryTest is PositionUtils {
         feeGrowthGlobal1X128 = _pool.feeGrowthGlobal1X128();
         poolBalance0 = IERC20Partial(token0).balanceOf(address(_pool));
         poolBalance1 = IERC20Partial(token1).balanceOf(address(_pool));
+        poolKey = PoolKey(
+            Currency.wrap(token0),
+            Currency.wrap(token1),
+            fee,
+            tickSpacing,
+            IHooks(address(0))
+        );
+        {
+            poolId = uint40(uint256(PoolId.unwrap(poolKey.toId()))) + uint64(uint256(vegoid) << 40);
+            poolId += uint64(uint24(_pool.tickSpacing())) << 48;
+        }
     }
 
     function _deployPanopticPool() internal {
@@ -273,7 +344,7 @@ contract PanopticQueryTest is PositionUtils {
 
         factory = new PanopticFactory(
             sfpm,
-            V3FACTORY,
+            manager,
             poolReference,
             collateralReference,
             new bytes32[](0),
@@ -281,13 +352,15 @@ contract PanopticQueryTest is PositionUtils {
             new Pointer[][](0)
         );
 
+        re = IRiskEngine(address(new RiskEngine(10_000_000, 10_000_000, address(0), address(0))));
+
         deal(token0, Deployer, type(uint104).max);
         deal(token1, Deployer, type(uint104).max);
         IERC20Partial(token0).approve(address(factory), type(uint104).max);
         IERC20Partial(token1).approve(address(factory), type(uint104).max);
 
         pp = PanopticPoolHarness(
-            address(factory.deployNewPool(token0, token1, fee, uint96(block.timestamp)))
+            address(factory.deployNewPool(poolKey, re, uint96(block.timestamp)))
         );
 
         ct0 = pp.collateralToken0();
@@ -374,15 +447,16 @@ contract PanopticQueryTest is PositionUtils {
     }
 
     function setUp() public {
-        sfpm = new SemiFungiblePositionManagerHarness(V3FACTORY);
-        pq = new PanopticQuery(SemiFungiblePositionManager(sfpm));
-        tih = new TokenIdHelper(SemiFungiblePositionManager(sfpm));
+        manager = new PoolManager(address(0));
+        sfpm = new SemiFungiblePositionManagerHarness(manager);
 
-        // deploy reference pool and collateral token
-        poolReference = address(new PanopticPoolHarness(sfpm));
-        collateralReference = address(
-            new CollateralTracker(10, 2_000, 1_000, -1_024, 5_000, 9_000, 20_000)
+        pq = new PanopticQuery(ISemiFungiblePositionManager(address(sfpm)));
+        tih = new TokenIdHelper(ISemiFungiblePositionManager(address(sfpm)));
+
+        poolReference = address(
+            new PanopticPoolHarness(ISemiFungiblePositionManager(address(sfpm)))
         );
+        collateralReference = address(new CollateralTracker(10));
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -608,12 +682,14 @@ contract PanopticQueryTest is PositionUtils {
             TokenId[] memory posIdList = new TokenId[](1);
             posIdList[0] = tokenId;
 
-            pp.mintOptions(
+            mintOptions(
+                pp,
                 posIdList,
                 positionSizes[0],
                 0,
-                Constants.MAX_V3POOL_TICK,
-                Constants.MIN_V3POOL_TICK
+                Constants.MAX_POOL_TICK,
+                Constants.MIN_POOL_TICK,
+                true
             );
         }
 
@@ -622,33 +698,31 @@ contract PanopticQueryTest is PositionUtils {
             posIdList[0] = tokenId;
             posIdList[1] = tokenId2;
 
-            pp.mintOptions(
+            mintOptions(
+                pp,
                 posIdList,
                 positionSizes[1],
                 0,
-                Constants.MAX_V3POOL_TICK,
-                Constants.MIN_V3POOL_TICK
+                Constants.MAX_POOL_TICK,
+                Constants.MIN_POOL_TICK,
+                true
             );
 
             (
                 LeftRightUnsigned shortPremium,
                 LeftRightUnsigned longPremium,
-                uint256[2][] memory posBalanceArray
+                PositionBalance[] memory posBalanceArray
             ) = pp.getAccumulatedFeesAndPositionsData(Alice, false, posIdList);
 
-            tokenData0 = ct0.getAccountMarginDetails(
-                Alice,
-                atTick,
+            (tokenData0, tokenData1, ) = re.getMargin(
                 posBalanceArray,
-                shortPremium.rightSlot(),
-                longPremium.rightSlot()
-            );
-            tokenData1 = ct1.getAccountMarginDetails(
-                Alice,
                 atTick,
-                posBalanceArray,
-                shortPremium.leftSlot(),
-                longPremium.leftSlot()
+                Alice,
+                posIdList,
+                shortPremium,
+                longPremium,
+                ct0,
+                ct1
             );
 
             (calculatedCollateralBalance, calculatedRequiredCollateral) = PanopticMath
@@ -660,15 +734,15 @@ contract PanopticQueryTest is PositionUtils {
                 (collateralBalance, requiredCollateral, , ) = pq.checkCollateral(
                     pp,
                     Alice,
-                    atTick,
-                    posIdList
+                    posIdList,
+                    atTick
                 );
             else
                 (, , collateralBalance, requiredCollateral) = pq.checkCollateral(
                     pp,
                     Alice,
-                    atTick,
-                    posIdList
+                    posIdList,
+                    atTick
                 );
 
             assertEq(collateralBalance, calculatedCollateralBalance);
@@ -716,12 +790,14 @@ contract PanopticQueryTest is PositionUtils {
             TokenId[] memory posIdList = new TokenId[](1);
             posIdList[0] = tokenId;
 
-            pp.mintOptions(
+            mintOptions(
+                pp,
                 posIdList,
                 uint128((positionSizeSeed * 250) / 100),
                 0,
-                Constants.MAX_V3POOL_TICK,
-                Constants.MIN_V3POOL_TICK
+                Constants.MIN_POOL_TICK,
+                Constants.MAX_POOL_TICK,
+                true
             );
         }
 
@@ -730,12 +806,14 @@ contract PanopticQueryTest is PositionUtils {
             posIdList[0] = tokenId;
             posIdList[1] = tokenId2;
 
-            pp.mintOptions(
+            mintOptions(
+                pp,
                 posIdList,
                 uint128((positionSizeSeed * 250) / 100),
                 0,
-                Constants.MAX_V3POOL_TICK,
-                Constants.MIN_V3POOL_TICK
+                Constants.MIN_POOL_TICK,
+                Constants.MAX_POOL_TICK,
+                true
             );
 
             int24 liquidationPriceUp;
@@ -768,32 +846,32 @@ contract PanopticQueryTest is PositionUtils {
             (collateralBalance, requiredCollateral, , ) = pq.checkCollateral(
                 pp,
                 Alice,
-                liquidationPriceDown + 1,
-                posIdList
+                posIdList,
+                liquidationPriceDown + 1
             );
             assertTrue(collateralBalance > requiredCollateral, "not liquidatable");
 
             (collateralBalance, requiredCollateral, , ) = pq.checkCollateral(
                 pp,
                 Alice,
-                liquidationPriceDown - 1,
-                posIdList
+                posIdList,
+                liquidationPriceDown - 1
             );
             assertTrue(collateralBalance < requiredCollateral, "liquidatable");
 
             (collateralBalance, requiredCollateral, , ) = pq.checkCollateral(
                 pp,
                 Alice,
-                liquidationPriceUp - 1,
-                posIdList
+                posIdList,
+                liquidationPriceUp - 1
             );
             assertTrue(collateralBalance > requiredCollateral, "not liquidatable");
 
             (collateralBalance, requiredCollateral, , ) = pq.checkCollateral(
                 pp,
                 Alice,
-                liquidationPriceUp + 1,
-                posIdList
+                posIdList,
+                liquidationPriceUp + 1
             );
             assertTrue(collateralBalance < requiredCollateral, "liquidatable");
 
@@ -833,12 +911,14 @@ contract PanopticQueryTest is PositionUtils {
         TokenId[] memory posIdList = new TokenId[](1);
         posIdList[0] = tokenId;
         // TODO: fuzz position size some day
-        pp.mintOptions(
+        mintOptions(
+            pp,
             posIdList,
             10 ** 15,
             0,
-            Constants.MIN_V3POOL_TICK,
-            Constants.MAX_V3POOL_TICK
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
         );
         // - then immediately call computeMinimumSize
         // it should return 0: no one has bought from you
@@ -876,12 +956,14 @@ contract PanopticQueryTest is PositionUtils {
         posIdList[0] = callSaleTokenId;
         // TODO: fuzz position size some day
         uint128 alicesSaleSize = 100 * 10 ** 15;
-        pp.mintOptions(
+        mintOptions(
+            pp,
             posIdList,
             alicesSaleSize,
             0,
-            Constants.MIN_V3POOL_TICK,
-            Constants.MAX_V3POOL_TICK
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
         );
         // - bob mints a call purchase, to purchase < 90%
         TokenId callPurchaseTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
@@ -899,12 +981,14 @@ contract PanopticQueryTest is PositionUtils {
         // TODO: fuzz the portion of alicesSaleSize some day; hardcoding half for now
         uint128 bobsPurchaseSize = 50 * 10 ** 15;
         vm.startPrank(Bob);
-        pp.mintOptions(
+        mintOptions(
+            pp,
             posIdList,
             bobsPurchaseSize,
-            type(uint64).max,
-            Constants.MIN_V3POOL_TICK,
-            Constants.MAX_V3POOL_TICK
+            type(uint24).max,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
         );
         // - then call computeMinimumSize on Alice
         uint128 alicesMinPositionSize = pq.computeMinimumSize(pp, Alice, callSaleTokenId);
@@ -923,8 +1007,8 @@ contract PanopticQueryTest is PositionUtils {
             bytes4(keccak256("burnOptions(uint256,uint256[],int24,int24)")),
             callSaleTokenId,
             postburnPosIdList,
-            Constants.MIN_V3POOL_TICK,
-            Constants.MAX_V3POOL_TICK
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK
         );
         // (
         //     int24 equivalentCallSaleTickLower,
@@ -959,21 +1043,31 @@ contract PanopticQueryTest is PositionUtils {
             //             )
             //         ),
             //     0,
-            //     Constants.MIN_V3POOL_TICK,
-            //     Constants.MAX_V3POOL_TICK
+            //     Constants.MIN_POOL_TICK,
+            //     Constants.MAX_POOL_TICK
             // );
             // vm.expectRevert(Errors.EffectiveLiquidityAboveThreshold.selector);
             // pp.multicall(remintAndBurnMulticallData);
         }
         {
             // 2. Alice should be able to successfully remint-and-burn with exactly the min size:
+            uint128[] memory sizeList = new uint128[](1);
+            sizeList[0] = alicesMinPositionSize;
+            TokenId[] memory mintList = new TokenId[](1);
+            mintList[0] = equivalentCallSaleTokenId;
+            int24[3][] memory tickAndSpreadLimits = new int24[3][](1);
+            tickAndSpreadLimits[0][0] = Constants.MIN_POOL_TICK;
+            tickAndSpreadLimits[0][1] = Constants.MAX_POOL_TICK;
+            tickAndSpreadLimits[0][2] = 0;
+
             remintAndBurnMulticallData[0] = abi.encodeWithSelector(
-                PanopticPool.mintOptions.selector,
+                PanopticPool.dispatch.selector,
+                mintList,
                 remintingPosIdList,
-                alicesMinPositionSize,
-                0,
-                Constants.MIN_V3POOL_TICK,
-                Constants.MAX_V3POOL_TICK
+                sizeList,
+                tickAndSpreadLimits,
+                true,
+                0
             );
             pp.multicall(remintAndBurnMulticallData);
             // 3. Bob should not be able to purchase even a fraction of what he did before after Alice successfully resizes down:
@@ -990,13 +1084,15 @@ contract PanopticQueryTest is PositionUtils {
             bobsPostRepurchaseList[0] = callPurchaseTokenId;
             bobsPostRepurchaseList[1] = equivalentCallPurchaseTokenId;
             vm.expectRevert(Errors.EffectiveLiquidityAboveThreshold.selector);
-            pp.mintOptions(
+            mintOptions(
+                pp,
                 bobsPostRepurchaseList,
                 // Bob tries to buy one tenth as much as he did before
                 bobsPurchaseSize / 10,
-                type(uint64).max,
-                Constants.MIN_V3POOL_TICK,
-                Constants.MAX_V3POOL_TICK
+                type(uint24).max,
+                Constants.MIN_POOL_TICK,
+                Constants.MAX_POOL_TICK,
+                true
             );
         }
         // - finally, also call computeMinimumSize on Bob
@@ -1034,12 +1130,14 @@ contract PanopticQueryTest is PositionUtils {
         posIdList[0] = callSaleTokenId;
         // TODO: fuzz position size some day
         uint128 alicesSaleSize = 100 * 10 ** 15;
-        pp.mintOptions(
+        mintOptions(
+            pp,
             posIdList,
             alicesSaleSize,
             0,
-            Constants.MIN_V3POOL_TICK,
-            Constants.MAX_V3POOL_TICK
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
         );
         // - bob mints a call purchase, to purchase exactly 90%
         TokenId callPurchaseTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
@@ -1055,12 +1153,14 @@ contract PanopticQueryTest is PositionUtils {
         posIdList[0] = callPurchaseTokenId;
         uint128 bobsPurchaseSize = uint128(Math.mulDiv(uint256(alicesSaleSize), 9, 10));
         vm.startPrank(Bob);
-        pp.mintOptions(
+        mintOptions(
+            pp,
             posIdList,
             bobsPurchaseSize,
-            type(uint64).max,
-            Constants.MIN_V3POOL_TICK,
-            Constants.MAX_V3POOL_TICK
+            type(uint24).max,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
         );
         // - then call computeMinimumSize on Alice
         // it should return the original size alice minted, +/- some liquidity units
@@ -1105,12 +1205,14 @@ contract PanopticQueryTest is PositionUtils {
         TokenId[] memory posIdList = new TokenId[](1);
         posIdList[0] = callSaleTokenId;
         uint128 alicesSaleSize = 100 * 10 ** 15;
-        pp.mintOptions(
+        mintOptions(
+            pp,
             posIdList,
             alicesSaleSize,
             0,
-            Constants.MIN_V3POOL_TICK,
-            Constants.MAX_V3POOL_TICK
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
         );
 
         // Bob purchases 10%
@@ -1127,12 +1229,14 @@ contract PanopticQueryTest is PositionUtils {
         posIdList[0] = callPurchaseTokenId;
         uint128 bobsPurchaseSize = uint128(Math.mulDiv(uint256(alicesSaleSize), 1, 10));
         vm.startPrank(Bob);
-        pp.mintOptions(
+        mintOptions(
+            pp,
             posIdList,
             bobsPurchaseSize,
-            type(uint64).max,
-            Constants.MIN_V3POOL_TICK,
-            Constants.MAX_V3POOL_TICK
+            type(uint24).max,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
         );
 
         // Bob tries to compute a sell-side position to satisfy another small purchase
@@ -1180,12 +1284,14 @@ contract PanopticQueryTest is PositionUtils {
         TokenId[] memory posIdList = new TokenId[](1);
         posIdList[0] = callSaleTokenId;
         uint128 alicesSaleSize = 100 * 10 ** 15;
-        pp.mintOptions(
+        mintOptions(
+            pp,
             posIdList,
             alicesSaleSize,
             0,
-            Constants.MIN_V3POOL_TICK,
-            Constants.MAX_V3POOL_TICK
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
         );
 
         // Bob purchases 90%
@@ -1202,12 +1308,14 @@ contract PanopticQueryTest is PositionUtils {
         posIdList[0] = callPurchaseTokenId;
         uint128 bobsPurchaseSize = uint128(Math.mulDiv(uint256(alicesSaleSize), 9, 10));
         vm.startPrank(Bob);
-        pp.mintOptions(
+        mintOptions(
+            pp,
             posIdList,
             bobsPurchaseSize,
-            type(uint64).max,
-            Constants.MIN_V3POOL_TICK,
-            Constants.MAX_V3POOL_TICK
+            type(uint24).max,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
         );
 
         // Bob computes the sell-side position required to make another purchase in the same size
@@ -1254,5 +1362,82 @@ contract PanopticQueryTest is PositionUtils {
         // - call getChunkData
         // it should return a netLiquidity of originalSize - purchaseSize, and removedLiquidity of purchaseSize
         // (both converted to liquidity units)
+    }
+
+    /// forge-config: default.fuzz.runs = 100
+    function test_Success_optimizePartners(
+        uint256 x,
+        uint256 seed,
+        int256 strikeSeed,
+        uint256 widthSeed
+    ) public {
+        _initPool(x);
+
+        seed = uint256(keccak256(abi.encode(seed)));
+        console2.log("seed", seed);
+        uint256 numberOfLegs = ((seed >> 222) % 4) + 1;
+
+        TokenIdHelper.Leg[] memory inputLeg = new TokenIdHelper.Leg[](numberOfLegs);
+
+        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId);
+
+        for (uint256 leg; leg < numberOfLegs; ++leg) {
+            tokenId = tokenId.addRiskPartner(leg, leg);
+        }
+
+        // keep option ratio same for all
+        uint256 optionRatio = uint256(seed % 2 ** 7);
+        optionRatio = optionRatio == 0 ? 1 : optionRatio;
+
+        // keep asset same for all
+        uint256 asset = uint256((seed >> 9) % 2);
+
+        for (uint256 i; i < numberOfLegs; ++i) {
+            // update seed
+            seed = uint256(keccak256(abi.encode(seed)));
+            uint256 isLong;
+            {
+                isLong = uint256((seed >> 7) % 2);
+
+                uint256 tokenType = uint256((seed >> 27) % 2);
+                tokenId = tokenId.addTokenType(tokenType, i);
+                // add optionRatio
+                tokenId = tokenId.addOptionRatio(optionRatio, i);
+
+                // add isLong
+                tokenId = tokenId.addIsLong(isLong, i);
+
+                // add asset
+                tokenId = tokenId.addAsset(asset, i);
+            }
+            // add strike
+            int24 strike = (int24(bound(strikeSeed, -500_000, 500_000)) / pool.tickSpacing()) *
+                pool.tickSpacing();
+            tokenId = tokenId.addStrike(strike, i);
+
+            // add width
+            int24 width = int24(uint24(2 * bound(widthSeed, 1, 100)));
+
+            tokenId = tokenId.addWidth(width, i);
+
+            // add to input array of legs
+            TokenIdHelper.Leg memory _Leg = TokenIdHelper.Leg({
+                poolId: poolId,
+                optionRatio: optionRatio,
+                asset: asset,
+                isLong: isLong,
+                tokenType: tokenId.tokenType(i),
+                riskPartner: tokenId.riskPartner(i),
+                strike: strike,
+                width: width
+            });
+            inputLeg[i] = _Leg;
+        }
+
+        uint256 requiredBefore = pq.getRequiredBase(pp, tokenId, currentTick);
+        TokenId optimizedTokenId = pq.optimizeRiskPartners(pp, currentTick, tokenId);
+        uint256 requiredAfter = pq.getRequiredBase(pp, optimizedTokenId, currentTick);
+        console2.log("tokenIds", TokenId.unwrap(tokenId), TokenId.unwrap(optimizedTokenId));
+        assertTrue(requiredAfter <= requiredBefore);
     }
 }

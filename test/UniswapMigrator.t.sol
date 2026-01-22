@@ -5,20 +5,31 @@ import "forge-std/Test.sol";
 import {UniswapMigrator} from "@helper/UniswapMigrator.sol";
 import {PanopticPool} from "@contracts/PanopticPool.sol";
 import {PanopticMath} from "@contracts/libraries/PanopticMath.sol";
-import {PanopticFactory} from "@contracts/PanopticFactory.sol";
+import {PanopticFactory} from "@contracts/PanopticFactoryV4.sol";
 import {CollateralTracker} from "@contracts/CollateralTracker.sol";
-import {SemiFungiblePositionManager} from "@contracts/SemiFungiblePositionManager.sol";
+import {SemiFungiblePositionManager} from "@contracts/SemiFungiblePositionManagerV4.sol";
+import {ISemiFungiblePositionManager} from "@contracts/interfaces/ISemiFungiblePositionManager.sol";
+import {RiskEngine} from "@contracts/RiskEngine.sol";
+import {IRiskEngine} from "@contracts/interfaces/IRiskEngine.sol";
 import {Pointer} from "@types/Pointer.sol";
 import {IERC20Partial} from "@tokens/interfaces/IERC20Partial.sol";
 import {PeripheryErrors} from "@helper/PeripheryErrors.sol";
 import {IUniswapV3Pool} from "v3-core/interfaces/IUniswapV3Pool.sol";
 import {IUniswapV3Factory} from "v3-core/interfaces/IUniswapV3Factory.sol";
 import {INonfungiblePositionManager} from "v3-periphery/interfaces/INonfungiblePositionManager.sol";
-
-import {IERC20Partial} from "@tokens/interfaces/IERC20Partial.sol";
+import {PoolId} from "v4-core/types/PoolId.sol";
+import {PoolKey} from "v4-core/types/PoolKey.sol";
+import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
+import {PoolManager} from "v4-core/PoolManager.sol";
+import {Currency} from "v4-core/types/Currency.sol";
+import {IHooks} from "v4-core/interfaces/IHooks.sol";
 
 contract UniswapMigratorTest is Test {
     SemiFungiblePositionManager sfpm;
+    IRiskEngine re;
+    uint256 vegoid = 4;
+    IPoolManager manager;
+    PoolKey poolKey;
 
     IUniswapV3Factory V3FACTORY = IUniswapV3Factory(0x1F98431c8aD98523631AE4a59f267346ea31F984);
     INonfungiblePositionManager V3NFPM =
@@ -59,27 +70,28 @@ contract UniswapMigratorTest is Test {
     UniswapMigrator uniswapMigrator;
 
     function setUp() public {
-        sfpm = new SemiFungiblePositionManager(V3FACTORY, 10 ** 13, 0);
+        manager = new PoolManager(address(0));
+        sfpm = new SemiFungiblePositionManager(manager, 10 ** 13, 10 ** 13, 0);
 
         // deploy reference pool and collateral token
-        poolReference = address(new PanopticPool(sfpm));
+        poolReference = address(new PanopticPool(ISemiFungiblePositionManager(address(sfpm))));
 
         // no commission/mint fee
-        collateralReference = address(
-            new CollateralTracker(0, 2_000, 1_000, -1_024, 5_000, 9_000, 20_000)
-        );
+        collateralReference = address(new CollateralTracker(10));
 
         vm.startPrank(Deployer);
 
         factory = new PanopticFactory(
             sfpm,
-            V3FACTORY,
+            manager,
             poolReference,
             collateralReference,
             new bytes32[](0),
             new uint256[][](0),
             new Pointer[][](0)
         );
+
+        re = IRiskEngine(address(new RiskEngine(10_000_000, 10_000_000, address(0), address(0))));
 
         uniswapMigrator = new UniswapMigrator(V3NFPM);
 
@@ -88,11 +100,15 @@ contract UniswapMigratorTest is Test {
         USDC.approve(address(factory), type(uint104).max);
         WETH.approve(address(factory), type(uint104).max);
 
-        pp = PanopticPool(
-            address(
-                factory.deployNewPool(address(USDC), address(WETH), 500, uint96(block.timestamp))
-            )
+        poolKey = PoolKey(
+            Currency.wrap(address(USDC)),
+            Currency.wrap(address(WETH)),
+            500,
+            60,
+            IHooks(address(0))
         );
+
+        pp = PanopticPool(address(factory.deployNewPool(poolKey, re, uint96(block.timestamp))));
 
         ct0 = pp.collateralToken0();
         ct1 = pp.collateralToken1();
