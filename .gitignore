@@ -14,4 +14,9 @@ docs/
 .env
 
 # npm
-node_modules/ 
+node_modules/
+
+# Vim swap files
+*.swp
+*.swo
+*.swn

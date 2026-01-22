@@ -4,7 +4,8 @@ pragma solidity ^0.8.0;
 // Interfaces
 import {IUniswapV3Pool} from "univ3-core/interfaces/IUniswapV3Pool.sol";
 import {PanopticPool} from "@contracts/PanopticPool.sol";
-import {SemiFungiblePositionManager} from "@contracts/SemiFungiblePositionManager.sol";
+import {ISemiFungiblePositionManager} from "@contracts/interfaces/ISemiFungiblePositionManager.sol";
+import {IRiskEngine} from "@contracts/interfaces/IRiskEngine.sol";
 // Libraries
 import {LiquidityAmounts} from "univ3-periphery/libraries/LiquidityAmounts.sol";
 import {FullMath} from "univ3-core/libraries/FullMath.sol";
@@ -22,7 +23,7 @@ import {PositionBalance, PositionBalanceLibrary} from "@types/PositionBalance.so
 /// @author Axicon Labs Limited
 contract PanopticQuery {
     /// @notice The SemiFungiblePositionManager of the Panoptic instance this querying helper is intended for.
-    SemiFungiblePositionManager internal immutable SFPM;
+    ISemiFungiblePositionManager internal immutable SFPM;
 
     int24 constant MIN_TICK = -887272;
     int24 constant MAX_TICK = 887272;
@@ -31,7 +32,7 @@ contract PanopticQuery {
 
     /// @notice Construct the PanopticQuery and store the SFPM address.
     /// @param SFPM_ The canonical SFPM address for the Panoptic instance this helper queries
-    constructor(SemiFungiblePositionManager SFPM_) payable {
+    constructor(ISemiFungiblePositionManager SFPM_) payable {
         SFPM = SFPM_;
     }
 
@@ -47,61 +48,47 @@ contract PanopticQuery {
     function checkCollateral(
         PanopticPool pool,
         address account,
-        int24 atTick,
-        TokenId[] calldata positionIdList
-    )
-        public
-        view
-        returns (
-            uint256 collateralBalance0,
-            uint256 requiredCollateral0,
-            uint256 collateralBalance1,
-            uint256 requiredCollateral1
-        )
-    {
+        TokenId[] calldata positionIdList,
+        int24 atTick
+    ) public view returns (uint256, uint256, uint256, uint256) {
         // Compute premia for all options (includes short+long premium)
         (
             LeftRightUnsigned shortPremium,
             LeftRightUnsigned longPremium,
-            uint256[2][] memory positionBalanceArray
+            PositionBalance[] memory positionBalanceArray
         ) = pool.getAccumulatedFeesAndPositionsData(account, false, positionIdList);
 
         // Query the current and required collateral amounts for the two tokens
-        LeftRightUnsigned tokenData0 = pool.collateralToken0().getAccountMarginDetails(
-            account,
-            atTick,
-            positionBalanceArray,
-            shortPremium.rightSlot(),
-            longPremium.rightSlot()
-        );
-        LeftRightUnsigned tokenData1 = pool.collateralToken1().getAccountMarginDetails(
-            account,
-            atTick,
-            positionBalanceArray,
-            shortPremium.leftSlot(),
-            longPremium.leftSlot()
-        );
+        (LeftRightUnsigned tokenData0, LeftRightUnsigned tokenData1, ) = pool
+            .riskEngine()
+            .getMargin(
+                positionBalanceArray,
+                atTick,
+                account,
+                positionIdList,
+                shortPremium,
+                longPremium,
+                pool.collateralToken0(),
+                pool.collateralToken1()
+            );
 
         // convert (using atTick) and return the total collateral balance and required balance in terms of tokenType
-        collateralBalance0 =
-            tokenData0.rightSlot() +
+        uint256 collateralBalance0 = tokenData0.rightSlot() +
             PanopticMath.convert1to0(tokenData1.rightSlot(), Math.getSqrtRatioAtTick(atTick));
-        requiredCollateral0 =
-            tokenData0.leftSlot() +
+        uint256 requiredCollateral0 = tokenData0.leftSlot() +
             PanopticMath.convert1to0RoundingUp(
                 tokenData1.leftSlot(),
                 Math.getSqrtRatioAtTick(atTick)
             );
 
-        collateralBalance1 =
-            tokenData1.rightSlot() +
+        uint256 collateralBalance1 = tokenData1.rightSlot() +
             PanopticMath.convert0to1(tokenData0.rightSlot(), Math.getSqrtRatioAtTick(atTick));
-        requiredCollateral1 =
-            tokenData1.leftSlot() +
+        uint256 requiredCollateral1 = tokenData1.leftSlot() +
             PanopticMath.convert0to1RoundingUp(
                 tokenData0.leftSlot(),
                 Math.getSqrtRatioAtTick(atTick)
             );
+        return (collateralBalance0, requiredCollateral0, collateralBalance1, requiredCollateral1);
     }
 
     /// @notice Compute the total amount of collateral needed to cover the existing list of active positions in positionIdList at (currentTick, fastOracleTick, slowOracleTick, latestObservation).
@@ -134,7 +121,7 @@ contract PanopticQuery {
                 requiredCollaterals0[i],
                 collateralBalances1[i],
                 requiredCollaterals1[i]
-            ) = checkCollateral(pool, account, ticks[i], positionIdList);
+            ) = checkCollateral(pool, account, positionIdList, ticks[i]);
         }
     }
 
@@ -174,14 +161,14 @@ contract PanopticQuery {
             requiredCollateral0,
             collateralBalance1,
             requiredCollateral1
-        ) = checkCollateral(pool, account, currentTick, positionIdList);
+        ) = checkCollateral(pool, account, positionIdList, currentTick);
 
         {
             (uint256 collateralMin, uint256 requiredMin, , ) = checkCollateral(
                 pool,
                 account,
-                MIN_TICK,
-                positionIdList
+                positionIdList,
+                MIN_TICK
             );
             if (collateralMin < requiredMin) {
                 // There's a liquidation price somewhere below current tick
@@ -198,8 +185,8 @@ contract PanopticQuery {
             (, , uint256 collateralMax, uint256 requiredMax) = checkCollateral(
                 pool,
                 account,
-                MAX_TICK,
-                positionIdList
+                positionIdList,
+                MAX_TICK
             );
 
             // Find liquidation price above current tick (liquidationPriceUp)
@@ -232,9 +219,10 @@ contract PanopticQuery {
         int24[] memory liquidationPrices = new int24[](2);
         {
             int24 scaledTick;
+            int24 tickSpacing;
             {
                 (int24 currentTick, , , , ) = pool.getOracleTicks();
-                int24 tickSpacing = pool.univ3pool().tickSpacing();
+                tickSpacing = positionIdList[0].tickSpacing();
                 scaledTick = ((currentTick / tickSpacing) * tickSpacing);
             }
 
@@ -250,7 +238,6 @@ contract PanopticQuery {
             liquidationPrices[1] = liquidationPriceUp;
             tickData[0] = MIN_TICK;
             tickData[300] = MAX_TICK;
-            int24 tickSpacing = pool.univ3pool().tickSpacing();
 
             int24 startTick = scaledTick - int24(25000); // Default start
             int24 endTick = scaledTick + int24(25000); // Default end
@@ -283,8 +270,8 @@ contract PanopticQuery {
                     (collateralBalance, requiredCollateral, , ) = checkCollateral(
                         pool,
                         account,
-                        int24(tickData[i]),
-                        positionIdList
+                        positionIdList,
+                        int24(tickData[i])
                     );
                     collateralBalance = (collateralBalance * sqrtPriceX96) >> 96;
                     requiredCollateral = (requiredCollateral * sqrtPriceX96) >> 96;
@@ -292,8 +279,8 @@ contract PanopticQuery {
                     (, , collateralBalance, requiredCollateral) = checkCollateral(
                         pool,
                         account,
-                        int24(tickData[i]),
-                        positionIdList
+                        positionIdList,
+                        int24(tickData[i])
                     );
                     collateralBalance = (collateralBalance << 96) / sqrtPriceX96;
                     requiredCollateral = (requiredCollateral << 96) / sqrtPriceX96;
@@ -327,15 +314,15 @@ contract PanopticQuery {
                 (collateralBalance, requiredCollateral, , ) = checkCollateral(
                     pool,
                     account,
-                    midTick,
-                    positionIdList
+                    positionIdList,
+                    midTick
                 );
             } else {
                 (, , collateralBalance, requiredCollateral) = checkCollateral(
                     pool,
                     account,
-                    midTick,
-                    positionIdList
+                    positionIdList,
+                    midTick
                 );
             }
 
@@ -371,15 +358,15 @@ contract PanopticQuery {
                 (collateralBalance, requiredCollateral, , ) = checkCollateral(
                     pool,
                     account,
-                    midTick,
-                    positionIdList
+                    positionIdList,
+                    midTick
                 );
             } else {
                 (, , collateralBalance, requiredCollateral) = checkCollateral(
                     pool,
                     account,
-                    midTick,
-                    positionIdList
+                    positionIdList,
+                    midTick
                 );
             }
             if (collateralBalance >= requiredCollateral) {
@@ -426,30 +413,6 @@ contract PanopticQuery {
         );
     }
 
-    /// @notice Takes a packed structure representing a sorted 8-slot queue of ticks and returns the median of those values.
-    /// @dev Also inserts the latest Uniswap observation into the buffer, resorts, and returns if the last entry is at least `period` seconds old.
-    /// @param period The minimum time in seconds that must have passed since the last observation was inserted into the buffer
-    /// @param medianData The packed structure representing the sorted 8-slot queue of ticks
-    /// @param univ3pool The Uniswap pool to retrieve observations from
-    /// @return The median of the provided 8-slot queue of ticks in `medianData`
-    /// @return The updated 8-slot queue of ticks with the latest observation inserted if the last entry is at least `period` seconds old (returns 0 otherwise)
-    function computeInternalMedian(
-        uint256 period,
-        uint256 medianData,
-        IUniswapV3Pool univ3pool
-    ) external view returns (int24, uint256) {
-        (, , uint16 observationIndex, uint16 observationCardinality, , , ) = univ3pool.slot0();
-
-        return
-            PanopticMath.computeInternalMedian(
-                observationIndex,
-                observationCardinality,
-                period,
-                medianData,
-                univ3pool
-            );
-    }
-
     /// @notice Computes the twap of a Uniswap V3 pool using data from its oracle.
     /// @dev Note that our definition of TWAP differs from a typical mean of prices over a time window.
     /// @dev We instead observe the average price over a series of time intervals, and define the TWAP as the median of those averages.
@@ -474,15 +437,12 @@ contract PanopticQuery {
         TokenId[] calldata positionIdList
     ) external view returns (int256 value0, int256 value1) {
         // Compute premia for all options (includes short+long premium)
-        (, , uint256[2][] memory positionBalanceArray) = pool.getAccumulatedFeesAndPositionsData(
-            account,
-            false,
-            positionIdList
-        );
+        (, , PositionBalance[] memory positionBalanceArray) = pool
+            .getAccumulatedFeesAndPositionsData(account, false, positionIdList);
 
         for (uint256 k = 0; k < positionIdList.length; ) {
             TokenId tokenId = positionIdList[k];
-            uint128 positionSize = LeftRightUnsigned.wrap(positionBalanceArray[k][1]).rightSlot();
+            uint128 positionSize = positionBalanceArray[k].positionSize();
             uint256 numLegs = tokenId.countLegs();
             for (uint256 leg = 0; leg < numLegs; ) {
                 LiquidityChunk liquidityChunk = PanopticMath.getLiquidityChunk(
@@ -537,16 +497,9 @@ contract PanopticQuery {
         {
             TokenId[] memory suppliedPositions = new TokenId[](1);
             suppliedPositions[0] = tokenId;
-            (, , uint256[2][] memory positionDataForSuppliedPositions) = pool
+            (, , PositionBalance[] memory positionDataForSuppliedPositions) = pool
                 .getAccumulatedFeesAndPositionsData(account, false, suppliedPositions);
-            preReductionPositionSize = PositionBalance
-                .wrap(
-                    // The only position in the list's second item,
-                    // which should be the PositionBalance
-                    // (first item is the corresponding tokenId)
-                    positionDataForSuppliedPositions[0][1]
-                )
-                .positionSize();
+            preReductionPositionSize = positionDataForSuppliedPositions[0].positionSize();
         }
 
         for (uint256 i = 0; i < tokenId.countLegs(); ) {
@@ -585,7 +538,7 @@ contract PanopticQuery {
         (int24 legTickLower, int24 legTickUpper) = tokenId.asTicks(legIndex);
 
         LeftRightUnsigned legsChunkLiquidityData = SFPM.getAccountLiquidity(
-            address(SFPM.getUniswapV3PoolFromId(tokenId.poolId())),
+            pool.poolKey(),
             address(pool),
             tokenId.tokenType(legIndex),
             legTickLower,
@@ -635,7 +588,7 @@ contract PanopticQuery {
                 LeftRightUnsigned legsChunkLiquidityData;
                 {
                     legsChunkLiquidityData = SFPM.getAccountLiquidity(
-                        address(SFPM.getUniswapV3PoolFromId(tokenId.poolId())),
+                        pool.poolKey(),
                         address(pool),
                         tokenId.tokenType(i),
                         legTickLower,
@@ -802,10 +755,12 @@ contract PanopticQuery {
     }
 
     /// @notice Fetch data about chunks in a positionIdList.
+    /// @param pool The PanopticPool instance containing the positions
     /// @param account The address of the account to retrieve liquidity data for
     /// @param positionIdList List of TokenIds to evaluate
     /// @return chunkData A [2][4][positionIdList.length] array containing netLiquidity and removedLiquidity for each leg
     function getChunkData(
+        PanopticPool pool,
         address account,
         TokenId[] memory positionIdList
     ) external view returns (uint256[2][4][] memory) {
@@ -815,7 +770,7 @@ contract PanopticQuery {
             for (uint256 j; j < positionIdList[i].countLegs(); ) {
                 (int24 tickLower, int24 tickUpper) = positionIdList[i].asTicks(j);
                 LeftRightUnsigned liquidityData = SFPM.getAccountLiquidity(
-                    address(SFPM.getUniswapV3PoolFromId(positionIdList[i].poolId())),
+                    pool.poolKey(),
                     account,
                     positionIdList[i].tokenType(j),
                     tickLower,
@@ -857,12 +812,12 @@ contract PanopticQuery {
         (
             LeftRightUnsigned shortPremium,
             LeftRightUnsigned longPremium,
-            uint256[2][] memory positionBalanceArray
+            PositionBalance[] memory positionBalanceArray
         ) = pool.getAccumulatedFeesAndPositionsData(account, includePendingPremium, positionIdList);
 
         for (uint256 k = 0; k < positionIdList.length; ) {
             TokenId tokenId = positionIdList[k];
-            uint128 positionSize = LeftRightUnsigned.wrap(positionBalanceArray[k][1]).rightSlot();
+            uint128 positionSize = positionBalanceArray[k].positionSize();
             uint256 numLegs = tokenId.countLegs();
             for (uint256 leg = 0; leg < numLegs; ) {
                 LiquidityChunk liquidityChunk = PanopticMath.getLiquidityChunk(
@@ -894,7 +849,7 @@ contract PanopticQuery {
             }
 
             (LeftRightSigned longAmounts, LeftRightSigned shortAmounts) = PanopticMath
-                .computeExercisedAmounts(tokenId, positionSize);
+                .computeExercisedAmounts(tokenId, positionSize, false);
 
             value0 += int256(longAmounts.rightSlot()) - int256(shortAmounts.rightSlot());
             value1 += int256(longAmounts.leftSlot()) - int256(shortAmounts.leftSlot());

@@ -2,7 +2,8 @@
 pragma solidity >=0.8.24;
 
 // Interfaces
-import {SemiFungiblePositionManager} from "@contracts/SemiFungiblePositionManager.sol";
+import {ISemiFungiblePositionManager} from "@contracts/interfaces/ISemiFungiblePositionManager.sol";
+import {IRiskEngine} from "@contracts/interfaces/IRiskEngine.sol";
 // Libraries
 import {Constants} from "@libraries/Constants.sol";
 import {Errors} from "@libraries/Errors.sol";
@@ -13,12 +14,12 @@ import {PeripheryErrors} from "@helper/PeripheryErrors.sol";
 // Types
 import {LeftRightUnsigned} from "@types/LeftRight.sol";
 import {TokenId, TokenIdLibrary} from "@types/TokenId.sol";
+import {PositionBalance} from "@types/PositionBalance.sol";
 
 /// @title Deployable contract to interact with TokenIds, that comes with extra utils for ease of use
 contract TokenIdHelper {
     struct Leg {
         uint64 poolId;
-        address UniswapV3Pool;
         uint256 asset;
         uint256 optionRatio;
         uint256 tokenType;
@@ -29,7 +30,7 @@ contract TokenIdHelper {
     }
 
     /// @notice The SemiFungiblePositionManager of the Panoptic instance this TokenIdHelper is intended for.
-    SemiFungiblePositionManager internal immutable SFPM;
+    ISemiFungiblePositionManager internal immutable SFPM;
     /// @notice The maximum quantity of a given Panoptic position one may hold.
     uint128 public constant MAX_POSITION_SIZE = type(uint128).max;
     /// @notice The maximum option ratio of a leg of a Panoptic position.
@@ -38,7 +39,7 @@ contract TokenIdHelper {
     /// @notice Construct the TokenIdHelper contract.
     /// @param _SFPM address of the SemiFungiblePositionManager
     /// @dev the SFPM is used to get the pool ID for a given address
-    constructor(SemiFungiblePositionManager _SFPM) payable {
+    constructor(ISemiFungiblePositionManager _SFPM) payable {
         SFPM = _SFPM;
     }
 
@@ -338,9 +339,8 @@ contract TokenIdHelper {
     /// @dev At least one long leg must be far-out-of-the-money (i.e. price is outside its range).
     /// @dev Reverts if the position is not exercisable.
     /// @param tokenId The TokenId to validate for exercisability
-    /// @param currentTick The current tick corresponding to the current price in the Univ3 pool
-    function validateIsExercisable(TokenId tokenId, int24 currentTick) external pure {
-        return tokenId.validateIsExercisable(currentTick);
+    function validateIsExercisable(TokenId tokenId) external pure returns (uint256) {
+        return tokenId.validateIsExercisable();
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -685,26 +685,28 @@ contract TokenIdHelper {
         int24 atTick
     ) external view returns (uint256) {
         try this.validateTokenId(tokenId) {
-            uint256[2][] memory positionBalance = new uint256[2][](1);
+            if (checkTokenId(tokenId, type(uint128).max)) {
+                PositionBalance[] memory positionBalanceArray = new PositionBalance[](1);
+                TokenId[] memory positionIdList = new TokenId[](1);
 
-            positionBalance[0][0] = TokenId.unwrap(tokenId);
-            positionBalance[0][1] = type(uint48).max;
+                positionIdList[0] = tokenId;
+                positionBalanceArray[0] = PositionBalance.wrap(
+                    (uint256(type(uint48).max) << 128) + uint256(type(uint128).max)
+                );
 
-            if (checkTokenId(tokenId, uint128(positionBalance[0][1]))) {
-                LeftRightUnsigned tokenData0 = pool.collateralToken0().getAccountMarginDetails(
-                    address(0xdead),
-                    atTick,
-                    positionBalance,
-                    0,
-                    0
-                );
-                LeftRightUnsigned tokenData1 = pool.collateralToken1().getAccountMarginDetails(
-                    address(0xdead),
-                    atTick,
-                    positionBalance,
-                    0,
-                    0
-                );
+                (LeftRightUnsigned tokenData0, LeftRightUnsigned tokenData1, ) = pool
+                    .riskEngine()
+                    .getMargin(
+                        positionBalanceArray,
+                        atTick,
+                        address(0xdead),
+                        positionIdList,
+                        LeftRightUnsigned.wrap(0),
+                        LeftRightUnsigned.wrap(0),
+                        pool.collateralToken0(),
+                        pool.collateralToken1()
+                    );
+
                 (, uint256 required0) = PanopticMath.getCrossBalances(
                     tokenData0,
                     tokenData1,
@@ -771,10 +773,8 @@ contract TokenIdHelper {
         Leg[] memory legs = new Leg[](numLegs);
 
         uint64 _poolId = tokenId.poolId();
-        address UniswapV3Pool = address(SFPM.getUniswapV3PoolFromId(tokenId.poolId()));
         for (uint256 i = 0; i < numLegs; ++i) {
             legs[i].poolId = _poolId;
-            legs[i].UniswapV3Pool = UniswapV3Pool;
             legs[i].asset = tokenId.asset(i);
             legs[i].optionRatio = tokenId.optionRatio(i);
             legs[i].tokenType = tokenId.tokenType(i);

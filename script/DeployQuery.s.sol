@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 // Foundry
 import "forge-std/Script.sol";
 import {PanopticQuery} from "@helper/PanopticQuery.sol";
-import {SemiFungiblePositionManager} from "@contracts/SemiFungiblePositionManager.sol";
+import {ISemiFungiblePositionManager} from "@contracts/interfaces/ISemiFungiblePositionManager.sol";
 
 contract DeployQuery is Script {
     function run() public {
@@ -12,7 +12,7 @@ contract DeployQuery is Script {
 
         vm.startBroadcast(DEPLOYER_PRIVATE_KEY);
 
-        new PanopticQuery(SemiFungiblePositionManager(vm.envAddress("SFPM")));
+        new PanopticQuery(ISemiFungiblePositionManager(vm.envAddress("SFPM")));
 
         vm.stopBroadcast();
     }
