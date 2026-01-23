@@ -4,7 +4,6 @@ pragma solidity ^0.8.0;
 // Interfaces
 import {IUniswapV3Pool} from "univ3-core/interfaces/IUniswapV3Pool.sol";
 import {PanopticPool} from "@contracts/PanopticPool.sol";
-import "forge-std/Test.sol";
 import {CollateralTracker} from "@contracts/CollateralTracker.sol";
 import {ISemiFungiblePositionManager} from "@contracts/interfaces/ISemiFungiblePositionManager.sol";
 import {IRiskEngine} from "@contracts/interfaces/IRiskEngine.sol";
@@ -282,7 +281,6 @@ contract PanopticQuery {
                     currentTick,
                     positionIdList
                 );
-                console2.log("liquidationPriceDown", liquidationPriceDown);
             }
         }
         {
@@ -296,7 +294,6 @@ contract PanopticQuery {
                     MAX_TICK,
                     positionIdList
                 );
-                console2.log("liquidationPriceUp", liquidationPriceUp);
             }
         }
     }
@@ -1081,29 +1078,26 @@ contract PanopticQuery {
             positionIdList[0] = tokenId;
             // Create a synthetic position balance with type(uint104).max size and max utilization
             positionBalanceArray[0] = PositionBalanceLibrary.storeBalanceData(
-                type(uint104).max,
-                (10000 + (10000 << 16)),
+                type(uint64).max,
+                10000 + (10000 << 16),
                 0,
                 0,
                 0,
                 false
             );
 
-            if (checkTokenId(tokenId, type(uint128).max)) {
-                CollateralTracker ct0 = pool.collateralToken0();
-                CollateralTracker ct1 = pool.collateralToken1();
-                (LeftRightUnsigned tokenData0, LeftRightUnsigned tokenData1, ) = pool
-                    .riskEngine()
-                    .getMargin(
-                        positionBalanceArray,
-                        atTick,
-                        address(0xdead),
-                        positionIdList,
-                        LeftRightUnsigned.wrap(0),
-                        LeftRightUnsigned.wrap(0),
-                        ct0,
-                        ct1
-                    );
+            try
+                pool.riskEngine().getMargin(
+                    positionBalanceArray,
+                    atTick,
+                    address(0xdead),
+                    positionIdList,
+                    LeftRightUnsigned.wrap(0),
+                    LeftRightUnsigned.wrap(0),
+                    pool.collateralToken0(),
+                    pool.collateralToken1()
+                )
+            returns (LeftRightUnsigned tokenData0, LeftRightUnsigned tokenData1, PositionBalance) {
                 (, uint256 required0) = PanopticMath.getCrossBalances(
                     tokenData0,
                     tokenData1,
@@ -1111,8 +1105,9 @@ contract PanopticQuery {
                 );
 
                 return required0;
+            } catch {
+                return type(uint128).max;
             }
-            return type(uint128).max;
         } catch {
             return type(uint128).max;
         }
@@ -1133,29 +1128,17 @@ contract PanopticQuery {
     /// @return a boolean value, valid = true / invalid = false
     function checkTokenId(TokenId tokenId, uint128 positionSize) internal pure returns (bool) {
         for (uint256 legIndex; legIndex < tokenId.countLegs(); ++legIndex) {
-            uint256 amount0;
-            uint256 amount1;
-            (int24 tickLower, int24 tickUpper) = tokenId.asTicks(legIndex);
-
-            // effective strike price of the option (avg. price over LP range)
-            // geometric mean of two numbers = √(x1 * x2) = √x1 * √x2
-            uint256 geometricMeanPriceX96 = Math.mulDiv96(
-                Math.getSqrtRatioAtTick(tickLower),
-                Math.getSqrtRatioAtTick(tickUpper)
+            LeftRightUnsigned amountsMoved = PanopticMath.getAmountsMoved(
+                tokenId,
+                positionSize,
+                legIndex,
+                false
             );
 
-            if (geometricMeanPriceX96 == 0) return false;
-
-            if (tokenId.asset(legIndex) == 0) {
-                amount0 = positionSize * uint128(tokenId.optionRatio(legIndex));
-
-                amount1 = Math.mulDiv96RoundingUp(amount0, geometricMeanPriceX96);
-            } else {
-                amount1 = positionSize * uint128(tokenId.optionRatio(legIndex));
-
-                amount0 = Math.mulDivRoundingUp(amount1, 2 ** 96, geometricMeanPriceX96);
-            }
-            if ((amount0 > type(uint120).max) || (amount1 > type(uint120).max)) {
+            if (
+                (amountsMoved.rightSlot() > type(uint120).max) ||
+                (amountsMoved.leftSlot() > type(uint120).max)
+            ) {
                 return false;
             }
         }

@@ -1461,5 +1461,16 @@ contract PanopticQueryTest is PositionUtils {
         uint256 requiredAfter = pq.getRequiredBase(pp, optimizedTokenId, currentTick);
         console2.log("tokenIds", TokenId.unwrap(tokenId), TokenId.unwrap(optimizedTokenId));
         assertTrue(requiredAfter <= requiredBefore);
+        console2.log("requiredAfter, requiredBefore", requiredAfter, requiredBefore);
+        if (requiredAfter < requiredBefore) {
+            for (uint256 leg; leg != numberOfLegs; leg++) {
+                console2.log(
+                    "leg, partner BEFORE,AFTER",
+                    leg,
+                    tokenId.riskPartner(leg),
+                    optimizedTokenId.riskPartner(leg)
+                );
+            }
+        }
     }
 }
