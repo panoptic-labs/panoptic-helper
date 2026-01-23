@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 // Interfaces
 import {IUniswapV3Pool} from "univ3-core/interfaces/IUniswapV3Pool.sol";
 import {PanopticPool} from "@contracts/PanopticPool.sol";
+import "forge-std/Test.sol";
 import {CollateralTracker} from "@contracts/CollateralTracker.sol";
 import {ISemiFungiblePositionManager} from "@contracts/interfaces/ISemiFungiblePositionManager.sol";
 import {IRiskEngine} from "@contracts/interfaces/IRiskEngine.sol";
@@ -61,6 +62,9 @@ contract PanopticQuery {
             account,
             positionIdList
         );
+        //console2.log('atTick', atTick);
+        //console2.log('bal0, req0', tokenData0.rightSlot(), tokenData0.leftSlot());
+        //console2.log('bal1, req1', tokenData1.rightSlot(), tokenData1.leftSlot());
         int24 _atTick;
         // convert (using atTick) and return the total collateral balance and required balance in terms of tokenType
         uint256 collateralBalance0 = tokenData0.rightSlot() +
@@ -96,6 +100,25 @@ contract PanopticQuery {
         CollateralTracker ct0 = pool.collateralToken0();
         CollateralTracker ct1 = pool.collateralToken1();
 
+        {
+            if (
+                pool.riskEngine().isAccountSolvent(
+                    positionBalanceArray,
+                    positionIdList,
+                    atTick,
+                    account,
+                    shortPremium,
+                    longPremium,
+                    ct0,
+                    ct1,
+                    10_000_000
+                )
+            ) {
+                console2.log("solvent", atTick);
+            } else {
+                console2.log("---INSOLVENT---", atTick);
+            }
+        }
         //TokenId[] memory _positionIdList = positionIdList;
 
         // Query the current and required collateral amounts for the two tokens
@@ -199,16 +222,17 @@ contract PanopticQuery {
                     currentTick,
                     positionIdList
                 );
+                console2.log("liquidationPriceDown", liquidationPriceDown);
             }
         }
         {
-            (, , uint256 collateralMax, uint256 requiredMax) = checkCollateral(
+            (uint256 collateralMax, uint256 requiredMax, , ) = checkCollateral(
                 pool,
                 account,
                 positionIdList,
                 MAX_TICK
             );
-
+            console2.log("collateralMax, requiredMax", collateralMax, requiredMax);
             // Find liquidation price above current tick (liquidationPriceUp)
             if (collateralMax < requiredMax) {
                 // There's a liquidation price somewhere above current tick
@@ -219,6 +243,7 @@ contract PanopticQuery {
                     MAX_TICK,
                     positionIdList
                 );
+                console2.log("liquidationPriceUp", liquidationPriceUp);
             }
         }
     }

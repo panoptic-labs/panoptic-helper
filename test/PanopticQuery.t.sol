@@ -342,6 +342,11 @@ contract PanopticQueryTest is PositionUtils {
     function _deployPanopticPool() internal {
         vm.startPrank(Deployer);
 
+        // Provide tokens to the manager and initialize the pool in the v4 PoolManager
+        deal(token0, address(manager), type(uint128).max);
+        deal(token1, address(manager), type(uint128).max);
+        manager.initialize(poolKey, currentSqrtPriceX96);
+
         factory = new PanopticFactory(
             sfpm,
             manager,
@@ -755,67 +760,99 @@ contract PanopticQueryTest is PositionUtils {
     function test_Success_checkCollateral_LiquidationPrices(uint256 x) public {
         _initPool(x);
 
-        uint256 positionSizeSeed = 2 ** 96;
+        uint256 positionSizeSeed = 1e18;
         ct0.redeem(ct0.maxRedeem(Alice), Alice, Alice);
         ct1.redeem(ct1.maxRedeem(Alice), Alice, Alice);
         uint256 deposit1 = uint256(positionSizeSeed);
         uint256 deposit0 = ((((uint256(positionSizeSeed) * 2 ** 96) / currentSqrtPriceX96) *
             2 ** 96) / currentSqrtPriceX96);
+        console2.log("deposit0, deposit1", deposit0, deposit1);
         ct0.deposit(deposit0, Alice);
         ct1.deposit(deposit1, Alice);
         /// position size is denominated in the opposite of asset, so we do it in the token that is not WETH
         // leg 1
-        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
-            0,
-            1,
-            isWETH,
-            0,
-            0,
-            0,
-            (currentTick / tickSpacing) * tickSpacing,
-            30
-        );
+        TokenId tokenId = TokenId
+            .wrap(0)
+            .addPoolId(poolId)
+            .addLeg(
+                0,
+                1,
+                1,
+                0,
+                0,
+                0,
+                (currentTick / tickSpacing) * tickSpacing - 6 * tickSpacing,
+                2
+            )
+            .addLeg(
+                1,
+                1,
+                1,
+                0,
+                1,
+                1,
+                (currentTick / tickSpacing) * tickSpacing + 6 * tickSpacing,
+                2
+            );
         // leg 2
+        /*
         TokenId tokenId2 = TokenId.wrap(0).addPoolId(poolId).addLeg(
             0,
             1,
-            isWETH,
+            1,
             0,
             1,
             0,
-            (currentTick / tickSpacing) * tickSpacing,
-            30
+            (currentTick / tickSpacing) * tickSpacing - 0 * tickSpacing,
+            2
         );
+       */
+        TokenId[] memory posIdList = new TokenId[](1);
         {
-            TokenId[] memory posIdList = new TokenId[](1);
             posIdList[0] = tokenId;
+            console2.log("mint 1");
 
             mintOptions(
                 pp,
                 posIdList,
-                uint128((positionSizeSeed * 250) / 100),
+                uint128((positionSizeSeed * 350) / 100),
                 0,
                 Constants.MIN_POOL_TICK,
                 Constants.MAX_POOL_TICK,
                 true
+            );
+            console2.log(
+                "bal0, bal1",
+                ct0.convertToAssets(ct0.balanceOf(Alice)),
+                ct1.convertToAssets(ct1.balanceOf(Alice))
             );
         }
 
         {
+            /*
             TokenId[] memory posIdList = new TokenId[](2);
             posIdList[0] = tokenId;
             posIdList[1] = tokenId2;
+            console2.log('mint 2');
 
             mintOptions(
                 pp,
                 posIdList,
-                uint128((positionSizeSeed * 250) / 100),
+                uint128((positionSizeSeed * 1) / 1000000),
                 0,
                 Constants.MIN_POOL_TICK,
                 Constants.MAX_POOL_TICK,
                 true
             );
 
+           */
+            console2.log("pp.numberOfLegs", pp.numberOfLegs(Alice));
+
+            console2.log(
+                "bal0, bal1",
+                ct0.convertToAssets(ct0.balanceOf(Alice)),
+                ct1.convertToAssets(ct1.balanceOf(Alice))
+            );
             int24 liquidationPriceUp;
             int24 liquidationPriceDown;
             if (currentTick < 0) {
@@ -838,6 +875,11 @@ contract PanopticQueryTest is PositionUtils {
                 ) = pq.checkCollateralAndGetLiquidationPrices(pp, Alice, posIdList);
             }
 
+            console2.log(
+                "collateralBalance, requiredCollateral",
+                collateralBalance,
+                requiredCollateral
+            );
             // make sure it's liquidatable
             assertTrue(liquidationPriceUp < int24(2 ** 22), "not liquidatable up");
             assertTrue(liquidationPriceDown > -int24(2 ** 22), "not liquidatable down");

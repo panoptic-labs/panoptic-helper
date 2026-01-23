@@ -296,6 +296,11 @@ contract TokenIdHelperTest is PositionUtils {
     function _deployPanopticPool() internal {
         vm.startPrank(Deployer);
 
+        // Provide tokens to the manager and initialize the pool in the v4 PoolManager
+        deal(token0, address(manager), type(uint128).max);
+        deal(token1, address(manager), type(uint128).max);
+        manager.initialize(poolKey, currentSqrtPriceX96);
+
         factory = new PanopticFactory(
             sfpm,
             manager,
