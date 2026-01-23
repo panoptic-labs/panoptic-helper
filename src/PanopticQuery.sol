@@ -237,39 +237,17 @@ contract PanopticQuery {
     /// @param pool The PanopticPool instance to check collateral on
     /// @param account Address of the user that owns the positions
     /// @param positionIdList List of positions. Written as [tokenId1, tokenId2, ...]
-    /// @return collateralBalance0 The total combined balance of token0 and token1 for a user in terms of token0
-    /// @return requiredCollateral0 The combined collateral requirement for a user in terms of token0
-    /// @return collateralBalance1 The total combined balance of token0 and token1 for a user in terms of token1
-    /// @return requiredCollateral1 The combined collateral requirement for a user in terms of token1
     /// @return liquidationPriceDown The liquidation price below currentTick (returns type(int24).min if none)
     /// @return liquidationPriceUp The liquidation price above currentTick (returns type(int24).max if none)
-    function checkCollateralAndGetLiquidationPrices(
+    function getLiquidationPrices(
         PanopticPool pool,
         address account,
         TokenId[] calldata positionIdList
-    )
-        public
-        view
-        returns (
-            uint256 collateralBalance0,
-            uint256 requiredCollateral0,
-            uint256 collateralBalance1,
-            uint256 requiredCollateral1,
-            int24 liquidationPriceDown,
-            int24 liquidationPriceUp
-        )
-    {
+    ) public view returns (int24 liquidationPriceDown, int24 liquidationPriceUp) {
         liquidationPriceUp = type(int24).max;
         liquidationPriceDown = type(int24).min;
         int24 currentTick;
         (currentTick, , , , ) = pool.getOracleTicks();
-
-        (collateralBalance0, requiredCollateral0) = checkCollateral(
-            pool,
-            account,
-            positionIdList,
-            currentTick
-        );
 
         {
             if (!isAccountSolvent(pool, account, positionIdList, MIN_TICK)) {
@@ -321,14 +299,11 @@ contract PanopticQuery {
                 scaledTick = ((currentTick / tickSpacing) * tickSpacing);
             }
 
-            (
-                ,
-                ,
-                ,
-                ,
-                int24 liquidationPriceDown,
-                int24 liquidationPriceUp
-            ) = checkCollateralAndGetLiquidationPrices(pool, account, positionIdList);
+            (int24 liquidationPriceDown, int24 liquidationPriceUp) = getLiquidationPrices(
+                pool,
+                account,
+                positionIdList
+            );
             liquidationPrices[0] = liquidationPriceDown;
             liquidationPrices[1] = liquidationPriceUp;
             tickData[0] = MIN_TICK;

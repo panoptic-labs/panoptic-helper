@@ -57,16 +57,6 @@ contract PanopticPoolHarness is PanopticPool {
         _positionsHash = uint248(s_positionsHash[user]);
     }
 
-    // TODO: Update for v2 - TWAP and pool access changed
-    // /**
-    //  * @notice compute the TWAP price from the last 600s = 10mins
-    //  * @return twapTick the TWAP price in ticks
-    //  */
-    // function getUniV3TWAP_() external view returns (int24 twapTick) {
-    //     // v2 doesn't have s_univ3pool or TWAP_WINDOW
-    //     // Need to use poolKey() and updated oracle methods
-    // }
-
     constructor(ISemiFungiblePositionManager _sfpm) PanopticPool(_sfpm) {}
 }
 
@@ -630,133 +620,6 @@ contract PanopticQueryTest is PositionUtils {
         return tokenId;
     }
 
-    function test_Success_checkCollateral_OTMandITMShortCall(
-        uint256 x,
-        uint256[2] memory widthSeeds,
-        int256[2] memory strikeSeeds,
-        uint256[2] memory positionSizeSeeds,
-        int256 atTickSeed
-    ) public {
-        _initPool(x);
-
-        ($width, $strike) = PositionUtils.getOTMSW(
-            widthSeeds[0],
-            strikeSeeds[0],
-            uint24(tickSpacing),
-            currentTick,
-            0
-        );
-
-        ($width2, $strike2) = PositionUtils.getITMSW(
-            widthSeeds[1],
-            strikeSeeds[1],
-            uint24(tickSpacing),
-            currentTick,
-            1
-        );
-        vm.assume($width2 != $width || $strike2 != $strike);
-
-        populatePositionData([$width, $width2], [$strike, $strike2], positionSizeSeeds);
-
-        atTick = int24(bound(atTickSeed, TickMath.MIN_TICK, TickMath.MAX_TICK));
-
-        /// position size is denominated in the opposite of asset, so we do it in the token that is not WETH
-        // leg 1
-        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
-            0,
-            1,
-            isWETH,
-            0,
-            0,
-            0,
-            $strike,
-            $width
-        );
-        // leg 2
-        TokenId tokenId2 = TokenId.wrap(0).addPoolId(poolId).addLeg(
-            0,
-            1,
-            isWETH,
-            0,
-            1,
-            0,
-            $strike2,
-            $width2
-        );
-        {
-            TokenId[] memory posIdList = new TokenId[](1);
-            posIdList[0] = tokenId;
-
-            mintOptions(
-                pp,
-                posIdList,
-                positionSizes[0],
-                0,
-                Constants.MAX_POOL_TICK,
-                Constants.MIN_POOL_TICK,
-                true
-            );
-        }
-
-        {
-            TokenId[] memory posIdList = new TokenId[](2);
-            posIdList[0] = tokenId;
-            posIdList[1] = tokenId2;
-
-            mintOptions(
-                pp,
-                posIdList,
-                positionSizes[1],
-                0,
-                Constants.MAX_POOL_TICK,
-                Constants.MIN_POOL_TICK,
-                true
-            );
-
-            (
-                LeftRightUnsigned shortPremium,
-                LeftRightUnsigned longPremium,
-                PositionBalance[] memory posBalanceArray
-            ) = pp.getAccumulatedFeesAndPositionsData(Alice, false, posIdList);
-
-            (tokenData0, tokenData1, ) = re.getMargin(
-                posBalanceArray,
-                atTick,
-                Alice,
-                posIdList,
-                shortPremium,
-                longPremium,
-                ct0,
-                ct1
-            );
-
-            (calculatedCollateralBalance, calculatedRequiredCollateral) = PanopticMath
-                .getCrossBalances(tokenData0, tokenData1, Math.getSqrtRatioAtTick(atTick));
-
-            // these are the balance/required cross, reusing variables to save stack space
-
-            if (atTick < 0)
-                (collateralBalance, requiredCollateral) = pq.checkCollateral(
-                    pp,
-                    Alice,
-                    posIdList,
-                    atTick
-                );
-            else
-                (collateralBalance, requiredCollateral) = pq.checkCollateral(
-                    pp,
-                    Alice,
-                    posIdList,
-                    atTick
-                );
-
-            assertEq(collateralBalance, calculatedCollateralBalance);
-            assertEq(requiredCollateral, calculatedRequiredCollateral);
-
-            pq.checkCollateral(pp, Alice, posIdList);
-        }
-    }
-
     function test_Success_checkCollateral_LiquidationPrices(uint256 x) public {
         _initPool(x);
 
@@ -855,25 +718,11 @@ contract PanopticQueryTest is PositionUtils {
             );
             int24 liquidationPriceUp;
             int24 liquidationPriceDown;
-            if (currentTick < 0) {
-                (
-                    collateralBalance,
-                    requiredCollateral,
-                    ,
-                    ,
-                    liquidationPriceDown,
-                    liquidationPriceUp
-                ) = pq.checkCollateralAndGetLiquidationPrices(pp, Alice, posIdList);
-            } else {
-                (
-                    collateralBalance,
-                    requiredCollateral,
-                    ,
-                    ,
-                    liquidationPriceDown,
-                    liquidationPriceUp
-                ) = pq.checkCollateralAndGetLiquidationPrices(pp, Alice, posIdList);
-            }
+            (liquidationPriceDown, liquidationPriceUp) = pq.getLiquidationPrices(
+                pp,
+                Alice,
+                posIdList
+            );
 
             console2.log(
                 "collateralBalance, requiredCollateral",
