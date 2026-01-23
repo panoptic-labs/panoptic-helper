@@ -26,6 +26,9 @@ import {PositionBalance, PositionBalanceLibrary} from "@types/PositionBalance.so
 contract PanopticQuery {
     using Math for uint256;
 
+    uint256 internal constant DECIMALS = 10_000;
+    uint256 internal NO_BUFFER = 10_000_000;
+
     /// @notice The SemiFungiblePositionManager of the Panoptic instance this querying helper is intended for.
     ISemiFungiblePositionManager internal immutable SFPM;
 
@@ -47,50 +50,94 @@ contract PanopticQuery {
     /// @param positionIdList List of positions. Written as [tokenId1, tokenId2, ...]
     /// @return collateralBalance0 The total combined balance of token0 and token1 for a user in terms of token0
     /// @return requiredCollateral0 The combined collateral requirement for a user in terms of token0
-    /// @return collateralBalance1 The total combined balance of token0 and token1 for a user in terms of token1
-    /// @return requiredCollateral1 The combined collateral requirement for a user in terms of token1
     function checkCollateral(
         PanopticPool pool,
         address account,
         TokenId[] calldata positionIdList,
         int24 atTick
-    ) public view returns (uint256, uint256, uint256, uint256) {
+    ) public view returns (uint256, uint256) {
         // Compute premia for all options (includes short+long premium)
-        (LeftRightUnsigned tokenData0, LeftRightUnsigned tokenData1) = _getMargin(
-            pool,
-            atTick,
-            account,
-            positionIdList
-        );
-        //console2.log('atTick', atTick);
-        //console2.log('bal0, req0', tokenData0.rightSlot(), tokenData0.leftSlot());
-        //console2.log('bal1, req1', tokenData1.rightSlot(), tokenData1.leftSlot());
-        int24 _atTick;
-        // convert (using atTick) and return the total collateral balance and required balance in terms of tokenType
-        uint256 collateralBalance0 = tokenData0.rightSlot() +
-            PanopticMath.convert1to0(tokenData1.rightSlot(), Math.getSqrtRatioAtTick(_atTick));
-        uint256 requiredCollateral0 = tokenData0.leftSlot() +
-            PanopticMath.convert1to0RoundingUp(
-                tokenData1.leftSlot(),
-                Math.getSqrtRatioAtTick(_atTick)
+        (
+            LeftRightUnsigned tokenData0,
+            LeftRightUnsigned tokenData1,
+            PositionBalance globalUtilizations
+        ) = _getMargin(pool, atTick, account, positionIdList);
+        uint256 utilization0;
+        uint256 utilization1;
+        {
+            PanopticPool _pool = pool;
+            uint256 crossBuffer0 = _pool.riskEngine().CROSS_BUFFER_0();
+            uint256 crossBuffer1 = _pool.riskEngine().CROSS_BUFFER_1();
+            utilization0 = _crossBufferRatio(
+                _pool,
+                globalUtilizations.utilization0(),
+                crossBuffer0
             );
+            utilization1 = _crossBufferRatio(
+                _pool,
+                globalUtilizations.utilization1(),
+                crossBuffer1
+            );
+        }
 
-        uint256 collateralBalance1 = tokenData1.rightSlot() +
-            PanopticMath.convert0to1(tokenData0.rightSlot(), Math.getSqrtRatioAtTick(_atTick));
-        uint256 requiredCollateral1 = tokenData1.leftSlot() +
-            PanopticMath.convert0to1RoundingUp(
-                tokenData0.leftSlot(),
-                Math.getSqrtRatioAtTick(_atTick)
-            );
-        return (collateralBalance0, requiredCollateral0, collateralBalance1, requiredCollateral1);
+        uint256 maintReq0 = Math.mulDivRoundingUp(tokenData0.leftSlot(), NO_BUFFER, DECIMALS);
+        uint256 maintReq1 = Math.mulDivRoundingUp(tokenData1.leftSlot(), NO_BUFFER, DECIMALS);
+
+        uint256 bal0 = tokenData0.rightSlot();
+        uint256 bal1 = tokenData1.rightSlot();
+
+        uint256 scaledSurplusToken0 = Math.mulDiv(
+            bal0 > maintReq0 ? bal0 - maintReq0 : 0,
+            utilization0,
+            DECIMALS
+        );
+        uint256 scaledSurplusToken1 = Math.mulDiv(
+            bal1 > maintReq1 ? bal1 - maintReq1 : 0,
+            utilization1,
+            DECIMALS
+        );
+
+        uint160 sqrtPriceX96 = Math.getSqrtRatioAtTick(atTick);
+
+        uint256 effectiveBal0;
+        uint256 effectiveReq0;
+        uint256 effectiveBal1;
+        uint256 effectiveReq1;
+        if (sqrtPriceX96 < Constants.FP96) {
+            effectiveBal0 = bal0 + PanopticMath.convert1to0(scaledSurplusToken1, sqrtPriceX96);
+            effectiveReq0 = maintReq0;
+            effectiveBal1 = PanopticMath.convert1to0(bal1, sqrtPriceX96) + scaledSurplusToken0;
+            effectiveReq1 = PanopticMath.convert1to0RoundingUp(maintReq1, sqrtPriceX96);
+        } else {
+            effectiveBal0 = PanopticMath.convert0to1(bal0, sqrtPriceX96) + scaledSurplusToken1;
+            effectiveReq0 = PanopticMath.convert0to1RoundingUp(maintReq0, sqrtPriceX96);
+            effectiveBal1 = bal1 + PanopticMath.convert0to1(scaledSurplusToken0, sqrtPriceX96);
+            effectiveReq1 = maintReq1;
+        }
+
+        //return (effectiveBal0, effectiveReq0, effectiveBal1, effectiveReq1);
     }
 
-    function _getMargin(
+    function _crossBufferRatio(
         PanopticPool pool,
-        int24 atTick,
+        int256 utilization,
+        uint256 crossBuffer
+    ) internal view returns (uint256 crossBufferRatio) {
+        crossBufferRatio = pool.riskEngine().crossBufferRatio(utilization, crossBuffer);
+    }
+
+    /// @notice Compute the total amount of collateral needed to cover the existing list of active positions in positionIdList.
+    /// @param pool The PanopticPool instance to check collateral on
+    /// @param account Address of the user that owns the positions
+    /// @param atTick At what price is the collateral requirement evaluated at
+    /// @param positionIdList List of positions. Written as [tokenId1, tokenId2, ...]
+    /// @return solvent A boolean flag on whether the account is solvent (true)
+    function isAccountSolvent(
+        PanopticPool pool,
         address account,
-        TokenId[] calldata positionIdList
-    ) internal view returns (LeftRightUnsigned tokenData0, LeftRightUnsigned tokenData1) {
+        TokenId[] calldata positionIdList,
+        int24 atTick
+    ) public view returns (bool) {
         (
             LeftRightUnsigned shortPremium,
             LeftRightUnsigned longPremium,
@@ -100,29 +147,48 @@ contract PanopticQuery {
         CollateralTracker ct0 = pool.collateralToken0();
         CollateralTracker ct1 = pool.collateralToken1();
 
-        {
-            if (
-                pool.riskEngine().isAccountSolvent(
-                    positionBalanceArray,
-                    positionIdList,
-                    atTick,
-                    account,
-                    shortPremium,
-                    longPremium,
-                    ct0,
-                    ct1,
-                    10_000_000
-                )
-            ) {
-                console2.log("solvent", atTick);
-            } else {
-                console2.log("---INSOLVENT---", atTick);
-            }
-        }
+        return (
+            pool.riskEngine().isAccountSolvent(
+                positionBalanceArray,
+                positionIdList,
+                atTick,
+                account,
+                shortPremium,
+                longPremium,
+                ct0,
+                ct1,
+                10_000_000
+            )
+        );
+    }
+
+    function _getMargin(
+        PanopticPool pool,
+        int24 atTick,
+        address account,
+        TokenId[] calldata positionIdList
+    )
+        internal
+        view
+        returns (
+            LeftRightUnsigned tokenData0,
+            LeftRightUnsigned tokenData1,
+            PositionBalance globalUtilizations
+        )
+    {
+        (
+            LeftRightUnsigned shortPremium,
+            LeftRightUnsigned longPremium,
+            PositionBalance[] memory positionBalanceArray
+        ) = pool.getAccumulatedFeesAndPositionsData(account, false, positionIdList);
+
+        CollateralTracker ct0 = pool.collateralToken0();
+        CollateralTracker ct1 = pool.collateralToken1();
+
         //TokenId[] memory _positionIdList = positionIdList;
 
         // Query the current and required collateral amounts for the two tokens
-        (tokenData0, tokenData1, ) = pool.riskEngine().getMargin(
+        (tokenData0, tokenData1, globalUtilizations) = pool.riskEngine().getMargin(
             positionBalanceArray,
             atTick,
             account,
@@ -159,12 +225,12 @@ contract PanopticQuery {
         int24[4] memory ticks;
         (ticks[0], ticks[1], ticks[2], ticks[3], ) = pool.getOracleTicks();
         for (uint256 i = 0; i < ticks.length; ++i) {
-            (
-                collateralBalances0[i],
-                requiredCollaterals0[i],
-                collateralBalances1[i],
-                requiredCollaterals1[i]
-            ) = checkCollateral(pool, account, positionIdList, ticks[i]);
+            (collateralBalances0[i], requiredCollaterals0[i]) = checkCollateral(
+                pool,
+                account,
+                positionIdList,
+                ticks[i]
+            );
         }
     }
 
@@ -199,21 +265,15 @@ contract PanopticQuery {
         int24 currentTick;
         (currentTick, , , , ) = pool.getOracleTicks();
 
-        (
-            collateralBalance0,
-            requiredCollateral0,
-            collateralBalance1,
-            requiredCollateral1
-        ) = checkCollateral(pool, account, positionIdList, currentTick);
+        (collateralBalance0, requiredCollateral0) = checkCollateral(
+            pool,
+            account,
+            positionIdList,
+            currentTick
+        );
 
         {
-            (uint256 collateralMin, uint256 requiredMin, , ) = checkCollateral(
-                pool,
-                account,
-                positionIdList,
-                MIN_TICK
-            );
-            if (collateralMin < requiredMin) {
+            if (!isAccountSolvent(pool, account, positionIdList, MIN_TICK)) {
                 // There's a liquidation price somewhere below current tick
                 liquidationPriceDown = binarySearchDown(
                     pool,
@@ -226,15 +286,8 @@ contract PanopticQuery {
             }
         }
         {
-            (uint256 collateralMax, uint256 requiredMax, , ) = checkCollateral(
-                pool,
-                account,
-                positionIdList,
-                MAX_TICK
-            );
-            console2.log("collateralMax, requiredMax", collateralMax, requiredMax);
-            // Find liquidation price above current tick (liquidationPriceUp)
-            if (collateralMax < requiredMax) {
+            if (!isAccountSolvent(pool, account, positionIdList, MAX_TICK)) {
+                // Find liquidation price above current tick (liquidationPriceUp)
                 // There's a liquidation price somewhere above current tick
                 liquidationPriceUp = binarySearchUp(
                     pool,
@@ -312,7 +365,7 @@ contract PanopticQuery {
                 uint256 requiredCollateral;
                 uint160 sqrtPriceX96 = Math.getSqrtRatioAtTick(int24(tickData[i]));
                 if (tickData[150] < 0) {
-                    (collateralBalance, requiredCollateral, , ) = checkCollateral(
+                    (collateralBalance, requiredCollateral) = checkCollateral(
                         pool,
                         account,
                         positionIdList,
@@ -321,7 +374,7 @@ contract PanopticQuery {
                     collateralBalance = (collateralBalance * sqrtPriceX96) >> 96;
                     requiredCollateral = (requiredCollateral * sqrtPriceX96) >> 96;
                 } else {
-                    (, , collateralBalance, requiredCollateral) = checkCollateral(
+                    (collateralBalance, requiredCollateral) = checkCollateral(
                         pool,
                         account,
                         positionIdList,
@@ -353,25 +406,10 @@ contract PanopticQuery {
     ) internal view returns (int24) {
         while (upperBound - lowerBound > TICK_PRECISION) {
             int24 midTick = (lowerBound + upperBound) / 2;
-            uint256 collateralBalance;
-            uint256 requiredCollateral;
-            if (midTick < 0) {
-                (collateralBalance, requiredCollateral, , ) = checkCollateral(
-                    pool,
-                    account,
-                    positionIdList,
-                    midTick
-                );
-            } else {
-                (, , collateralBalance, requiredCollateral) = checkCollateral(
-                    pool,
-                    account,
-                    positionIdList,
-                    midTick
-                );
-            }
 
-            if (collateralBalance >= requiredCollateral) {
+            bool solvent = isAccountSolvent(pool, account, positionIdList, midTick);
+
+            if (solvent) {
                 // Still solvent at midTick, liquidation is lower
                 upperBound = midTick;
             } else {
@@ -397,24 +435,10 @@ contract PanopticQuery {
     ) internal view returns (int24) {
         while (upperBound - lowerBound > TICK_PRECISION) {
             int24 midTick = (lowerBound + upperBound) / 2;
-            uint256 collateralBalance;
-            uint256 requiredCollateral;
-            if (midTick < 0) {
-                (collateralBalance, requiredCollateral, , ) = checkCollateral(
-                    pool,
-                    account,
-                    positionIdList,
-                    midTick
-                );
-            } else {
-                (, , collateralBalance, requiredCollateral) = checkCollateral(
-                    pool,
-                    account,
-                    positionIdList,
-                    midTick
-                );
-            }
-            if (collateralBalance >= requiredCollateral) {
+
+            bool solvent = isAccountSolvent(pool, account, positionIdList, midTick);
+
+            if (solvent) {
                 // Still solvent at midTick, liquidation is higher
                 lowerBound = midTick;
             } else {

@@ -736,14 +736,14 @@ contract PanopticQueryTest is PositionUtils {
             // these are the balance/required cross, reusing variables to save stack space
 
             if (atTick < 0)
-                (collateralBalance, requiredCollateral, , ) = pq.checkCollateral(
+                (collateralBalance, requiredCollateral) = pq.checkCollateral(
                     pp,
                     Alice,
                     posIdList,
                     atTick
                 );
             else
-                (, , collateralBalance, requiredCollateral) = pq.checkCollateral(
+                (collateralBalance, requiredCollateral) = pq.checkCollateral(
                     pp,
                     Alice,
                     posIdList,
@@ -885,37 +885,17 @@ contract PanopticQueryTest is PositionUtils {
             assertTrue(liquidationPriceDown > -int24(2 ** 22), "not liquidatable down");
 
             // check that the account is liquidatble
-            (collateralBalance, requiredCollateral, , ) = pq.checkCollateral(
-                pp,
-                Alice,
-                posIdList,
-                liquidationPriceDown + 1
-            );
-            assertTrue(collateralBalance > requiredCollateral, "not liquidatable");
+            bool solvent = pq.isAccountSolvent(pp, Alice, posIdList, liquidationPriceDown + 1);
+            assertTrue(solvent, "not liquidatable");
 
-            (collateralBalance, requiredCollateral, , ) = pq.checkCollateral(
-                pp,
-                Alice,
-                posIdList,
-                liquidationPriceDown - 1
-            );
-            assertTrue(collateralBalance < requiredCollateral, "liquidatable");
+            solvent = pq.isAccountSolvent(pp, Alice, posIdList, liquidationPriceDown - 1);
+            assertTrue(!solvent, "liquidatable");
 
-            (collateralBalance, requiredCollateral, , ) = pq.checkCollateral(
-                pp,
-                Alice,
-                posIdList,
-                liquidationPriceUp - 1
-            );
-            assertTrue(collateralBalance > requiredCollateral, "not liquidatable");
+            solvent = pq.isAccountSolvent(pp, Alice, posIdList, liquidationPriceUp - 1);
+            assertTrue(solvent, "not liquidatable");
 
-            (collateralBalance, requiredCollateral, , ) = pq.checkCollateral(
-                pp,
-                Alice,
-                posIdList,
-                liquidationPriceUp + 1
-            );
-            assertTrue(collateralBalance < requiredCollateral, "liquidatable");
+            solvent = pq.isAccountSolvent(pp, Alice, posIdList, liquidationPriceUp + 1);
+            assertTrue(!solvent, "liquidatable");
 
             (uint256[2][] memory data, int256[] memory ticks, ) = pq.checkCollateralListOutput(
                 pp,
