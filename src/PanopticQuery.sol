@@ -540,21 +540,33 @@ contract PanopticQuery {
     /// @param width Width of the chunks to be scanned
     /// @return strikes Array of chunk's strikes (defined as tickUpper/2 + tickLower/2)
     /// @return netLiquidities Array[2] of chunk's net liquidity (defined as total - removed), index0 = tokenType0
-    /// @return removedLiquidities Array[2] of chunk's removed liquidities, index1 = tokenType1
+    /// @return removedLiquidities Array[2] of chunk's removed liquidities, index0 = tokenType0
+    /// @return settledTokens Array[2] of chunk's settled tokens, index0 = tokenType0
     function scanChunks(
         PanopticPool pool,
         int24 tickLower,
         int24 tickUpper,
         int24 width
-    ) external view returns (int24[] memory, uint128[2][] memory, uint128[2][] memory) {
+    )
+        external
+        view
+        returns (
+            int24[] memory,
+            uint128[2][] memory,
+            uint128[2][] memory,
+            LeftRightUnsigned[2][] memory
+        )
+    {
         require(width > 0, "width<=0");
         require(tickLower < tickUpper, "bad range");
 
-        int24 tickSpacing = int24(uint24((uint256(pool.poolId()) >> 48) & 0xFFFF));
+        int24 tickSpacing = pool.tickSpacing();
         require(tickSpacing > 0, "tickSpacing=0");
+
         int24[] memory s_strikes;
         uint128[2][] memory s_net;
         uint128[2][] memory s_removed;
+        LeftRightUnsigned[2][] memory s_settled;
 
         {
             int256 span = int256(tickUpper) - int256(tickLower);
@@ -564,23 +576,26 @@ contract PanopticQuery {
             s_strikes = new int24[](maxChunks);
             s_net = new uint128[2][](maxChunks);
             s_removed = new uint128[2][](maxChunks);
+            s_settled = new LeftRightUnsigned[2][](maxChunks);
         }
 
         uint256 k;
         int256 _width = int256(width);
-        address _pool = address(pool);
-        bytes memory poolKey = pool.poolKey();
+        PanopticPool _pool = pool;
         for (int256 t = tickLower; t + _width <= tickUpper; t += tickSpacing) {
+            int24 strike;
             LeftRightUnsigned liq0;
             LeftRightUnsigned liq1;
-            int24 strike;
+            LeftRightUnsigned settled0;
+            LeftRightUnsigned settled1;
             {
                 int24 tl = int24(t);
                 int24 tu = int24(t + _width);
-                liq0 = SFPM.getAccountLiquidity(poolKey, _pool, 0, tl, tu);
-                liq1 = SFPM.getAccountLiquidity(poolKey, _pool, 1, tl, tu);
+
+                (liq0, liq1, settled0, settled1) = _pool.getChunkData(tl, tu);
                 strike = (tu + tl) / 2;
             }
+
             uint128[2] memory net;
             uint128[2] memory removed;
 
@@ -595,6 +610,8 @@ contract PanopticQuery {
             s_strikes[k] = strike;
             s_net[k] = net;
             s_removed[k] = removed;
+            s_settled[k][0] = settled0;
+            s_settled[k][1] = settled1;
             unchecked {
                 ++k;
             }
@@ -603,16 +620,18 @@ contract PanopticQuery {
         int24[] memory strikes = new int24[](k);
         uint128[2][] memory netLiquidities = new uint128[2][](k);
         uint128[2][] memory removedLiquidities = new uint128[2][](k);
+        LeftRightUnsigned[2][] memory settledTokens = new LeftRightUnsigned[2][](k);
 
         for (uint256 i; i < k; ) {
             strikes[i] = s_strikes[i];
             netLiquidities[i] = s_net[i];
             removedLiquidities[i] = s_removed[i];
+            settledTokens[i] = s_settled[i];
             unchecked {
                 ++i;
             }
         }
-        return (strikes, netLiquidities, removedLiquidities);
+        return (strikes, netLiquidities, removedLiquidities, settledTokens);
     }
 
     /// @notice Calculate approximate NLV of user's option portfolio (token delta after closing `positionIdList`) at a given tick.

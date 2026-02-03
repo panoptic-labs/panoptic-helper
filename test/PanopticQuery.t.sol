@@ -857,7 +857,7 @@ contract PanopticQueryTest is PositionUtils {
             int24 lower = _min24(tl0, tl1) - 2 * tickSpacing;
             int24 upper = _max24(tu0, tu1) + 2 * tickSpacing;
 
-            (strikes, net, removed) = pq.scanChunks(pp, lower, upper, width);
+            (strikes, net, removed, ) = pq.scanChunks(pp, lower, upper, width);
         }
         // We expect to see exactly two non-empty chunks (one at each leg's tick range).
         // If your protocol can accumulate extra liquidity at adjacent ranges in this setup, loosen this to ">=2"
@@ -1004,7 +1004,7 @@ contract PanopticQueryTest is PositionUtils {
             int24 lower = _min24(tl0, tl1) - 2 * tickSpacing;
             int24 upper = _max24(tu0, tu1) + 2 * tickSpacing;
 
-            (strikes, net, removed) = pq.scanChunks(pp, lower, upper, width);
+            (strikes, net, removed, ) = pq.scanChunks(pp, lower, upper, width);
         }
 
         // Must at least discover the two leg ranges.
