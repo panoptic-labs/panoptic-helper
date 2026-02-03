@@ -746,7 +746,7 @@ contract PanopticQueryTest is PositionUtils {
             solvent = pq.isAccountSolvent(pp, Alice, posIdList, liquidationPriceUp + 1);
             assertTrue(!solvent, "liquidatable");
 
-            (uint256[2][] memory data, int256[] memory ticks, ) = pq.checkCollateralListOutput(
+            (uint256[4][] memory data, int256[] memory ticks, ) = pq.checkCollateralListOutput(
                 pp,
                 Alice,
                 posIdList

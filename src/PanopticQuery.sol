@@ -26,7 +26,7 @@ contract PanopticQuery {
     using Math for uint256;
 
     uint256 internal constant DECIMALS = 10_000;
-    uint256 internal NO_BUFFER = 10_000_000;
+    uint256 internal constant NO_BUFFER = 10_000_000;
 
     /// @notice The SemiFungiblePositionManager of the Panoptic instance this querying helper is intended for.
     ISemiFungiblePositionManager internal immutable SFPM;
@@ -47,61 +47,71 @@ contract PanopticQuery {
     /// @param account Address of the user that owns the positions
     /// @param atTick At what price is the collateral requirement evaluated at
     /// @param positionIdList List of positions. Written as [tokenId1, tokenId2, ...]
-    /// @return collateralBalance0 The total combined balance of token0 and token1 for a user in terms of token0
-    /// @return requiredCollateral0 The combined collateral requirement for a user in terms of token0
+    /// @return balancesAndRequired The total combined balance and required of token0 and token1 for a user
     function checkCollateral(
         PanopticPool pool,
         address account,
         TokenId[] calldata positionIdList,
         int24 atTick
-    ) public view returns (uint256, uint256) {
-        // Compute premia for all options (includes short+long premium)
-        (
-            LeftRightUnsigned tokenData0,
-            LeftRightUnsigned tokenData1,
-            PositionBalance globalUtilizations
-        ) = _getMargin(pool, atTick, account, positionIdList);
-        uint256 utilization0;
-        uint256 utilization1;
+    ) public view returns (uint256[4] memory balancesAndRequired) {
+        LeftRightUnsigned[2] memory tokenDatas;
+        uint256[2] memory utilizations;
         {
-            PanopticPool _pool = pool;
-            uint256 crossBuffer0 = _pool.riskEngine().CROSS_BUFFER_0();
-            uint256 crossBuffer1 = _pool.riskEngine().CROSS_BUFFER_1();
-            utilization0 = _crossBufferRatio(
-                _pool,
-                globalUtilizations.utilization0(),
-                crossBuffer0
+            LeftRightUnsigned tokenData0;
+            LeftRightUnsigned tokenData1;
+            // Compute premia for all options (includes short+long premium)
+            PositionBalance globalUtilizations;
+            (tokenData0, tokenData1, globalUtilizations) = _getMargin(
+                pool,
+                atTick,
+                account,
+                positionIdList
             );
-            utilization1 = _crossBufferRatio(
-                _pool,
-                globalUtilizations.utilization1(),
-                crossBuffer1
-            );
+            tokenDatas[0] = tokenData0;
+            tokenDatas[1] = tokenData1;
+            {
+                PanopticPool _pool = pool;
+                uint256 crossBuffer0 = _pool.riskEngine().CROSS_BUFFER_0();
+                uint256 crossBuffer1 = _pool.riskEngine().CROSS_BUFFER_1();
+                uint256 utilization0;
+                uint256 utilization1;
+                utilization0 = _crossBufferRatio(
+                    _pool,
+                    globalUtilizations.utilization0(),
+                    crossBuffer0
+                );
+                utilization1 = _crossBufferRatio(
+                    _pool,
+                    globalUtilizations.utilization1(),
+                    crossBuffer1
+                );
+                utilizations[0] = utilization0;
+                utilizations[1] = utilization1;
+            }
         }
+        uint256 maintReq0 = Math.mulDivRoundingUp(tokenDatas[0].leftSlot(), NO_BUFFER, DECIMALS);
+        uint256 maintReq1 = Math.mulDivRoundingUp(tokenDatas[1].leftSlot(), NO_BUFFER, DECIMALS);
 
-        uint256 maintReq0 = Math.mulDivRoundingUp(tokenData0.leftSlot(), NO_BUFFER, DECIMALS);
-        uint256 maintReq1 = Math.mulDivRoundingUp(tokenData1.leftSlot(), NO_BUFFER, DECIMALS);
-
-        uint256 bal0 = tokenData0.rightSlot();
-        uint256 bal1 = tokenData1.rightSlot();
+        uint256 bal0 = tokenDatas[0].rightSlot();
+        uint256 bal1 = tokenDatas[1].rightSlot();
 
         uint256 scaledSurplusToken0 = Math.mulDiv(
             bal0 > maintReq0 ? bal0 - maintReq0 : 0,
-            utilization0,
+            utilizations[0],
             DECIMALS
         );
         uint256 scaledSurplusToken1 = Math.mulDiv(
             bal1 > maintReq1 ? bal1 - maintReq1 : 0,
-            utilization1,
+            utilizations[1],
             DECIMALS
         );
 
         uint160 sqrtPriceX96 = Math.getSqrtRatioAtTick(atTick);
-
         uint256 effectiveBal0;
         uint256 effectiveReq0;
         uint256 effectiveBal1;
         uint256 effectiveReq1;
+
         if (sqrtPriceX96 < Constants.FP96) {
             effectiveBal0 = bal0 + PanopticMath.convert1to0(scaledSurplusToken1, sqrtPriceX96);
             effectiveReq0 = maintReq0;
@@ -113,8 +123,10 @@ contract PanopticQuery {
             effectiveBal1 = bal1 + PanopticMath.convert0to1(scaledSurplusToken0, sqrtPriceX96);
             effectiveReq1 = maintReq1;
         }
-
-        //return (effectiveBal0, effectiveReq0, effectiveBal1, effectiveReq1);
+        balancesAndRequired[0] = effectiveBal0;
+        balancesAndRequired[1] = effectiveReq0;
+        balancesAndRequired[2] = effectiveBal1;
+        balancesAndRequired[3] = effectiveReq1;
     }
 
     function _crossBufferRatio(
@@ -224,11 +236,22 @@ contract PanopticQuery {
         int24[4] memory ticks;
         (ticks[0], ticks[1], ticks[2], ticks[3], ) = pool.getOracleTicks();
         for (uint256 i = 0; i < ticks.length; ++i) {
-            (collateralBalances0[i], requiredCollaterals0[i]) = checkCollateral(
+            uint256[4] memory balanceAndRequired = checkCollateral(
                 pool,
                 account,
                 positionIdList,
                 ticks[i]
+            );
+            (
+                collateralBalances0[i],
+                requiredCollaterals0[i],
+                collateralBalances1[i],
+                requiredCollaterals1[i]
+            ) = (
+                balanceAndRequired[0],
+                balanceAndRequired[1],
+                balanceAndRequired[2],
+                balanceAndRequired[3]
             );
         }
     }
@@ -287,7 +310,7 @@ contract PanopticQuery {
         PanopticPool pool,
         address account,
         TokenId[] calldata positionIdList
-    ) public view returns (uint256[2][] memory, int256[] memory, int24[] memory) {
+    ) public view returns (uint256[4][] memory, int256[] memory, int24[] memory) {
         int256[] memory tickData = new int256[](301);
         int24[] memory liquidationPrices = new int24[](2);
         {
@@ -329,35 +352,30 @@ contract PanopticQuery {
                 tickData[i] = (tick / tickSpacing) * tickSpacing;
             }
         }
-        uint256[2][] memory balanceRequired = new uint256[2][](301);
+        uint256[4][] memory balanceRequired = new uint256[4][](301);
 
         for (uint256 i; i < 301; ) {
             {
-                uint256 collateralBalance;
-                uint256 requiredCollateral;
                 uint160 sqrtPriceX96 = Math.getSqrtRatioAtTick(int24(tickData[i]));
                 if (tickData[150] < 0) {
-                    (collateralBalance, requiredCollateral) = checkCollateral(
+                    balanceRequired[i] = checkCollateral(
                         pool,
                         account,
                         positionIdList,
                         int24(tickData[i])
                     );
-                    collateralBalance = (collateralBalance * sqrtPriceX96) >> 96;
-                    requiredCollateral = (requiredCollateral * sqrtPriceX96) >> 96;
+                    //collateralBalance = (collateralBalance * sqrtPriceX96) >> 96;
+                    //requiredCollateral = (requiredCollateral * sqrtPriceX96) >> 96;
                 } else {
-                    (collateralBalance, requiredCollateral) = checkCollateral(
+                    balanceRequired[i] = checkCollateral(
                         pool,
                         account,
                         positionIdList,
                         int24(tickData[i])
                     );
-                    collateralBalance = (collateralBalance << 96) / sqrtPriceX96;
-                    requiredCollateral = (requiredCollateral << 96) / sqrtPriceX96;
+                    //collateralBalance = (collateralBalance << 96) / sqrtPriceX96;
+                    //requiredCollateral = (requiredCollateral << 96) / sqrtPriceX96;
                 }
-
-                balanceRequired[i][0] = collateralBalance;
-                balanceRequired[i][1] = requiredCollateral;
             }
             ++i;
         }
