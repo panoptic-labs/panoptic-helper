@@ -266,6 +266,40 @@ contract PanopticQueryTest is PositionUtils {
         pp.dispatch(burnList, positionIdList, sizeList, tickAndSpreadLimits, premiaAsCollateral, 0);
     }
 
+    function _assertScanEntryMatchesSFPM(
+        bytes memory poolKey,
+        address account,
+        int24 tl,
+        int24 tu,
+        uint256 idx,
+        uint128[2][] memory net,
+        uint128[2][] memory removed
+    ) internal view {
+        LeftRightUnsigned liq0 = sfpm.getAccountLiquidity(poolKey, account, 0, tl, tu);
+        LeftRightUnsigned liq1 = sfpm.getAccountLiquidity(poolKey, account, 1, tl, tu);
+
+        assertEq(net[idx][0], liq0.rightSlot(), "scan net0 mismatch");
+        assertEq(removed[idx][0], liq0.leftSlot(), "scan removed0 mismatch");
+
+        assertEq(net[idx][1], liq1.rightSlot(), "scan net1 mismatch");
+        assertEq(removed[idx][1], liq1.leftSlot(), "scan removed1 mismatch");
+    }
+
+    function _findStrike(int24[] memory strikes, int24 target) internal pure returns (uint256) {
+        for (uint256 i; i < strikes.length; ++i) {
+            if (strikes[i] == target) return i;
+        }
+        return type(uint256).max;
+    }
+
+    function _min24(int24 a, int24 b) internal pure returns (int24) {
+        return a < b ? a : b;
+    }
+
+    function _max24(int24 a, int24 b) internal pure returns (int24) {
+        return a > b ? a : b;
+    }
+
     /*//////////////////////////////////////////////////////////////
                                ENV SETUP
     //////////////////////////////////////////////////////////////*/
@@ -657,19 +691,6 @@ contract PanopticQueryTest is PositionUtils {
                 (currentTick / tickSpacing) * tickSpacing + 6 * tickSpacing,
                 2
             );
-        // leg 2
-        /*
-        TokenId tokenId2 = TokenId.wrap(0).addPoolId(poolId).addLeg(
-            0,
-            1,
-            1,
-            0,
-            1,
-            0,
-            (currentTick / tickSpacing) * tickSpacing - 0 * tickSpacing,
-            2
-        );
-       */
         TokenId[] memory posIdList = new TokenId[](1);
         {
             posIdList[0] = tokenId;
@@ -692,23 +713,6 @@ contract PanopticQueryTest is PositionUtils {
         }
 
         {
-            /*
-            TokenId[] memory posIdList = new TokenId[](2);
-            posIdList[0] = tokenId;
-            posIdList[1] = tokenId2;
-            console2.log('mint 2');
-
-            mintOptions(
-                pp,
-                posIdList,
-                uint128((positionSizeSeed * 1) / 1000000),
-                0,
-                Constants.MIN_POOL_TICK,
-                Constants.MAX_POOL_TICK,
-                true
-            );
-
-           */
             console2.log("pp.numberOfLegs", pp.numberOfLegs(Alice));
 
             console2.log(
@@ -754,13 +758,283 @@ contract PanopticQueryTest is PositionUtils {
         }
     }
 
-    function test_getChunkData_returns_correct_liquidities() public {
-        // TODO:
-        // - PLP via the SFPM with token0,
-        // - mint a call-purchase at some fuzzed proportion of the sold volume
-        // - call getChunkData
-        // it should return a netLiquidity of originalSize - purchaseSize, and removedLiquidity of purchaseSize
-        // (both converted to liquidity units)
+    function test_ScanChunks_and_GetChunkData_UsesPoolAsAccount(uint256 x) public {
+        _initPool(x);
+
+        // --- fund Alice similarly to your sample ---
+        uint256 positionSizeSeed = 1e18;
+
+        ct0.redeem(ct0.maxRedeem(Alice), Alice, Alice);
+        ct1.redeem(ct1.maxRedeem(Alice), Alice, Alice);
+
+        uint256 deposit1 = positionSizeSeed;
+        uint256 deposit0 = ((((positionSizeSeed * 2 ** 96) / currentSqrtPriceX96) * 2 ** 96) /
+            currentSqrtPriceX96);
+
+        ct0.deposit(deposit0, Alice);
+        ct1.deposit(deposit1, Alice);
+
+        TokenId tokenId = TokenId
+            .wrap(0)
+            .addPoolId(poolId)
+            .addLeg(
+                0,
+                1,
+                1,
+                0,
+                0,
+                0,
+                (currentTick / tickSpacing) * tickSpacing - 6 * tickSpacing,
+                2
+            )
+            .addLeg(
+                1,
+                1,
+                1,
+                0,
+                1,
+                1,
+                (currentTick / tickSpacing) * tickSpacing + 6 * tickSpacing,
+                2
+            );
+
+        TokenId[] memory posIdList = new TokenId[](1);
+        posIdList[0] = tokenId;
+
+        mintOptions(
+            pp,
+            posIdList,
+            uint128((positionSizeSeed * 350) / 100),
+            0,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
+        );
+
+        // ============ 1) getChunkData correctness ============
+        // It should now read SFPM.getAccountLiquidity(poolKey, address(pp), ...)
+        uint256[2][4][] memory chunkData = pq.getChunkData(pp, posIdList);
+
+        // check each leg matches raw SFPM reads for account=address(pp)
+        bytes memory poolKey = pp.poolKey();
+        address poolAsAccount = address(pp);
+
+        for (uint256 j; j < tokenId.countLegs(); ++j) {
+            (int24 tl, int24 tu) = tokenId.asTicks(j);
+            uint8 tokenType = uint8(tokenId.tokenType(j));
+
+            LeftRightUnsigned liq = sfpm.getAccountLiquidity(
+                poolKey,
+                poolAsAccount,
+                tokenType,
+                tl,
+                tu
+            );
+
+            // net liquidity
+            assertEq(chunkData[0][j][0], liq.rightSlot(), "net mismatch");
+            // removed liquidity
+            assertEq(chunkData[0][j][1], liq.leftSlot(), "removed mismatch");
+        }
+
+        // ============ 2) scanChunks discovers those chunks ============
+        // We scan a range that definitely covers both legs, using the per-leg width.
+        (int24 tl0, int24 tu0) = tokenId.asTicks(0);
+        (int24 tl1, int24 tu1) = tokenId.asTicks(1);
+
+        int24 width0 = tu0 - tl0;
+        int24 width1 = tu1 - tl1;
+        // In your constructions width should be identical for both legs; enforce to avoid silent mismatches.
+        assertEq(width0, width1, "legs have different widths");
+
+        int24[] memory strikes;
+        uint128[2][] memory net;
+        uint128[2][] memory removed;
+
+        {
+            int24 width = width0;
+
+            int24 lower = _min24(tl0, tl1) - 2 * tickSpacing;
+            int24 upper = _max24(tu0, tu1) + 2 * tickSpacing;
+
+            (strikes, net, removed) = pq.scanChunks(pp, lower, upper, width);
+        }
+        // We expect to see exactly two non-empty chunks (one at each leg's tick range).
+        // If your protocol can accumulate extra liquidity at adjacent ranges in this setup, loosen this to ">=2"
+        // and then check membership instead of length.
+        assertEq(strikes.length, 2, "unexpected number of discovered chunks");
+        assertEq(net.length, 2, "net len");
+        assertEq(removed.length, 2, "removed len");
+
+        uint256 idxA;
+        uint256 idxB;
+
+        {
+            int24 strikeA = (tu0 + tl0) / 2;
+            int24 strikeB = (tu1 + tl1) / 2;
+
+            // find indices in returned arrays
+            idxA = _findStrike(strikes, strikeA);
+            idxB = _findStrike(strikes, strikeB);
+        }
+        assertTrue(idxA != type(uint256).max, "strikeA not found");
+        assertTrue(idxB != type(uint256).max, "strikeB not found");
+        assertTrue(idxA != idxB, "same index for both strikes");
+        // verify returned liquidity matches SFPM for BOTH token types at that (tl,tu)
+        _assertScanEntryMatchesSFPM(poolKey, poolAsAccount, tl0, tu0, idxA, net, removed);
+        _assertScanEntryMatchesSFPM(poolKey, poolAsAccount, tl1, tu1, idxB, net, removed);
+    }
+
+    function test_ScanChunks_FindsRemovedLiquidity_ForLongStraddle(uint256 x) public {
+        _initPool(x);
+
+        uint256 positionSizeSeed = 1e18;
+
+        vm.startPrank(Bob);
+        ct0.redeem(ct0.maxRedeem(Bob), Bob, Bob);
+        ct1.redeem(ct1.maxRedeem(Bob), Bob, Bob);
+
+        uint256 deposit1 = positionSizeSeed;
+        uint256 deposit0 = ((((positionSizeSeed * 2 ** 96) / currentSqrtPriceX96) * 2 ** 96) /
+            currentSqrtPriceX96);
+
+        ct0.deposit(deposit0, Bob);
+        ct1.deposit(deposit1, Bob);
+
+        TokenId tokenId = TokenId
+            .wrap(0)
+            .addPoolId(poolId)
+            .addLeg(
+                0,
+                1,
+                1,
+                0,
+                0,
+                0,
+                (currentTick / tickSpacing) * tickSpacing - 6 * tickSpacing,
+                2
+            )
+            .addLeg(
+                1,
+                1,
+                1,
+                0,
+                1,
+                1,
+                (currentTick / tickSpacing) * tickSpacing + 6 * tickSpacing,
+                2
+            );
+
+        TokenId[] memory posIdList = new TokenId[](1);
+        posIdList[0] = tokenId;
+
+        mintOptions(
+            pp,
+            posIdList,
+            uint128((positionSizeSeed * 350) / 100),
+            0,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
+        );
+
+        vm.startPrank(Alice);
+
+        ct0.redeem(ct0.maxRedeem(Alice), Alice, Alice);
+        ct1.redeem(ct1.maxRedeem(Alice), Alice, Alice);
+
+        deposit1 = positionSizeSeed;
+        deposit0 = ((((positionSizeSeed * 2 ** 96) / currentSqrtPriceX96) * 2 ** 96) /
+            currentSqrtPriceX96);
+
+        ct0.deposit(deposit0, Alice);
+        ct1.deposit(deposit1, Alice);
+
+        // long straddle (removed-liquidity legs)
+        TokenId longStraddleTokenId = TokenId
+            .wrap(0)
+            .addPoolId(poolId)
+            .addLeg(
+                0,
+                1,
+                1,
+                1, // remove liquidity
+                0,
+                0,
+                (currentTick / tickSpacing) * tickSpacing - 6 * tickSpacing,
+                2
+            )
+            .addLeg(
+                1,
+                1,
+                1,
+                1, // remove liquidity
+                1,
+                1,
+                (currentTick / tickSpacing) * tickSpacing + 6 * tickSpacing,
+                2
+            );
+
+        TokenId[] memory posIdList2 = new TokenId[](1);
+        posIdList2[0] = longStraddleTokenId;
+
+        mintOptions(
+            pp,
+            posIdList2,
+            uint128((positionSizeSeed * 250) / 100),
+            type(uint24).max,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
+        );
+
+        bytes memory poolKey = pp.poolKey();
+        address poolAsAccount = address(pp);
+
+        (int24 tl0, int24 tu0) = longStraddleTokenId.asTicks(0);
+        (int24 tl1, int24 tu1) = longStraddleTokenId.asTicks(1);
+
+        int24[] memory strikes;
+        uint128[2][] memory net;
+        uint128[2][] memory removed;
+        {
+            int24 width = tu0 - tl0;
+            assertEq(width, tu1 - tl1, "legs have different widths");
+
+            int24 lower = _min24(tl0, tl1) - 2 * tickSpacing;
+            int24 upper = _max24(tu0, tu1) + 2 * tickSpacing;
+
+            (strikes, net, removed) = pq.scanChunks(pp, lower, upper, width);
+        }
+
+        // Must at least discover the two leg ranges.
+        assertTrue(strikes.length >= 2, "did not discover enough chunks");
+
+        uint256 idxA;
+        uint256 idxB;
+        {
+            int24 strikeA = (tu0 + tl0) / 2;
+            int24 strikeB = (tu1 + tl1) / 2;
+
+            idxA = _findStrike(strikes, strikeA);
+            idxB = _findStrike(strikes, strikeB);
+        }
+        assertTrue(idxA != type(uint256).max, "strikeA not found");
+        assertTrue(idxB != type(uint256).max, "strikeB not found");
+
+        _assertScanEntryMatchesSFPM(poolKey, poolAsAccount, tl0, tu0, idxA, net, removed);
+        _assertScanEntryMatchesSFPM(poolKey, poolAsAccount, tl1, tu1, idxB, net, removed);
+
+        // For removed-liquidity positions, we expect at least one of the removed slots to be nonzero
+        // at each discovered leg range.
+        assertTrue(
+            (removed[idxA][0] | removed[idxA][1]) != 0,
+            "expected removed liquidity at strikeA"
+        );
+        assertTrue(
+            (removed[idxB][0] | removed[idxB][1]) != 0,
+            "expected removed liquidity at strikeB"
+        );
     }
 
     /// forge-config: default.fuzz.runs = 100

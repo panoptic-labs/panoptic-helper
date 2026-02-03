@@ -498,12 +498,10 @@ contract PanopticQuery {
 
     /// @notice Fetch data about chunks in a positionIdList.
     /// @param pool The PanopticPool instance containing the positions
-    /// @param account The address of the account to retrieve liquidity data for
     /// @param positionIdList List of TokenIds to evaluate
     /// @return chunkData A [2][4][positionIdList.length] array containing netLiquidity and removedLiquidity for each leg
     function getChunkData(
         PanopticPool pool,
-        address account,
         TokenId[] memory positionIdList
     ) external view returns (uint256[2][4][] memory) {
         uint256[2][4][] memory chunkData = new uint256[2][4][](positionIdList.length);
@@ -513,7 +511,7 @@ contract PanopticQuery {
                 (int24 tickLower, int24 tickUpper) = positionIdList[i].asTicks(j);
                 LeftRightUnsigned liquidityData = SFPM.getAccountLiquidity(
                     pool.poolKey(),
-                    account,
+                    address(pool),
                     positionIdList[i].tokenType(j),
                     tickLower,
                     tickUpper
@@ -533,6 +531,88 @@ contract PanopticQuery {
         }
 
         return chunkData;
+    }
+
+    /// @notice Scan for non-empty liquidity chunks in a tick range
+    /// @param pool The PanopticPool address
+    /// @param tickLower Lower bound of range to scan
+    /// @param tickUpper Upper bound of range to scan
+    /// @param width Width of the chunks to be scanned
+    /// @return strikes Array of chunk's strikes (defined as tickUpper/2 + tickLower/2)
+    /// @return netLiquidities Array[2] of chunk's net liquidity (defined as total - removed), index0 = tokenType0
+    /// @return removedLiquidities Array[2] of chunk's removed liquidities, index1 = tokenType1
+    function scanChunks(
+        PanopticPool pool,
+        int24 tickLower,
+        int24 tickUpper,
+        int24 width
+    ) external view returns (int24[] memory, uint128[2][] memory, uint128[2][] memory) {
+        require(width > 0, "width<=0");
+        require(tickLower < tickUpper, "bad range");
+
+        int24 tickSpacing = int24(uint24((uint256(pool.poolId()) >> 48) & 0xFFFF));
+        require(tickSpacing > 0, "tickSpacing=0");
+        int24[] memory s_strikes;
+        uint128[2][] memory s_net;
+        uint128[2][] memory s_removed;
+
+        {
+            int256 span = int256(tickUpper) - int256(tickLower);
+            int256 eff = span - int256(width);
+            require(eff >= 0, "range too small");
+            uint256 maxChunks = uint256(eff / int256(tickSpacing) + 1);
+            s_strikes = new int24[](maxChunks);
+            s_net = new uint128[2][](maxChunks);
+            s_removed = new uint128[2][](maxChunks);
+        }
+
+        uint256 k;
+        int256 _width = int256(width);
+        address _pool = address(pool);
+        bytes memory poolKey = pool.poolKey();
+        for (int256 t = tickLower; t + _width <= tickUpper; t += tickSpacing) {
+            LeftRightUnsigned liq0;
+            LeftRightUnsigned liq1;
+            int24 strike;
+            {
+                int24 tl = int24(t);
+                int24 tu = int24(t + _width);
+                liq0 = SFPM.getAccountLiquidity(poolKey, _pool, 0, tl, tu);
+                liq1 = SFPM.getAccountLiquidity(poolKey, _pool, 1, tl, tu);
+                strike = (tu + tl) / 2;
+            }
+            uint128[2] memory net;
+            uint128[2] memory removed;
+
+            net[0] = liq0.rightSlot();
+            removed[0] = liq0.leftSlot();
+
+            net[1] = liq1.rightSlot();
+            removed[1] = liq1.leftSlot();
+
+            if ((net[0] | removed[0] | net[1] | removed[1]) == 0) continue;
+
+            s_strikes[k] = strike;
+            s_net[k] = net;
+            s_removed[k] = removed;
+            unchecked {
+                ++k;
+            }
+        }
+
+        int24[] memory strikes = new int24[](k);
+        uint128[2][] memory netLiquidities = new uint128[2][](k);
+        uint128[2][] memory removedLiquidities = new uint128[2][](k);
+
+        for (uint256 i; i < k; ) {
+            strikes[i] = s_strikes[i];
+            netLiquidities[i] = s_net[i];
+            removedLiquidities[i] = s_removed[i];
+            unchecked {
+                ++i;
+            }
+        }
+        return (strikes, netLiquidities, removedLiquidities);
     }
 
     /// @notice Calculate approximate NLV of user's option portfolio (token delta after closing `positionIdList`) at a given tick.
