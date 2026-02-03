@@ -168,7 +168,7 @@ contract PanopticQuery {
                 longPremium,
                 ct0,
                 ct1,
-                10_000_000
+                NO_BUFFER
             )
         );
     }
@@ -204,8 +204,8 @@ contract PanopticQuery {
             atTick,
             account,
             positionIdList,
-            LeftRightUnsigned.wrap(0), //shortPremium,
-            LeftRightUnsigned.wrap(0), //longPremium,
+            shortPremium,
+            longPremium,
             ct0,
             ct1
         );
@@ -712,7 +712,7 @@ contract PanopticQuery {
                 tokenIdList[9] = _tempTokenId
                     .addRiskPartner(3, 0)
                     .addRiskPartner(2, 1)
-                    .addRiskPartner(0, 2)
+                    .addRiskPartner(1, 2)
                     .addRiskPartner(0, 3);
             }
 
