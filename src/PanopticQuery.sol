@@ -7,6 +7,7 @@ import {PanopticPool} from "@contracts/PanopticPool.sol";
 import {CollateralTracker} from "@contracts/CollateralTracker.sol";
 import {ISemiFungiblePositionManager} from "@contracts/interfaces/ISemiFungiblePositionManager.sol";
 import {IRiskEngine} from "@contracts/interfaces/IRiskEngine.sol";
+import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 // Libraries
 import {LiquidityAmounts} from "univ3-periphery/libraries/LiquidityAmounts.sol";
 import {FullMath} from "univ3-core/libraries/FullMath.sol";
@@ -14,11 +15,15 @@ import {FixedPoint96} from "univ3-core/libraries/FixedPoint96.sol";
 import {Constants} from "@libraries/Constants.sol";
 import {PanopticMath} from "@libraries/PanopticMath.sol";
 import {Math} from "@libraries/Math.sol";
+import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
+import {V4StateReader} from "@libraries/V4StateReader.sol";
 // Custom types
 import {LeftRightUnsigned, LeftRightSigned} from "@types/LeftRight.sol";
 import {LiquidityChunk, LiquidityChunkLibrary} from "@types/LiquidityChunk.sol";
 import {TokenId, TokenIdLibrary} from "@types/TokenId.sol";
 import {PositionBalance, PositionBalanceLibrary} from "@types/PositionBalance.sol";
+import {PoolId} from "v4-core/types/PoolId.sol";
+import {PoolKey} from "v4-core/types/PoolKey.sol";
 
 /// @title Utility contract for token ID construction and advanced queries.
 /// @author Axicon Labs Limited
@@ -1125,5 +1130,154 @@ contract PanopticQuery {
             }
         }
         return true;
+    }
+
+    /// @notice Retrieves cumulative liquidity across a range of ticks around a starting point
+    /// @dev Automatically detects V3 or V4 by checking poolManager() (address(0) for V3)
+    /// @param pool The PanopticPool instance
+    /// @param startTick The center tick of the range to scan
+    /// @param nTicks The number of ticks to scan in each direction from startTick
+    /// @return tickData Array of tick values in the scanned range
+    /// @return liquidityNets Array of cumulative liquidity at each tick, rescaled to match actual pool liquidity at currentTick
+    function getTickNets(
+        PanopticPool pool,
+        int24 startTick,
+        uint256 nTicks
+    ) public view returns (int256[] memory tickData, int256[] memory liquidityNets) {
+        // Check if V3 (poolManager == address(0)) or V4
+        address poolManager = pool.poolManager();
+
+        if (poolManager == address(0)) {
+            // V3 Pool
+            IUniswapV3Pool univ3pool = IUniswapV3Pool(abi.decode(pool.poolKey(), (address)));
+            return _getTickNetsV3(univ3pool, startTick, nTicks);
+        } else {
+            // V4 Pool
+            IPoolManager manager = IPoolManager(poolManager);
+            PoolKey memory key = abi.decode(pool.poolKey(), (PoolKey));
+            return _getTickNetsV4(manager, key.toId(), key.tickSpacing, startTick, nTicks);
+        }
+    }
+
+    /// @notice Internal helper for V4 tick net retrieval
+    /// @param manager The Uniswap V4 pool manager
+    /// @param poolId The pool ID
+    /// @param tickSpacing The tick spacing for the pool
+    /// @param startTick The center tick of the range to scan
+    /// @param nTicks The number of ticks to scan in each direction from startTick
+    /// @return tickData Array of tick values in the scanned range
+    /// @return liquidityNets Array of cumulative liquidity at each tick
+    function _getTickNetsV4(
+        IPoolManager manager,
+        PoolId poolId,
+        int24 tickSpacing,
+        int24 startTick,
+        uint256 nTicks
+    ) internal view returns (int256[] memory tickData, int256[] memory liquidityNets) {
+        int256 scaledCurrentTick;
+        int256 scaledStartTick;
+        uint256 arraySize;
+        uint256 currentTickIndex;
+
+        {
+            int24 currentTick = V4StateReader.getTick(manager, poolId);
+            scaledCurrentTick = int256((currentTick / tickSpacing) * tickSpacing);
+            scaledStartTick = int256((startTick / tickSpacing) * tickSpacing);
+            arraySize = 2 * nTicks + 1;
+            currentTickIndex = type(uint256).max;
+        }
+
+        tickData = new int256[](arraySize);
+        liquidityNets = new int256[](arraySize);
+
+        int256 cumulativeLiquidity;
+
+        for (uint256 i; i < arraySize; ) {
+            int24 tick;
+            int128 liquidityNet;
+            {
+                tick = int24(scaledStartTick + (int256(i) - int256(nTicks)) * tickSpacing);
+                (, liquidityNet) = StateLibrary.getTickLiquidity(manager, poolId, tick);
+            }
+
+            cumulativeLiquidity += liquidityNet;
+            tickData[i] = int256(tick);
+            liquidityNets[i] = cumulativeLiquidity;
+
+            if (int256(tick) == scaledCurrentTick) {
+                currentTickIndex = i;
+            }
+
+            unchecked {
+                ++i;
+            }
+        }
+
+        // Rescale only if the range includes the current tick
+        if (currentTickIndex < type(uint256).max) {
+            uint128 liquidity = StateLibrary.getLiquidity(manager, poolId);
+            int256 liquidityDelta = int256(uint256(liquidity)) - liquidityNets[currentTickIndex];
+            for (uint256 j; j < arraySize; ) {
+                liquidityNets[j] += liquidityDelta;
+                unchecked {
+                    ++j;
+                }
+            }
+        }
+    }
+
+    /// @notice Internal helper for V3 tick net retrieval
+    /// @param univ3pool The Uniswap V3 pool
+    /// @param startTick The center tick of the range to scan
+    /// @param nTicks The number of ticks to scan in each direction from startTick
+    /// @return tickData Array of tick values in the scanned range
+    /// @return liquidityNets Array of cumulative liquidity at each tick
+    function _getTickNetsV3(
+        IUniswapV3Pool univ3pool,
+        int24 startTick,
+        uint256 nTicks
+    ) internal view returns (int256[] memory tickData, int256[] memory liquidityNets) {
+        (, int24 currentTick, , , , , ) = univ3pool.slot0();
+        uint128 liquidity = univ3pool.liquidity();
+        int24 tickSpacing = univ3pool.tickSpacing();
+
+        int256 scaledCurrentTick = int256((currentTick / tickSpacing) * tickSpacing);
+        int256 scaledStartTick = int256((startTick / tickSpacing) * tickSpacing);
+
+        uint256 arraySize = 2 * nTicks + 1;
+        tickData = new int256[](arraySize);
+        liquidityNets = new int256[](arraySize);
+
+        int256 cumulativeLiquidity;
+        uint256 currentTickIndex = type(uint256).max;
+
+        for (uint256 i; i < arraySize; ) {
+            int24 tick = int24(scaledStartTick + (int256(i) - int256(nTicks)) * tickSpacing);
+
+            (, int128 liquidityNet, , , , , , ) = univ3pool.ticks(tick);
+
+            cumulativeLiquidity += liquidityNet;
+            tickData[i] = int256(tick);
+            liquidityNets[i] = cumulativeLiquidity;
+
+            if (int256(tick) == scaledCurrentTick) {
+                currentTickIndex = i;
+            }
+
+            unchecked {
+                ++i;
+            }
+        }
+
+        // Rescale only if the range includes the current tick
+        if (currentTickIndex < type(uint256).max) {
+            int256 liquidityDelta = int256(uint256(liquidity)) - liquidityNets[currentTickIndex];
+            for (uint256 j; j < arraySize; ) {
+                liquidityNets[j] += liquidityDelta;
+                unchecked {
+                    ++j;
+                }
+            }
+        }
     }
 }

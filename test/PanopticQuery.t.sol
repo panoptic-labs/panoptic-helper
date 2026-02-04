@@ -1516,4 +1516,269 @@ contract PanopticQueryTest is PositionUtils {
         mintOptions(pp, posIdList, size, 0, Constants.MIN_POOL_TICK, Constants.MAX_POOL_TICK, true);
         vm.stopPrank();
     }
+
+    /*//////////////////////////////////////////////////////////////
+                        GET TICK NETS TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_Success_getTickNets_V4Pool(uint256 x) public {
+        _initPool(x);
+
+        // Get current tick from pool
+        (int24 currentTick, , , , ) = pp.getOracleTicks();
+
+        // Test with 100 ticks in each direction
+        uint256 nTicks = 100;
+        (int256[] memory tickData, int256[] memory liquidityNets) = pq.getTickNets(
+            pp,
+            currentTick,
+            nTicks
+        );
+
+        // Verify array sizes
+        assertEq(tickData.length, 2 * nTicks + 1);
+        assertEq(liquidityNets.length, 2 * nTicks + 1);
+
+        // Verify ticks are correctly spaced
+        for (uint256 i = 1; i < tickData.length; i++) {
+            assertEq(tickData[i] - tickData[i - 1], int256(int256(tickSpacing)));
+        }
+
+        // Verify middle tick equals scaled startTick
+        int256 middleTick = tickData[nTicks];
+        int256 scaledStartTick = int256((currentTick / tickSpacing) * tickSpacing);
+        assertEq(middleTick, scaledStartTick);
+
+        // Verify liquidity at current tick matches pool liquidity (if current tick is in range)
+        IPoolManager _manager = IPoolManager(pp.poolManager());
+        PoolKey memory key = abi.decode(pp.poolKey(), (PoolKey));
+        uint128 poolLiquidity = StateLibrary.getLiquidity(_manager, key.toId());
+
+        // Find the index closest to current tick
+        int256 scaledCurrentTick = int256((currentTick / tickSpacing) * tickSpacing);
+        for (uint256 i = 0; i < tickData.length; i++) {
+            if (tickData[i] == scaledCurrentTick) {
+                assertEq(uint256(liquidityNets[i]), uint256(poolLiquidity));
+                break;
+            }
+        }
+    }
+
+    function test_Success_getTickNets_V4Pool_WideRange(uint256 x) public {
+        _initPool(x);
+
+        (int24 currentTick, , , , ) = pp.getOracleTicks();
+
+        // Test with larger range
+        uint256 nTicks = 500;
+        (int256[] memory tickData, int256[] memory liquidityNets) = pq.getTickNets(
+            pp,
+            currentTick,
+            nTicks
+        );
+
+        // Verify array sizes
+        assertEq(tickData.length, 2 * nTicks + 1);
+        assertEq(liquidityNets.length, 2 * nTicks + 1);
+
+        // Verify ticks are sequential
+        for (uint256 i = 1; i < tickData.length; i++) {
+            assertEq(tickData[i] - tickData[i - 1], int256((tickSpacing)));
+        }
+    }
+
+    function test_Success_getTickNets_V4Pool_SmallRange(uint256 x) public {
+        _initPool(x);
+
+        (int24 currentTick, , , , ) = pp.getOracleTicks();
+
+        // Add liquidity positions to create initialized ticks
+        vm.startPrank(Alice);
+
+        // Mint multiple positions at different strikes to create liquidity
+        int24 strike = (currentTick / tickSpacing) * tickSpacing;
+
+        // Position 1: at current strike
+        TokenId tokenId1 = TokenId.wrap(0).addPoolId(poolId).addLeg(0, 1, 1, 0, 0, 0, strike, 2);
+        TokenId[] memory posIdList1 = new TokenId[](1);
+        posIdList1[0] = tokenId1;
+        mintOptions(
+            pp,
+            posIdList1,
+            1e15,
+            0,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
+        );
+
+        // Position 2: below current strike
+        TokenId tokenId2 = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            0,
+            0,
+            0,
+            strike - 3 * tickSpacing,
+            12
+        );
+        TokenId[] memory posIdList2 = new TokenId[](2);
+        posIdList2[0] = tokenId1;
+        posIdList2[1] = tokenId2;
+        mintOptions(
+            pp,
+            posIdList2,
+            1e15,
+            0,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
+        );
+
+        // Position 3: above current strike
+        TokenId tokenId3 = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            0,
+            0,
+            0,
+            strike + 4 * tickSpacing,
+            16
+        );
+        TokenId[] memory posIdList3 = new TokenId[](3);
+        posIdList3[0] = tokenId1;
+        posIdList3[1] = tokenId2;
+        posIdList3[2] = tokenId3;
+        mintOptions(
+            pp,
+            posIdList3,
+            1e15,
+            0,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
+        );
+
+        vm.stopPrank();
+
+        // Test with small range
+        uint256 nTicks = 10;
+        (int256[] memory tickData, int256[] memory liquidityNets) = pq.getTickNets(
+            pp,
+            currentTick,
+            nTicks
+        );
+
+        // Verify array sizes
+        assertEq(tickData.length, 21); // 2 * 10 + 1
+        assertEq(liquidityNets.length, 21);
+
+        // Print array contents
+        console.log("Current Tick:", currentTick);
+        console.log("Tick Spacing:", uint256(int256(tickSpacing)));
+        console.log("\nTick Data and Liquidity Nets:");
+        for (uint256 i = 0; i < tickData.length; i++) {
+            console.log("Index:", i);
+            console.log("  Tick:", tickData[i]);
+            console.logInt(liquidityNets[i]);
+        }
+        // Verify liquidity is cumulative (monotonic if all liquidityNets are positive)
+        // Note: liquidityNets can decrease if there are negative liquidityNet values
+    }
+
+    function test_Success_getTickNets_V4Pool_OffsetStart(uint256 x) public {
+        _initPool(x);
+
+        (int24 currentTick, , , , ) = pp.getOracleTicks();
+
+        // Start 1000 ticks away from current tick
+        int24 startTick = currentTick + 1000 * tickSpacing;
+        uint256 nTicks = 50;
+
+        (int256[] memory tickData, int256[] memory liquidityNets) = pq.getTickNets(
+            pp,
+            startTick,
+            nTicks
+        );
+
+        // Verify array sizes
+        assertEq(tickData.length, 2 * nTicks + 1);
+        assertEq(liquidityNets.length, 2 * nTicks + 1);
+
+        // Verify middle tick equals scaled startTick
+        int256 scaledStartTick = int256((startTick / tickSpacing) * tickSpacing);
+        assertEq(tickData[nTicks], scaledStartTick);
+
+        // When current tick is not in range, liquidity should still be computed correctly
+        // but rescaling won't happen
+    }
+
+    function test_Success_getTickNets_V4Pool_AfterSwap(uint256 x) public {
+        _initPool(x);
+
+        // Mint a position first
+        {
+            int24 strike = (currentTick / tickSpacing) * tickSpacing;
+            TokenId tokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(0, 1, 1, 0, 0, 0, strike, 6);
+            TokenId[] memory posIdList = new TokenId[](1);
+            posIdList[0] = tokenId;
+
+            vm.startPrank(Alice);
+            mintOptions(
+                pp,
+                posIdList,
+                1e6,
+                0,
+                Constants.MIN_POOL_TICK,
+                Constants.MAX_POOL_TICK,
+                true
+            );
+            vm.stopPrank();
+        }
+
+        (int24 tickBefore, , , , ) = pp.getOracleTicks();
+
+        // Get tick nets before swap
+        (int256[] memory tickDataBefore, int256[] memory liquidityNetsBefore) = pq.getTickNets(
+            pp,
+            tickBefore,
+            100
+        );
+
+        // Perform a swap to change price
+        vm.startPrank(Swapper);
+        router.exactInputSingle(
+            ISwapRouter.ExactInputSingleParams({
+                tokenIn: token0,
+                tokenOut: token1,
+                fee: fee,
+                recipient: Swapper,
+                deadline: block.timestamp,
+                amountIn: 1e4,
+                amountOutMinimum: 0,
+                sqrtPriceLimitX96: 0
+            })
+        );
+        vm.stopPrank();
+
+        (int24 tickAfter, , , , ) = pp.getOracleTicks();
+
+        // Get tick nets after swap
+        (int256[] memory tickDataAfter, int256[] memory liquidityNetsAfter) = pq.getTickNets(
+            pp,
+            tickAfter,
+            100
+        );
+
+        // Verify both calls succeeded
+        assertEq(tickDataBefore.length, 201);
+        assertEq(tickDataAfter.length, 201);
+
+        // Ticks should be different if the swap moved the price
+        if (tickBefore != tickAfter) {
+            assertNotEq(tickDataBefore[100], tickDataAfter[100]);
+        }
+    }
 }

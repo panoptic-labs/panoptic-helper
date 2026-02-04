@@ -7,10 +7,17 @@ import {IUniswapV3Pool} from "univ3-core/interfaces/IUniswapV3Pool.sol";
 import {IUniswapV3Factory} from "univ3-core/interfaces/IUniswapV3Factory.sol";
 import {INonfungiblePositionManager} from "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import {SemiFungiblePositionManager} from "@contracts/SemiFungiblePositionManagerV4.sol";
+import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
+import {PanopticPool} from "@contracts/PanopticPool.sol";
 // Libraries
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {Base64} from "@openzeppelin/contracts/utils/Base64.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
+import {V4StateReader} from "@libraries/V4StateReader.sol";
+// Types
+import {PoolId} from "v4-core/types/PoolId.sol";
+import {PoolKey} from "v4-core/types/PoolKey.sol";
 
 /// @title Utility contract for token ID construction and advanced queries.
 /// @author Axicon Labs Limited
@@ -56,86 +63,153 @@ contract UniswapHelper {
         SFPM = _SFPM;
     }
 
+    /// @notice Retrieves cumulative liquidity across a range of ticks around a starting point
+    /// @dev Automatically detects V3 or V4 by checking poolManager() (address(0) for V3)
+    /// @param pool The PanopticPool instance
+    /// @param startTick The center tick of the range to scan
+    /// @param nTicks The number of ticks to scan in each direction from startTick
+    /// @return tickData Array of tick values in the scanned range
+    /// @return liquidityNets Array of cumulative liquidity at each tick, rescaled to match actual pool liquidity at currentTick
     function getTickNets(
-        IUniswapV3Pool univ3pool
-    ) public view returns (int256[] memory, int256[] memory) {
-        (, int24 currentTick, , , , , ) = univ3pool.slot0();
-        uint128 liquidity = univ3pool.liquidity();
-        int24 tickSpacing = univ3pool.tickSpacing();
-        int256 scaledTick = int256((currentTick / tickSpacing) * tickSpacing);
+        PanopticPool pool,
+        int24 startTick,
+        uint256 nTicks
+    ) public view returns (int256[] memory tickData, int256[] memory liquidityNets) {
+        // Check if V3 (poolManager == address(0)) or V4
+        address poolManager = pool.poolManager();
 
-        int256[] memory tickData = new int256[](301);
-        int256[] memory liquidityNets = new int256[](301);
-
-        uint256 i;
-        for (int256 dt = -150; dt < 150; ) {
-            (, int128 liquidityNet, , , , , , ) = univ3pool.ticks(
-                int24(scaledTick + dt * tickSpacing)
-            );
-
-            if (i == 0) {
-                tickData[i] = scaledTick + dt * tickSpacing;
-                liquidityNets[i] = 1;
-            }
-            tickData[i + 1] = scaledTick + dt * tickSpacing;
-            liquidityNets[i + 1] = liquidityNets[i] + liquidityNet;
-
-            ++i;
-            ++dt;
+        if (poolManager == address(0)) {
+            // V3 Pool
+            IUniswapV3Pool univ3pool = IUniswapV3Pool(abi.decode(pool.poolKey(), (address)));
+            return _getTickNetsV3(univ3pool, startTick, nTicks);
+        } else {
+            // V4 Pool
+            IPoolManager manager = IPoolManager(poolManager);
+            PoolKey memory key = abi.decode(pool.poolKey(), (PoolKey));
+            return _getTickNetsV4(manager, key.toId(), key.tickSpacing, startTick, nTicks);
         }
-
-        // if the range overlaps with the current tick, rescale the liquidity Nets such that
-        int256 liquidityDelta = int256(uint256(liquidity)) - liquidityNets[150];
-        for (uint256 j = 0; j < 301; ++j) {
-            liquidityNets[j] += liquidityDelta;
-        }
-
-        return (tickData, liquidityNets);
     }
 
-    function getTickNets(
+    /// @notice Internal helper for V4 tick net retrieval
+    /// @param manager The Uniswap V4 pool manager
+    /// @param poolId The pool ID
+    /// @param tickSpacing The tick spacing for the pool
+    /// @param startTick The center tick of the range to scan
+    /// @param nTicks The number of ticks to scan in each direction from startTick
+    /// @return tickData Array of tick values in the scanned range
+    /// @return liquidityNets Array of cumulative liquidity at each tick
+    function _getTickNetsV4(
+        IPoolManager manager,
+        PoolId poolId,
+        int24 tickSpacing,
+        int24 startTick,
+        uint256 nTicks
+    ) internal view returns (int256[] memory tickData, int256[] memory liquidityNets) {
+        int256 scaledCurrentTick;
+        int256 scaledStartTick;
+        uint256 arraySize;
+        uint256 currentTickIndex;
+
+        {
+            int24 currentTick = V4StateReader.getTick(manager, poolId);
+            scaledCurrentTick = int256((currentTick / tickSpacing) * tickSpacing);
+            scaledStartTick = int256((startTick / tickSpacing) * tickSpacing);
+            arraySize = 2 * nTicks + 1;
+            currentTickIndex = type(uint256).max;
+        }
+
+        tickData = new int256[](arraySize);
+        liquidityNets = new int256[](arraySize);
+
+        int256 cumulativeLiquidity;
+
+        for (uint256 i; i < arraySize; ) {
+            int24 tick;
+            int128 liquidityNet;
+            {
+                tick = int24(scaledStartTick + (int256(i) - int256(nTicks)) * tickSpacing);
+                (, liquidityNet) = StateLibrary.getTickLiquidity(manager, poolId, tick);
+            }
+
+            cumulativeLiquidity += liquidityNet;
+            tickData[i] = int256(tick);
+            liquidityNets[i] = cumulativeLiquidity;
+
+            if (int256(tick) == scaledCurrentTick) {
+                currentTickIndex = i;
+            }
+
+            unchecked {
+                ++i;
+            }
+        }
+
+        // Rescale only if the range includes the current tick
+        if (currentTickIndex < type(uint256).max) {
+            uint128 liquidity = StateLibrary.getLiquidity(manager, poolId);
+            int256 liquidityDelta = int256(uint256(liquidity)) - liquidityNets[currentTickIndex];
+            for (uint256 j; j < arraySize; ) {
+                liquidityNets[j] += liquidityDelta;
+                unchecked {
+                    ++j;
+                }
+            }
+        }
+    }
+
+    /// @notice Internal helper for V3 tick net retrieval
+    /// @param univ3pool The Uniswap V3 pool
+    /// @param startTick The center tick of the range to scan
+    /// @param nTicks The number of ticks to scan in each direction from startTick
+    /// @return tickData Array of tick values in the scanned range
+    /// @return liquidityNets Array of cumulative liquidity at each tick
+    function _getTickNetsV3(
         IUniswapV3Pool univ3pool,
         int24 startTick,
         uint256 nTicks
-    ) public view returns (int256[] memory, int256[] memory) {
+    ) internal view returns (int256[] memory tickData, int256[] memory liquidityNets) {
         (, int24 currentTick, , , , , ) = univ3pool.slot0();
         uint128 liquidity = univ3pool.liquidity();
         int24 tickSpacing = univ3pool.tickSpacing();
+
         int256 scaledCurrentTick = int256((currentTick / tickSpacing) * tickSpacing);
         int256 scaledStartTick = int256((startTick / tickSpacing) * tickSpacing);
 
-        int256[] memory tickData = new int256[](2 * nTicks + 1);
-        int256[] memory liquidityNets = new int256[](2 * nTicks + 1);
+        uint256 arraySize = 2 * nTicks + 1;
+        tickData = new int256[](arraySize);
+        liquidityNets = new int256[](arraySize);
 
-        uint256 i;
-        uint256 currentTickIndex = type(uint128).max;
-        for (int256 dt = -int256(nTicks); dt < int256(nTicks); ) {
-            (, int128 liquidityNet, , , , , , ) = univ3pool.ticks(
-                int24(scaledStartTick + dt * tickSpacing)
-            );
+        int256 cumulativeLiquidity;
+        uint256 currentTickIndex = type(uint256).max;
 
-            if (i == 0) {
-                tickData[i] = scaledStartTick + dt * tickSpacing;
-                liquidityNets[i] = 1;
+        for (uint256 i; i < arraySize; ) {
+            int24 tick = int24(scaledStartTick + (int256(i) - int256(nTicks)) * tickSpacing);
+
+            (, int128 liquidityNet, , , , , , ) = univ3pool.ticks(tick);
+
+            cumulativeLiquidity += liquidityNet;
+            tickData[i] = int256(tick);
+            liquidityNets[i] = cumulativeLiquidity;
+
+            if (int256(tick) == scaledCurrentTick) {
+                currentTickIndex = i;
             }
-            tickData[i + 1] = scaledStartTick + dt * tickSpacing;
-            liquidityNets[i + 1] = liquidityNets[i] + liquidityNet;
 
-            if (scaledCurrentTick == tickData[i + 1]) {
-                currentTickIndex = i + 1;
+            unchecked {
+                ++i;
             }
-            ++i;
-            ++dt;
         }
 
-        // if the range overlaps with the current tick, rescale the liquidity Nets such that
-        if (currentTickIndex < type(uint128).max) {
+        // Rescale only if the range includes the current tick
+        if (currentTickIndex < type(uint256).max) {
             int256 liquidityDelta = int256(uint256(liquidity)) - liquidityNets[currentTickIndex];
-            for (uint256 j = 0; j < 2 * nTicks + 1; ++j) {
+            for (uint256 j; j < arraySize; ) {
                 liquidityNets[j] += liquidityDelta;
+                unchecked {
+                    ++j;
+                }
             }
         }
-        return (tickData, liquidityNets);
     }
 
     function toStringSignedPct(int256 value) internal pure returns (string memory) {
@@ -847,7 +921,7 @@ contract UniswapHelper {
 
         (, int24 currentTick, , , , , ) = univ3pool.slot0();
 
-        (int256[] memory tickData, int256[] memory liquidityData) = getTickNets(
+        (int256[] memory tickData, int256[] memory liquidityData) = _getTickNetsV3(
             univ3pool,
             currentTick,
             500
