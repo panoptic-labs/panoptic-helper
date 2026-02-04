@@ -888,6 +888,213 @@ contract PanopticQuery {
         }
     }
 
+    function getMaxPositionSizeBounds(
+        PanopticPool pool,
+        TokenId[] calldata existingPositionIds,
+        address account,
+        TokenId tokenId
+    ) external view returns (uint128 maxSizeAtMinUtil, uint128 maxSizeAtMaxUtil) {
+        // Get premia for existing positions (new position has zero premia)
+        LeftRightUnsigned[2] memory shortLongPremium;
+        (
+            LeftRightUnsigned shortPremium,
+            LeftRightUnsigned longPremium,
+            PositionBalance[] memory positionBalanceArray
+        ) = pool.getAccumulatedFeesAndPositionsData(account, false, existingPositionIds);
+        shortLongPremium[0] = shortPremium;
+        shortLongPremium[1] = longPremium;
+        // Cache expensive external calls once
+        // Utilization encoding: lower 16 bits = token0 util, upper 16 bits = token1 util
+        uint32 minUtil = 0; // 0% for both tokens
+
+        TokenId[] memory allPositionIds;
+        PositionBalance[] memory allBalances;
+        {
+            uint256 numExisting = existingPositionIds.length + 1;
+            allPositionIds = new TokenId[](numExisting);
+            allBalances = new PositionBalance[](numExisting);
+            // Copy existing positions ONCE
+            for (uint256 i = 0; i < numExisting - 1; ) {
+                allPositionIds[i] = existingPositionIds[i];
+                allBalances[i] = positionBalanceArray[i];
+                unchecked {
+                    ++i;
+                }
+            }
+
+            // Index where we'll update the size (either existing or appended)
+            allPositionIds[numExisting - 1] = tokenId;
+        }
+
+        maxSizeAtMinUtil = _binarySearchMaxSize(
+            pool,
+            account,
+            allPositionIds,
+            allBalances,
+            minUtil,
+            shortLongPremium
+        );
+
+        uint32 maxUtil = (10_000 << 16) | 10_000; // 100% for both tokens
+
+        maxSizeAtMaxUtil = _binarySearchMaxSize(
+            pool,
+            account,
+            allPositionIds,
+            allBalances,
+            maxUtil,
+            shortLongPremium
+        );
+    }
+
+    /// @notice Binary search to find maximum position size that maintains solvency
+    function _binarySearchMaxSize(
+        PanopticPool pool,
+        address account,
+        TokenId[] memory allPositionIds,
+        PositionBalance[] memory allBalances,
+        uint32 utilization,
+        LeftRightUnsigned[2] memory shortLongPremium
+    ) internal view returns (uint128) {
+        int24 atTick;
+        (atTick, , , , ) = pool.getOracleTicks();
+
+        CollateralTracker[2] memory cts;
+        {
+            cts[0] = pool.collateralToken0();
+            cts[1] = pool.collateralToken1();
+        }
+        IRiskEngine riskEngine = pool.riskEngine();
+        // Phase 1: Exponential bracketing to find [low, high] where:
+        //   canOpen(low) = true, canOpen(high) = false
+        uint128 low = 0;
+        uint128 high = 1;
+
+        if (
+            _canOpenSize(
+                riskEngine,
+                atTick,
+                account,
+                allPositionIds,
+                allBalances,
+                high,
+                utilization,
+                shortLongPremium,
+                cts
+            )
+        ) {
+            // size=1 works, find upper bound by doubling
+            while (true) {
+                low = high;
+
+                // Check for overflow before doubling
+                if (high >= type(uint128).max / 100) {
+                    high = type(uint128).max;
+                    // If max is solvable, return it
+                    if (
+                        _canOpenSize(
+                            riskEngine,
+                            atTick,
+                            account,
+                            allPositionIds,
+                            allBalances,
+                            high,
+                            utilization,
+                            shortLongPremium,
+                            cts
+                        )
+                    ) {
+                        return high;
+                    }
+                    break; // Max is not solvable, proceed to binary search
+                }
+
+                high *= 100;
+                if (
+                    !_canOpenSize(
+                        riskEngine,
+                        atTick,
+                        account,
+                        allPositionIds,
+                        allBalances,
+                        high,
+                        utilization,
+                        shortLongPremium,
+                        cts
+                    )
+                ) {
+                    break; // Found bracket
+                }
+            }
+        }
+        // else: size=1 fails, so low=0 (works trivially), high=1 (fails)
+
+        // Phase 2: Binary search in [low, high], close within 10%
+        // Invariant: canOpen(low) = true, canOpen(high) = false
+        while (high - low > 1 && high - low > low / 10) {
+            uint128 mid = low + (high - low) / 2;
+            if (
+                _canOpenSize(
+                    riskEngine,
+                    atTick,
+                    account,
+                    allPositionIds,
+                    allBalances,
+                    mid,
+                    utilization,
+                    shortLongPremium,
+                    cts
+                )
+            ) {
+                low = mid;
+            } else {
+                high = mid;
+            }
+        }
+
+        return low;
+    }
+
+    /// @notice Checks if opening a position with given size maintains solvency
+    function _canOpenSize(
+        IRiskEngine riskEngine,
+        int24 atTick,
+        address account,
+        TokenId[] memory allPositionIds,
+        PositionBalance[] memory allBalances,
+        uint128 size,
+        uint32 utilization,
+        LeftRightUnsigned[2] memory shortLongPremium,
+        CollateralTracker[2] memory cts
+    ) internal view returns (bool) {
+        // Create synthetic balance for the position
+        // PositionBalance encoding:
+        //   bits 0-127:   positionSize (uint128)
+        //   bits 128-143: poolUtilization0 (uint16)
+        //   bits 144-159: poolUtilization1 (uint16)
+        //   bits 160+:    tickAtMint, timestamps, etc. (unused in solvency check)
+        PositionBalance syntheticBalance = PositionBalance.wrap(
+            uint256(size) | (uint256(utilization) << 128)
+        );
+
+        // Update only the target element (no allocation)
+        allBalances[allBalances.length - 1] = syntheticBalance;
+
+        // Check solvency using ground truth
+        return
+            riskEngine.isAccountSolvent(
+                allBalances,
+                allPositionIds,
+                atTick,
+                account,
+                shortLongPremium[0],
+                shortLongPremium[1],
+                cts[0],
+                cts[1],
+                NO_BUFFER // 10_000_000 = 100% collateral ratio, no buffer
+            );
+    }
+
     /// @notice An external function that validates a tokenId.
     /// @param self the tokenId to be tested
     function validateTokenId(TokenId self) external pure {

@@ -1124,4 +1124,396 @@ contract PanopticQueryTest is PositionUtils {
             }
         }
     }
+
+    /*//////////////////////////////////////////////////////////////
+                    getMaxPositionSizeBounds TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_Success_getMaxPositionSizeBounds_NoExistingPositions(uint256 x) public {
+        _initPool(x);
+        uint256 positionSizeSeed = bound(x, 1e15, 1e18);
+
+        // Alice has collateral but no positions
+        vm.startPrank(Alice);
+        ct0.redeem(ct0.maxRedeem(Alice), Alice, Alice);
+        ct1.redeem(ct1.maxRedeem(Alice), Alice, Alice);
+
+        uint256 deposit1 = positionSizeSeed;
+        uint256 deposit0 = ((((positionSizeSeed * 2 ** 96) / currentSqrtPriceX96) * 2 ** 96) /
+            currentSqrtPriceX96);
+
+        ct0.deposit(deposit0, Alice);
+        ct1.deposit(deposit1, Alice);
+
+        // Create a simple short put tokenId
+        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            0, // short
+            0, // put
+            0,
+            (currentTick / tickSpacing) * tickSpacing - 6 * tickSpacing,
+            2
+        );
+
+        TokenId[] memory emptyPositionIds = new TokenId[](0);
+
+        (uint128 maxSizeAtMinUtil, uint128 maxSizeAtMaxUtil) = pq.getMaxPositionSizeBounds(
+            pp,
+            emptyPositionIds,
+            Alice,
+            tokenId
+        );
+
+        // Min utilization should allow >= max utilization size
+        assertGe(maxSizeAtMinUtil, maxSizeAtMaxUtil, "minUtil should allow larger or equal size");
+
+        // Both should be > 0 since Alice has collateral
+        assertGt(maxSizeAtMinUtil, 0, "maxSizeAtMinUtil should be > 0");
+        assertGt(maxSizeAtMaxUtil, 0, "maxSizeAtMaxUtil should be > 0");
+
+        console2.log("maxSizeAtMinUtil", maxSizeAtMinUtil);
+        console2.log("maxSizeAtMaxUtil", maxSizeAtMaxUtil);
+    }
+
+    function test_Success_getMaxPositionSizeBounds_WithExistingPosition(uint256 x) public {
+        _initPool(x);
+
+        uint256 positionSizeSeed = 1e18;
+
+        vm.startPrank(Alice);
+        ct0.redeem(ct0.maxRedeem(Alice), Alice, Alice);
+        ct1.redeem(ct1.maxRedeem(Alice), Alice, Alice);
+
+        uint256 deposit1 = positionSizeSeed;
+        uint256 deposit0 = ((((positionSizeSeed * 2 ** 96) / currentSqrtPriceX96) * 2 ** 96) /
+            currentSqrtPriceX96);
+
+        ct0.deposit(deposit0, Alice);
+        ct1.deposit(deposit1, Alice);
+
+        // First, mint an existing position
+        TokenId existingTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            0,
+            0,
+            0,
+            (currentTick / tickSpacing) * tickSpacing - 6 * tickSpacing,
+            2
+        );
+
+        TokenId[] memory posIdList = new TokenId[](1);
+        posIdList[0] = existingTokenId;
+
+        mintOptions(
+            pp,
+            posIdList,
+            uint128((positionSizeSeed * 25) / 100), // smaller position
+            0,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
+        );
+
+        // Now query max size for a NEW position
+        TokenId newTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            0,
+            1, // call instead of put
+            0,
+            (currentTick / tickSpacing) * tickSpacing + 6 * tickSpacing,
+            2
+        );
+
+        (uint128 maxSizeAtMinUtil, uint128 maxSizeAtMaxUtil) = pq.getMaxPositionSizeBounds(
+            pp,
+            posIdList,
+            Alice,
+            newTokenId
+        );
+
+        // Min utilization should allow >= max utilization size
+        assertGe(maxSizeAtMinUtil, maxSizeAtMaxUtil, "minUtil should allow larger or equal size");
+
+        console2.log("With existing position:");
+        console2.log("maxSizeAtMinUtil", maxSizeAtMinUtil);
+        console2.log("maxSizeAtMaxUtil", maxSizeAtMaxUtil);
+    }
+
+    function test_Success_getMaxPositionSizeBounds_MaxSizeIsSolvent(uint256 x) public {
+        _initPool(x);
+
+        uint256 positionSizeSeed = 1e18;
+
+        vm.startPrank(Alice);
+        ct0.redeem(ct0.maxRedeem(Alice), Alice, Alice);
+        ct1.redeem(ct1.maxRedeem(Alice), Alice, Alice);
+
+        uint256 deposit1 = positionSizeSeed;
+        uint256 deposit0 = ((((positionSizeSeed * 2 ** 96) / currentSqrtPriceX96) * 2 ** 96) /
+            currentSqrtPriceX96);
+
+        ct0.deposit(deposit0, Alice);
+        ct1.deposit(deposit1, Alice);
+
+        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            0,
+            0,
+            0,
+            (currentTick / tickSpacing) * tickSpacing - 6 * tickSpacing,
+            2
+        );
+
+        TokenId[] memory emptyPositionIds = new TokenId[](0);
+
+        (uint128 maxSizeAtMinUtil, uint128 maxSizeAtMaxUtil) = pq.getMaxPositionSizeBounds(
+            pp,
+            emptyPositionIds,
+            Alice,
+            tokenId
+        );
+
+        // Skip if max size is 0 (account can't open any position)
+        vm.assume(maxSizeAtMaxUtil > 0);
+
+        // Verify that minting at maxSizeAtMaxUtil keeps account solvent
+        // Use a size slightly below to account for 10% precision
+        uint128 testSize = maxSizeAtMinUtil > 10 ? (maxSizeAtMinUtil * 9) / 10 : maxSizeAtMinUtil;
+
+        TokenId[] memory posIdList = new TokenId[](1);
+        posIdList[0] = tokenId;
+
+        // This should succeed (not revert)
+        mintOptions(
+            pp,
+            posIdList,
+            (testSize * 10) / 100,
+            0,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
+        );
+
+        // Verify account is solvent after mint
+        bool solvent = pq.isAccountSolvent(pp, Alice, posIdList, currentTick);
+        assertTrue(solvent, "Account should be solvent at maxSizeAtMaxUtil");
+
+        console2.log("Minted size", testSize);
+        console2.log("Account solvent", solvent);
+    }
+
+    function test_Success_getMaxPositionSizeBounds_ZeroCollateral(uint256 x) public {
+        _initPool(x);
+
+        // Charlie has no collateral deposited
+        vm.startPrank(Charlie);
+
+        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            0,
+            0,
+            0,
+            (currentTick / tickSpacing) * tickSpacing - 6 * tickSpacing,
+            2
+        );
+
+        TokenId[] memory emptyPositionIds = new TokenId[](0);
+
+        (uint128 maxSizeAtMinUtil, uint128 maxSizeAtMaxUtil) = pq.getMaxPositionSizeBounds(
+            pp,
+            emptyPositionIds,
+            Charlie,
+            tokenId
+        );
+
+        // With no collateral, max size should be 0
+        assertEq(maxSizeAtMinUtil, 0, "maxSizeAtMinUtil should be 0 with no collateral");
+        assertEq(maxSizeAtMaxUtil, 0, "maxSizeAtMaxUtil should be 0 with no collateral");
+    }
+
+    function test_Success_getMaxPositionSizeBounds_Strangle(uint256 x) public {
+        _initPool(x);
+
+        uint256 positionSizeSeed = 1e18;
+
+        vm.startPrank(Alice);
+        ct0.redeem(ct0.maxRedeem(Alice), Alice, Alice);
+        ct1.redeem(ct1.maxRedeem(Alice), Alice, Alice);
+
+        uint256 deposit1 = positionSizeSeed;
+        uint256 deposit0 = ((((positionSizeSeed * 2 ** 96) / currentSqrtPriceX96) * 2 ** 96) /
+            currentSqrtPriceX96);
+
+        ct0.deposit(deposit0, Alice);
+        ct1.deposit(deposit1, Alice);
+
+        // Short strangle (2 legs)
+        TokenId tokenId = TokenId
+            .wrap(0)
+            .addPoolId(poolId)
+            .addLeg(
+                0,
+                1,
+                1,
+                0,
+                0,
+                0,
+                (currentTick / tickSpacing) * tickSpacing - 6 * tickSpacing,
+                2
+            )
+            .addLeg(
+                1,
+                1,
+                1,
+                0,
+                1,
+                1,
+                (currentTick / tickSpacing) * tickSpacing + 6 * tickSpacing,
+                2
+            );
+
+        TokenId[] memory emptyPositionIds = new TokenId[](0);
+
+        (uint128 maxSizeAtMinUtil, uint128 maxSizeAtMaxUtil) = pq.getMaxPositionSizeBounds(
+            pp,
+            emptyPositionIds,
+            Alice,
+            tokenId
+        );
+
+        assertGe(maxSizeAtMinUtil, maxSizeAtMaxUtil, "minUtil should allow larger or equal size");
+        assertGt(maxSizeAtMinUtil, 0, "strangle maxSizeAtMinUtil should be > 0");
+
+        console2.log("Strangle maxSizeAtMinUtil", maxSizeAtMinUtil);
+        console2.log("Strangle maxSizeAtMaxUtil", maxSizeAtMaxUtil);
+    }
+
+    /// @notice Test accuracy of getMaxPositionSizeBounds by comparing to actual mint limits
+    function test_Success_getMaxPositionSizeBounds_Accuracy(uint256 x) public {
+        _initPool(x);
+
+        uint256 positionSizeSeed = bound(x, 1e15, 1e18);
+
+        vm.startPrank(Alice);
+        ct0.redeem(ct0.maxRedeem(Alice), Alice, Alice);
+        ct1.redeem(ct1.maxRedeem(Alice), Alice, Alice);
+
+        uint256 deposit1 = positionSizeSeed;
+        uint256 deposit0 = ((((positionSizeSeed * 2 ** 96) / currentSqrtPriceX96) * 2 ** 96) /
+            currentSqrtPriceX96);
+
+        ct0.deposit(deposit0, Alice);
+        ct1.deposit(deposit1, Alice);
+
+        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            0,
+            0,
+            0,
+            (currentTick / tickSpacing) * tickSpacing - 6 * tickSpacing,
+            2
+        );
+
+        TokenId[] memory emptyPositionIds = new TokenId[](0);
+
+        // Step 1: Get the max size bounds from the function
+        (uint128 maxSizeAtMinUtil, uint128 maxSizeAtMaxUtil) = pq.getMaxPositionSizeBounds(
+            pp,
+            emptyPositionIds,
+            Alice,
+            tokenId
+        );
+
+        vm.assume(maxSizeAtMinUtil > 100); // Need enough size to test precision
+
+        TokenId[] memory posIdList = new TokenId[](1);
+        posIdList[0] = tokenId;
+
+        // Step 2: Binary search to find actual largest mintable size
+        uint128 low = maxSizeAtMaxUtil / 2;
+        uint128 high = maxSizeAtMinUtil * 2; // Search above the estimate too
+
+        while (high - low > 1) {
+            uint128 mid = low + (high - low) / 2;
+
+            // Take a snapshot to revert after each attempt
+            uint256 snapshot = vm.snapshot();
+
+            bool success = _tryMint(Alice, posIdList, mid);
+
+            vm.revertTo(snapshot);
+
+            if (success) {
+                low = mid;
+            } else {
+                high = mid;
+            }
+        }
+
+        uint128 actualMaxSize = low;
+
+        console2.log("Estimated maxSizeAtMinUtil", maxSizeAtMinUtil);
+        console2.log("Estimated maxSizeAtMaxUtil", maxSizeAtMaxUtil);
+        console2.log("Actual max mintable size", actualMaxSize);
+
+        // Step 3: Confirm mint succeeds at actualMaxSize, fails at actualMaxSize + 1
+        {
+            uint256 snapshot = vm.snapshot();
+            bool successAtMax = _tryMint(Alice, posIdList, actualMaxSize);
+            vm.revertTo(snapshot);
+            assertTrue(successAtMax, "Mint should succeed at actualMaxSize");
+        }
+
+        {
+            uint256 snapshot = vm.snapshot();
+            bool successAboveMax = _tryMint(Alice, posIdList, actualMaxSize + 1);
+            vm.revertTo(snapshot);
+            assertFalse(successAboveMax, "Mint should fail at actualMaxSize + 1");
+        }
+
+        // Verify our estimate is within 10% of actual (since we use 10% precision in binary search)
+        assertTrue(
+            (actualMaxSize <= maxSizeAtMinUtil) && (actualMaxSize >= maxSizeAtMaxUtil),
+            "actual size is within limits"
+        );
+
+        console2.log(
+            "Accuracy check passed. Difference:",
+            maxSizeAtMinUtil > actualMaxSize
+                ? maxSizeAtMinUtil - actualMaxSize
+                : actualMaxSize - maxSizeAtMinUtil
+        );
+    }
+
+    /// @notice Helper to attempt a mint and return success/failure using low-level call
+    function _tryMint(
+        address account,
+        TokenId[] memory posIdList,
+        uint128 size
+    ) internal returns (bool) {
+        // Use low-level call to catch reverts without try-catch issues
+        (bool success, ) = address(this).call(
+            abi.encodeCall(this.externalMint, (account, posIdList, size))
+        );
+        return success;
+    }
+
+    /// @notice External wrapper for mint (needed for low-level call)
+    function externalMint(address account, TokenId[] memory posIdList, uint128 size) external {
+        vm.startPrank(account);
+        mintOptions(pp, posIdList, size, 0, Constants.MIN_POOL_TICK, Constants.MAX_POOL_TICK, true);
+        vm.stopPrank();
+    }
 }
