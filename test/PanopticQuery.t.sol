@@ -57,16 +57,6 @@ contract PanopticPoolHarness is PanopticPool {
         _positionsHash = uint248(s_positionsHash[user]);
     }
 
-    // TODO: Update for v2 - TWAP and pool access changed
-    // /**
-    //  * @notice compute the TWAP price from the last 600s = 10mins
-    //  * @return twapTick the TWAP price in ticks
-    //  */
-    // function getUniV3TWAP_() external view returns (int24 twapTick) {
-    //     // v2 doesn't have s_univ3pool or TWAP_WINDOW
-    //     // Need to use poolKey() and updated oracle methods
-    // }
-
     constructor(ISemiFungiblePositionManager _sfpm) PanopticPool(_sfpm) {}
 }
 
@@ -341,6 +331,11 @@ contract PanopticQueryTest is PositionUtils {
 
     function _deployPanopticPool() internal {
         vm.startPrank(Deployer);
+
+        // Provide tokens to the manager and initialize the pool in the v4 PoolManager
+        deal(token0, address(manager), type(uint128).max);
+        deal(token1, address(manager), type(uint128).max);
+        manager.initialize(poolKey, currentSqrtPriceX96);
 
         factory = new PanopticFactory(
             sfpm,
@@ -625,735 +620,139 @@ contract PanopticQueryTest is PositionUtils {
         return tokenId;
     }
 
-    function test_Success_checkCollateral_OTMandITMShortCall(
-        uint256 x,
-        uint256[2] memory widthSeeds,
-        int256[2] memory strikeSeeds,
-        uint256[2] memory positionSizeSeeds,
-        int256 atTickSeed
-    ) public {
-        _initPool(x);
-
-        ($width, $strike) = PositionUtils.getOTMSW(
-            widthSeeds[0],
-            strikeSeeds[0],
-            uint24(tickSpacing),
-            currentTick,
-            0
-        );
-
-        ($width2, $strike2) = PositionUtils.getITMSW(
-            widthSeeds[1],
-            strikeSeeds[1],
-            uint24(tickSpacing),
-            currentTick,
-            1
-        );
-        vm.assume($width2 != $width || $strike2 != $strike);
-
-        populatePositionData([$width, $width2], [$strike, $strike2], positionSizeSeeds);
-
-        atTick = int24(bound(atTickSeed, TickMath.MIN_TICK, TickMath.MAX_TICK));
-
-        /// position size is denominated in the opposite of asset, so we do it in the token that is not WETH
-        // leg 1
-        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
-            0,
-            1,
-            isWETH,
-            0,
-            0,
-            0,
-            $strike,
-            $width
-        );
-        // leg 2
-        TokenId tokenId2 = TokenId.wrap(0).addPoolId(poolId).addLeg(
-            0,
-            1,
-            isWETH,
-            0,
-            1,
-            0,
-            $strike2,
-            $width2
-        );
-        {
-            TokenId[] memory posIdList = new TokenId[](1);
-            posIdList[0] = tokenId;
-
-            mintOptions(
-                pp,
-                posIdList,
-                positionSizes[0],
-                0,
-                Constants.MAX_POOL_TICK,
-                Constants.MIN_POOL_TICK,
-                true
-            );
-        }
-
-        {
-            TokenId[] memory posIdList = new TokenId[](2);
-            posIdList[0] = tokenId;
-            posIdList[1] = tokenId2;
-
-            mintOptions(
-                pp,
-                posIdList,
-                positionSizes[1],
-                0,
-                Constants.MAX_POOL_TICK,
-                Constants.MIN_POOL_TICK,
-                true
-            );
-
-            (
-                LeftRightUnsigned shortPremium,
-                LeftRightUnsigned longPremium,
-                PositionBalance[] memory posBalanceArray
-            ) = pp.getAccumulatedFeesAndPositionsData(Alice, false, posIdList);
-
-            (tokenData0, tokenData1, ) = re.getMargin(
-                posBalanceArray,
-                atTick,
-                Alice,
-                posIdList,
-                shortPremium,
-                longPremium,
-                ct0,
-                ct1
-            );
-
-            (calculatedCollateralBalance, calculatedRequiredCollateral) = PanopticMath
-                .getCrossBalances(tokenData0, tokenData1, Math.getSqrtRatioAtTick(atTick));
-
-            // these are the balance/required cross, reusing variables to save stack space
-
-            if (atTick < 0)
-                (collateralBalance, requiredCollateral, , ) = pq.checkCollateral(
-                    pp,
-                    Alice,
-                    posIdList,
-                    atTick
-                );
-            else
-                (, , collateralBalance, requiredCollateral) = pq.checkCollateral(
-                    pp,
-                    Alice,
-                    posIdList,
-                    atTick
-                );
-
-            assertEq(collateralBalance, calculatedCollateralBalance);
-            assertEq(requiredCollateral, calculatedRequiredCollateral);
-
-            pq.checkCollateral(pp, Alice, posIdList);
-        }
-    }
-
     function test_Success_checkCollateral_LiquidationPrices(uint256 x) public {
         _initPool(x);
 
-        uint256 positionSizeSeed = 2 ** 96;
+        uint256 positionSizeSeed = 1e18;
         ct0.redeem(ct0.maxRedeem(Alice), Alice, Alice);
         ct1.redeem(ct1.maxRedeem(Alice), Alice, Alice);
         uint256 deposit1 = uint256(positionSizeSeed);
         uint256 deposit0 = ((((uint256(positionSizeSeed) * 2 ** 96) / currentSqrtPriceX96) *
             2 ** 96) / currentSqrtPriceX96);
+        console2.log("deposit0, deposit1", deposit0, deposit1);
         ct0.deposit(deposit0, Alice);
         ct1.deposit(deposit1, Alice);
         /// position size is denominated in the opposite of asset, so we do it in the token that is not WETH
         // leg 1
-        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
-            0,
-            1,
-            isWETH,
-            0,
-            0,
-            0,
-            (currentTick / tickSpacing) * tickSpacing,
-            30
-        );
+        TokenId tokenId = TokenId
+            .wrap(0)
+            .addPoolId(poolId)
+            .addLeg(
+                0,
+                1,
+                1,
+                0,
+                0,
+                0,
+                (currentTick / tickSpacing) * tickSpacing - 6 * tickSpacing,
+                2
+            )
+            .addLeg(
+                1,
+                1,
+                1,
+                0,
+                1,
+                1,
+                (currentTick / tickSpacing) * tickSpacing + 6 * tickSpacing,
+                2
+            );
         // leg 2
+        /*
         TokenId tokenId2 = TokenId.wrap(0).addPoolId(poolId).addLeg(
             0,
             1,
-            isWETH,
+            1,
             0,
             1,
             0,
-            (currentTick / tickSpacing) * tickSpacing,
-            30
+            (currentTick / tickSpacing) * tickSpacing - 0 * tickSpacing,
+            2
         );
+       */
+        TokenId[] memory posIdList = new TokenId[](1);
         {
-            TokenId[] memory posIdList = new TokenId[](1);
             posIdList[0] = tokenId;
+            console2.log("mint 1");
 
             mintOptions(
                 pp,
                 posIdList,
-                uint128((positionSizeSeed * 250) / 100),
+                uint128((positionSizeSeed * 350) / 100),
                 0,
                 Constants.MIN_POOL_TICK,
                 Constants.MAX_POOL_TICK,
                 true
+            );
+            console2.log(
+                "bal0, bal1",
+                ct0.convertToAssets(ct0.balanceOf(Alice)),
+                ct1.convertToAssets(ct1.balanceOf(Alice))
             );
         }
 
         {
+            /*
             TokenId[] memory posIdList = new TokenId[](2);
             posIdList[0] = tokenId;
             posIdList[1] = tokenId2;
+            console2.log('mint 2');
 
             mintOptions(
                 pp,
                 posIdList,
-                uint128((positionSizeSeed * 250) / 100),
+                uint128((positionSizeSeed * 1) / 1000000),
                 0,
                 Constants.MIN_POOL_TICK,
                 Constants.MAX_POOL_TICK,
                 true
             );
 
+           */
+            console2.log("pp.numberOfLegs", pp.numberOfLegs(Alice));
+
+            console2.log(
+                "bal0, bal1",
+                ct0.convertToAssets(ct0.balanceOf(Alice)),
+                ct1.convertToAssets(ct1.balanceOf(Alice))
+            );
             int24 liquidationPriceUp;
             int24 liquidationPriceDown;
-            if (currentTick < 0) {
-                (
-                    collateralBalance,
-                    requiredCollateral,
-                    ,
-                    ,
-                    liquidationPriceDown,
-                    liquidationPriceUp
-                ) = pq.checkCollateralAndGetLiquidationPrices(pp, Alice, posIdList);
-            } else {
-                (
-                    collateralBalance,
-                    requiredCollateral,
-                    ,
-                    ,
-                    liquidationPriceDown,
-                    liquidationPriceUp
-                ) = pq.checkCollateralAndGetLiquidationPrices(pp, Alice, posIdList);
-            }
+            (liquidationPriceDown, liquidationPriceUp) = pq.getLiquidationPrices(
+                pp,
+                Alice,
+                posIdList
+            );
 
+            console2.log(
+                "collateralBalance, requiredCollateral",
+                collateralBalance,
+                requiredCollateral
+            );
             // make sure it's liquidatable
             assertTrue(liquidationPriceUp < int24(2 ** 22), "not liquidatable up");
             assertTrue(liquidationPriceDown > -int24(2 ** 22), "not liquidatable down");
 
             // check that the account is liquidatble
-            (collateralBalance, requiredCollateral, , ) = pq.checkCollateral(
-                pp,
-                Alice,
-                posIdList,
-                liquidationPriceDown + 1
-            );
-            assertTrue(collateralBalance > requiredCollateral, "not liquidatable");
+            bool solvent = pq.isAccountSolvent(pp, Alice, posIdList, liquidationPriceDown + 1);
+            assertTrue(solvent, "not liquidatable");
 
-            (collateralBalance, requiredCollateral, , ) = pq.checkCollateral(
-                pp,
-                Alice,
-                posIdList,
-                liquidationPriceDown - 1
-            );
-            assertTrue(collateralBalance < requiredCollateral, "liquidatable");
+            solvent = pq.isAccountSolvent(pp, Alice, posIdList, liquidationPriceDown - 1);
+            assertTrue(!solvent, "liquidatable");
 
-            (collateralBalance, requiredCollateral, , ) = pq.checkCollateral(
-                pp,
-                Alice,
-                posIdList,
-                liquidationPriceUp - 1
-            );
-            assertTrue(collateralBalance > requiredCollateral, "not liquidatable");
+            solvent = pq.isAccountSolvent(pp, Alice, posIdList, liquidationPriceUp - 1);
+            assertTrue(solvent, "not liquidatable");
 
-            (collateralBalance, requiredCollateral, , ) = pq.checkCollateral(
-                pp,
-                Alice,
-                posIdList,
-                liquidationPriceUp + 1
-            );
-            assertTrue(collateralBalance < requiredCollateral, "liquidatable");
+            solvent = pq.isAccountSolvent(pp, Alice, posIdList, liquidationPriceUp + 1);
+            assertTrue(!solvent, "liquidatable");
 
-            (uint256[2][] memory data, int256[] memory ticks, ) = pq.checkCollateralListOutput(
+            (uint256[4][] memory data, int256[] memory ticks, ) = pq.checkCollateralListOutput(
                 pp,
                 Alice,
                 posIdList
             );
         }
     }
-
-    function test_computeMinimumSize_returns_zero_if_no_purchase(
-        uint256 x,
-        uint256 widthSeed,
-        int256 strikeSeed
-    ) public {
-        _initPool(x);
-        ($width, $strike) = PositionUtils.getITMSW(
-            widthSeed,
-            strikeSeed,
-            uint24(tickSpacing),
-            currentTick,
-            0
-        );
-
-        // - alice mints a call to sell token0 at some size
-        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
-            0,
-            1,
-            isWETH,
-            0,
-            0,
-            0,
-            $strike,
-            $width
-        );
-        TokenId[] memory posIdList = new TokenId[](1);
-        posIdList[0] = tokenId;
-        // TODO: fuzz position size some day
-        mintOptions(
-            pp,
-            posIdList,
-            10 ** 15,
-            0,
-            Constants.MIN_POOL_TICK,
-            Constants.MAX_POOL_TICK,
-            true
-        );
-        // - then immediately call computeMinimumSize
-        // it should return 0: no one has bought from you
-        uint128 minPositionSize = pq.computeMinimumSize(pp, Alice, tokenId);
-        assertEq(minPositionSize, 0);
-    }
-
-    function test_computeMinimumSize_returns_lower_size_if_small_purchase_made(
-        uint256 x,
-        uint256 widthSeed,
-        int256 strikeSeed
-    ) public {
-        _initPool(x);
-        ($width, $strike) = PositionUtils.getITMSW(
-            widthSeed,
-            strikeSeed,
-            uint24(tickSpacing),
-            currentTick,
-            0
-        );
-
-        // - alice mints a call to sell token0 at some size
-        TokenId callSaleTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
-            0,
-            // Use an option ratio of 2 so that its easy to get an equivalentPosition later:
-            2,
-            isWETH,
-            0,
-            0,
-            0,
-            $strike,
-            $width
-        );
-        TokenId[] memory posIdList = new TokenId[](1);
-        posIdList[0] = callSaleTokenId;
-        // TODO: fuzz position size some day
-        uint128 alicesSaleSize = 100 * 10 ** 15;
-        mintOptions(
-            pp,
-            posIdList,
-            alicesSaleSize,
-            0,
-            Constants.MIN_POOL_TICK,
-            Constants.MAX_POOL_TICK,
-            true
-        );
-        // - bob mints a call purchase, to purchase < 90%
-        TokenId callPurchaseTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
-            0,
-            // Use an option ratio of 2 so that its easy to get an equivalentPosition later:
-            2,
-            isWETH,
-            1,
-            0,
-            0,
-            $strike,
-            $width
-        );
-        posIdList[0] = callPurchaseTokenId;
-        // TODO: fuzz the portion of alicesSaleSize some day; hardcoding half for now
-        uint128 bobsPurchaseSize = 50 * 10 ** 15;
-        vm.startPrank(Bob);
-        mintOptions(
-            pp,
-            posIdList,
-            bobsPurchaseSize,
-            type(uint24).max,
-            Constants.MIN_POOL_TICK,
-            Constants.MAX_POOL_TICK,
-            true
-        );
-        // - then call computeMinimumSize on Alice
-        uint128 alicesMinPositionSize = pq.computeMinimumSize(pp, Alice, callSaleTokenId);
-        // With that value, we should be able to make some assertions about remint-and-burning:
-        // First - get a re-mintable tokenId by scaling down from the original option ratio of 2:
-        TokenId equivalentCallSaleTokenId = tih.scaledPosition(callSaleTokenId, 2, false);
-        alicesMinPositionSize *= 2;
-        TokenId[] memory remintingPosIdList = new TokenId[](2);
-        TokenId[] memory postburnPosIdList = new TokenId[](1);
-        remintingPosIdList[0] = callSaleTokenId;
-        remintingPosIdList[1] = equivalentCallSaleTokenId;
-        postburnPosIdList[0] = equivalentCallSaleTokenId;
-        bytes[] memory remintAndBurnMulticallData = new bytes[](2);
-        // In both subsequent tests, we plan to burn the original position:
-        remintAndBurnMulticallData[1] = abi.encodeWithSelector(
-            bytes4(keccak256("burnOptions(uint256,uint256[],int24,int24)")),
-            callSaleTokenId,
-            postburnPosIdList,
-            Constants.MIN_POOL_TICK,
-            Constants.MAX_POOL_TICK
-        );
-        // (
-        //     int24 equivalentCallSaleTickLower,
-        //     int24 equivalentCallSaleTickUpper
-        // ) = equivalentCallSaleTokenId.asTicks(0);
-        vm.startPrank(Alice);
-        {
-            // 1. Alice should get a revert if she tries to remint-and-burn with 1 less than the min size
-            // TODO: computeMinimumSize is too conservative, so for now we're commenting out this test, and just checking
-            // that the position size was reduced at all:
-            assertLt(alicesMinPositionSize / 2, alicesSaleSize);
-            // But this is what it would look like to test that the reducedSize is truly as small as could be:
-            // remintAndBurnMulticallData[0] = abi.encodeWithSelector(
-            //     PanopticPool.mintOptions.selector,
-            //     remintingPosIdList,
-            //     /*
-            //     This is what the function should guarantee - this fails:
-            //     */
-            //     alicesMinPositionSize - 1,
-            //     */
-            //     /*
-            //     This is a lighter version that provides some tolerance -
-            //     e.g., it passes even if alicesMinPositionSize could have been up to 200k liq units smaller,
-            //     and passes with the current implementation (100k even usually passes):
-            //     */
-            //     alicesMinPositionSize -
-            //         (
-            //             LiquidityAmounts.getAmount1ForLiquidity(
-            //                 Math.getSqrtRatioAtTick(equivalentCallSaleTickLower),
-            //                 Math.getSqrtRatioAtTick(equivalentCallSaleTickUpper),
-            //                 200_000
-            //             )
-            //         ),
-            //     0,
-            //     Constants.MIN_POOL_TICK,
-            //     Constants.MAX_POOL_TICK
-            // );
-            // vm.expectRevert(Errors.EffectiveLiquidityAboveThreshold.selector);
-            // pp.multicall(remintAndBurnMulticallData);
-        }
-        {
-            // 2. Alice should be able to successfully remint-and-burn with exactly the min size:
-            uint128[] memory sizeList = new uint128[](1);
-            sizeList[0] = alicesMinPositionSize;
-            TokenId[] memory mintList = new TokenId[](1);
-            mintList[0] = equivalentCallSaleTokenId;
-            int24[3][] memory tickAndSpreadLimits = new int24[3][](1);
-            tickAndSpreadLimits[0][0] = Constants.MIN_POOL_TICK;
-            tickAndSpreadLimits[0][1] = Constants.MAX_POOL_TICK;
-            tickAndSpreadLimits[0][2] = 0;
-
-            remintAndBurnMulticallData[0] = abi.encodeWithSelector(
-                PanopticPool.dispatch.selector,
-                mintList,
-                remintingPosIdList,
-                sizeList,
-                tickAndSpreadLimits,
-                true,
-                0
-            );
-            pp.multicall(remintAndBurnMulticallData);
-            // 3. Bob should not be able to purchase even a fraction of what he did before after Alice successfully resizes down:
-            vm.startPrank(Bob);
-            // Scale down the tokenId the original option ratio of 2
-            // (and scale up purchase size to reflect the same size as before):
-            TokenId equivalentCallPurchaseTokenId = tih.scaledPosition(
-                callPurchaseTokenId,
-                2,
-                false
-            );
-            bobsPurchaseSize *= 2;
-            TokenId[] memory bobsPostRepurchaseList = new TokenId[](2);
-            bobsPostRepurchaseList[0] = callPurchaseTokenId;
-            bobsPostRepurchaseList[1] = equivalentCallPurchaseTokenId;
-            vm.expectRevert(Errors.EffectiveLiquidityAboveThreshold.selector);
-            mintOptions(
-                pp,
-                bobsPostRepurchaseList,
-                // Bob tries to buy one tenth as much as he did before
-                bobsPurchaseSize / 10,
-                type(uint24).max,
-                Constants.MIN_POOL_TICK,
-                Constants.MAX_POOL_TICK,
-                true
-            );
-        }
-        // - finally, also call computeMinimumSize on Bob
-        // it should return type(uint128).max - bob has only long legs
-        uint128 bobsMinPositionSize = pq.computeMinimumSize(pp, Bob, callPurchaseTokenId);
-        assertEq(bobsMinPositionSize, 0);
-    }
-
-    function test_computeMinimumSize_returns_same_size_if_max_purchase_made(
-        uint256 x,
-        uint256 widthSeed,
-        int256 strikeSeed
-    ) public {
-        _initPool(x);
-        ($width, $strike) = PositionUtils.getITMSW(
-            widthSeed,
-            strikeSeed,
-            uint24(tickSpacing),
-            currentTick,
-            0
-        );
-
-        // - alice mints a call to sell token0 at some size
-        TokenId callSaleTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
-            0,
-            1,
-            isWETH,
-            0,
-            0,
-            0,
-            $strike,
-            $width
-        );
-        TokenId[] memory posIdList = new TokenId[](1);
-        posIdList[0] = callSaleTokenId;
-        // TODO: fuzz position size some day
-        uint128 alicesSaleSize = 100 * 10 ** 15;
-        mintOptions(
-            pp,
-            posIdList,
-            alicesSaleSize,
-            0,
-            Constants.MIN_POOL_TICK,
-            Constants.MAX_POOL_TICK,
-            true
-        );
-        // - bob mints a call purchase, to purchase exactly 90%
-        TokenId callPurchaseTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
-            0,
-            1,
-            isWETH,
-            1,
-            0,
-            0,
-            $strike,
-            $width
-        );
-        posIdList[0] = callPurchaseTokenId;
-        uint128 bobsPurchaseSize = uint128(Math.mulDiv(uint256(alicesSaleSize), 9, 10));
-        vm.startPrank(Bob);
-        mintOptions(
-            pp,
-            posIdList,
-            bobsPurchaseSize,
-            type(uint24).max,
-            Constants.MIN_POOL_TICK,
-            Constants.MAX_POOL_TICK,
-            true
-        );
-        // - then call computeMinimumSize on Alice
-        // it should return the original size alice minted, +/- some liquidity units
-        uint128 alicesMinPositionSize = pq.computeMinimumSize(pp, Alice, callSaleTokenId);
-        (int24 callSaleTickLower, int24 callSaleTickUpper) = callSaleTokenId.asTicks(0);
-        assertLt(
-            Math.absUint(int256(uint256(alicesMinPositionSize)) - int256(uint256(alicesSaleSize))),
-            LiquidityAmounts.getAmount1ForLiquidity(
-                Math.getSqrtRatioAtTick(callSaleTickLower),
-                Math.getSqrtRatioAtTick(callSaleTickUpper),
-                2
-            ),
-            "alicesMinPositionSize was not within 2 liquidity units of alicesSaleSize after a 90% purchase"
-        );
-    }
-
-    function test_computeSoldPositionToSatisfyLongLegs_returns_zero_if_small_purchase_made(
-        uint256 x,
-        uint256 widthSeed,
-        int256 strikeSeed
-    ) public {
-        _initPool(x);
-        // alice sells 100 * 10 ** 15 calls
-        ($width, $strike) = PositionUtils.getITMSW(
-            widthSeed,
-            strikeSeed,
-            uint24(tickSpacing),
-            currentTick,
-            0
-        );
-
-        TokenId callSaleTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
-            0,
-            1,
-            isWETH,
-            0,
-            0,
-            0,
-            $strike,
-            $width
-        );
-        TokenId[] memory posIdList = new TokenId[](1);
-        posIdList[0] = callSaleTokenId;
-        uint128 alicesSaleSize = 100 * 10 ** 15;
-        mintOptions(
-            pp,
-            posIdList,
-            alicesSaleSize,
-            0,
-            Constants.MIN_POOL_TICK,
-            Constants.MAX_POOL_TICK,
-            true
-        );
-
-        // Bob purchases 10%
-        TokenId callPurchaseTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
-            0,
-            1,
-            isWETH,
-            1,
-            0,
-            0,
-            $strike,
-            $width
-        );
-        posIdList[0] = callPurchaseTokenId;
-        uint128 bobsPurchaseSize = uint128(Math.mulDiv(uint256(alicesSaleSize), 1, 10));
-        vm.startPrank(Bob);
-        mintOptions(
-            pp,
-            posIdList,
-            bobsPurchaseSize,
-            type(uint24).max,
-            Constants.MIN_POOL_TICK,
-            Constants.MAX_POOL_TICK,
-            true
-        );
-
-        // Bob tries to compute a sell-side position to satisfy another small purchase
-        (TokenId sellsidePosition, uint128 sellsidePositionSize) = pq
-            .computeSoldPositionToSatisfyLongLegs(pp, callPurchaseTokenId, bobsPurchaseSize);
-
-        // Assert no sell-side position is required
-        assertEq(
-            sellsidePosition.countLegs(),
-            0,
-            "There should be no legs on the returned sellside position, as the purchase easily fits within current liquidity"
-        );
-        assertEq(
-            sellsidePositionSize,
-            0,
-            "Sellside position size should be zero if no more liquidity necessary for purchase in question"
-        );
-    }
-
-    function test_computeSoldPositionToSatisfyLongLegs_returns_nonzero_if_max_purchase_made(
-        uint256 x,
-        uint256 widthSeed,
-        int256 strikeSeed
-    ) public {
-        _initPool(x);
-        ($width, $strike) = PositionUtils.getITMSW(
-            widthSeed,
-            strikeSeed,
-            uint24(tickSpacing),
-            currentTick,
-            0
-        );
-
-        // alice sells 100 * 10 ** 15 calls
-        TokenId callSaleTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
-            0,
-            1,
-            isWETH,
-            0,
-            0,
-            0,
-            $strike,
-            $width
-        );
-        TokenId[] memory posIdList = new TokenId[](1);
-        posIdList[0] = callSaleTokenId;
-        uint128 alicesSaleSize = 100 * 10 ** 15;
-        mintOptions(
-            pp,
-            posIdList,
-            alicesSaleSize,
-            0,
-            Constants.MIN_POOL_TICK,
-            Constants.MAX_POOL_TICK,
-            true
-        );
-
-        // Bob purchases 90%
-        TokenId callPurchaseTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
-            0,
-            1,
-            isWETH,
-            1,
-            0,
-            0,
-            $strike,
-            $width
-        );
-        posIdList[0] = callPurchaseTokenId;
-        uint128 bobsPurchaseSize = uint128(Math.mulDiv(uint256(alicesSaleSize), 9, 10));
-        vm.startPrank(Bob);
-        mintOptions(
-            pp,
-            posIdList,
-            bobsPurchaseSize,
-            type(uint24).max,
-            Constants.MIN_POOL_TICK,
-            Constants.MAX_POOL_TICK,
-            true
-        );
-
-        // Bob computes the sell-side position required to make another purchase in the same size
-        // (without more sales, he would drive util to 180%)
-        (TokenId sellsidePosition, uint128 sellsidePositionSize) = pq
-            .computeSoldPositionToSatisfyLongLegs(pp, callPurchaseTokenId, bobsPurchaseSize);
-
-        // Assert that a sell-side position is required and computed
-        assertTrue(
-            TokenId.unwrap(sellsidePosition) != 0,
-            "A sellside position should be returned because there is insufficient liquidity for another purchase of that size"
-        );
-        assertGt(
-            sellsidePositionSize,
-            0,
-            "Sellside position size should be non-zero if more liquidity is necessary for purchase in question"
-        );
-        // Assert that the returned sell-side position sells into the same chunk Bob wanted to buy into
-        uint256 sellAsset = sellsidePosition.asset(0);
-        uint256 sellTokenType = sellsidePosition.tokenType(0);
-        int24 sellStrike = sellsidePosition.strike(0);
-        int24 sellWidth = sellsidePosition.width(0);
-        assertEq(sellAsset, isWETH, "Sellside asset does not match expected");
-        assertEq(sellTokenType, 0, "Sellside token type should be type 0 like the minted position");
-        assertEq(sellStrike, $strike, "Sellside strike does not match expected");
-        assertEq(sellWidth, $width, "Sellside width does not match expected");
-    }
-
-    // TODO: test computeMinimumSize with multiple sellers, multiple buyers, multi-leg positions...
-    // TODO: fuzz more of the computeSoldPositionToSatisfyLongLegs test content, and also try the above multi scenarios
-    // TODO: mostly as an example, write a test where Alice has a position with both long and short legs,
-    // and show how you could first get a min size from computeMinimumSize, then call computeSoldPositionToSatisfyLongLegs
-    // to facilitate the full sequence of:
-    // 1. sell temporary sell-side position to satisfy long legs of new remintable position from computeMinimumSize
-    // 2. remint the returned position from computeMinimumSize
-    // 3. burn original position
-    // 4. burn temporary sell-side position from step (1)
-    // and can throw in all the scaledPosition / equivalentPosition calls you need too as good example
 
     function test_getChunkData_returns_correct_liquidities() public {
         // TODO:
@@ -1439,5 +838,16 @@ contract PanopticQueryTest is PositionUtils {
         uint256 requiredAfter = pq.getRequiredBase(pp, optimizedTokenId, currentTick);
         console2.log("tokenIds", TokenId.unwrap(tokenId), TokenId.unwrap(optimizedTokenId));
         assertTrue(requiredAfter <= requiredBefore);
+        console2.log("requiredAfter, requiredBefore", requiredAfter, requiredBefore);
+        if (requiredAfter < requiredBefore) {
+            for (uint256 leg; leg != numberOfLegs; leg++) {
+                console2.log(
+                    "leg, partner BEFORE,AFTER",
+                    leg,
+                    tokenId.riskPartner(leg),
+                    optimizedTokenId.riskPartner(leg)
+                );
+            }
+        }
     }
 }

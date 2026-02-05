@@ -108,6 +108,12 @@ contract UniswapMigratorTest is Test {
             IHooks(address(0))
         );
 
+        // Get the current price from the v3 pool and initialize v4 pool
+        (uint160 sqrtPriceX96, , , , , , ) = USDC_WETH_5.slot0();
+        deal(address(USDC), address(manager), type(uint128).max);
+        deal(address(WETH), address(manager), type(uint128).max);
+        manager.initialize(poolKey, sqrtPriceX96);
+
         pp = PanopticPool(address(factory.deployNewPool(poolKey, re, uint96(block.timestamp))));
 
         ct0 = pp.collateralToken0();
