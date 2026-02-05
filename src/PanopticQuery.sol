@@ -491,7 +491,6 @@ contract PanopticQuery {
         }
     }
 
-
     /// @notice Fetch data about chunks in a positionIdList.
     /// @param pool The PanopticPool instance containing the positions
     /// @param positionIdList List of TokenIds to evaluate
