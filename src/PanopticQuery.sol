@@ -5,7 +5,6 @@ pragma solidity ^0.8.0;
 import {IUniswapV3Pool} from "univ3-core/interfaces/IUniswapV3Pool.sol";
 import {PanopticPool} from "@contracts/PanopticPool.sol";
 import {CollateralTracker} from "@contracts/CollateralTracker.sol";
-import {ISemiFungiblePositionManager} from "@contracts/interfaces/ISemiFungiblePositionManager.sol";
 import {IRiskEngine} from "@contracts/interfaces/IRiskEngine.sol";
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 // Libraries
@@ -33,19 +32,10 @@ contract PanopticQuery {
     uint256 internal constant DECIMALS = 10_000;
     uint256 internal constant NO_BUFFER = 10_000_000;
 
-    /// @notice The SemiFungiblePositionManager of the Panoptic instance this querying helper is intended for.
-    ISemiFungiblePositionManager internal immutable SFPM;
-
     int24 constant MIN_TICK = -887272;
     int24 constant MAX_TICK = 887272;
 
     int24 constant TICK_PRECISION = 1;
-
-    /// @notice Construct the PanopticQuery and store the SFPM address.
-    /// @param SFPM_ The canonical SFPM address for the Panoptic instance this helper queries
-    constructor(ISemiFungiblePositionManager SFPM_) payable {
-        SFPM = SFPM_;
-    }
 
     /// @notice Compute the total amount of collateral needed to cover the existing list of active positions in positionIdList.
     /// @param pool The PanopticPool instance to check collateral on
@@ -504,13 +494,12 @@ contract PanopticQuery {
         for (uint256 i; i < positionIdList.length; ) {
             for (uint256 j; j < positionIdList[i].countLegs(); ) {
                 (int24 tickLower, int24 tickUpper) = positionIdList[i].asTicks(j);
-                LeftRightUnsigned liquidityData = SFPM.getAccountLiquidity(
-                    pool.poolKey(),
-                    address(pool),
-                    positionIdList[i].tokenType(j),
-                    tickLower,
-                    tickUpper
-                );
+                (LeftRightUnsigned liquidities0, LeftRightUnsigned liquidities1, , ) = pool
+                    .getChunkData(tickLower, tickUpper);
+
+                LeftRightUnsigned liquidityData = positionIdList[i].tokenType(j) == 0
+                    ? liquidities0
+                    : liquidities1;
 
                 // net liquidity:
                 chunkData[i][j][0] = liquidityData.rightSlot();

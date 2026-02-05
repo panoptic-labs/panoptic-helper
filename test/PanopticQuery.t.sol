@@ -479,7 +479,7 @@ contract PanopticQueryTest is PositionUtils {
         manager = new PoolManager(address(0));
         sfpm = new SemiFungiblePositionManagerHarness(manager);
 
-        pq = new PanopticQuery(ISemiFungiblePositionManager(address(sfpm)));
+        pq = new PanopticQuery();
         tih = new TokenIdHelper(ISemiFungiblePositionManager(address(sfpm)));
 
         poolReference = address(
