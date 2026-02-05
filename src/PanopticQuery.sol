@@ -501,6 +501,58 @@ contract PanopticQuery {
         }
     }
 
+    function getPortfolioValueAtTicks(
+        PanopticPool pool,
+        address account,
+        int24[] calldata atTicks,
+        TokenId[] calldata positionIdList
+    ) external view returns (int256[] memory value0, int256[] memory value1) {
+        (, , PositionBalance[] memory positionBalanceArray) = pool
+            .getAccumulatedFeesAndPositionsData(account, false, positionIdList);
+
+        // Precompute chunks per position/leg
+        LiquidityChunk[][] memory chunks = new LiquidityChunk[][](positionIdList.length);
+        for (uint256 k; k < positionIdList.length; ++k) {
+            TokenId tokenId = positionIdList[k];
+            uint128 size = positionBalanceArray[k].positionSize();
+            uint256 numLegs = tokenId.countLegs();
+
+            LiquidityChunk[] memory legs = new LiquidityChunk[](numLegs);
+            for (uint256 leg; leg < numLegs; ++leg) {
+                legs[leg] = PanopticMath.getLiquidityChunk(tokenId, leg, size);
+            }
+            chunks[k] = legs;
+        }
+
+        value0 = new int256[](atTicks.length);
+        value1 = new int256[](atTicks.length);
+
+        for (uint256 i; i < atTicks.length; ++i) {
+            int24 tick = atTicks[i];
+            int256 v0;
+            int256 v1;
+
+            for (uint256 k; k < chunks.length; ++k) {
+                LiquidityChunk[] memory legs = chunks[k];
+                TokenId tokenId = positionIdList[k];
+
+                for (uint256 leg; leg < legs.length; ++leg) {
+                    (uint256 a0, uint256 a1) = Math.getAmountsForLiquidity(tick, legs[leg]);
+                    if (tokenId.isLong(leg) == 0) {
+                        v0 += int256(a0);
+                        v1 += int256(a1);
+                    } else {
+                        v0 -= int256(a0);
+                        v1 -= int256(a1);
+                    }
+                }
+            }
+
+            value0[i] = v0;
+            value1[i] = v1;
+        }
+    }
+
     /// @notice Fetch data about chunks in a positionIdList.
     /// @param pool The PanopticPool instance containing the positions
     /// @param positionIdList List of TokenIds to evaluate

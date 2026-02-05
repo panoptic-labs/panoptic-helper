@@ -1781,4 +1781,471 @@ contract PanopticQueryTest is PositionUtils {
             assertNotEq(tickDataBefore[100], tickDataAfter[100]);
         }
     }
+
+    /*//////////////////////////////////////////////////////////////
+                    GET PORTFOLIO VALUE AT TICKS TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_Success_getPortfolioValueAtTicks_SinglePosition(uint256 x) public {
+        _initPool(x);
+
+        uint256 positionSizeSeed = 1e18;
+
+        vm.startPrank(Alice);
+        ct0.redeem(ct0.maxRedeem(Alice), Alice, Alice);
+        ct1.redeem(ct1.maxRedeem(Alice), Alice, Alice);
+
+        uint256 deposit1 = positionSizeSeed;
+        uint256 deposit0 = ((((positionSizeSeed * 2 ** 96) / currentSqrtPriceX96) * 2 ** 96) /
+            currentSqrtPriceX96);
+
+        ct0.deposit(deposit0, Alice);
+        ct1.deposit(deposit1, Alice);
+
+        // Create a simple short put position
+        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            0, // short
+            0, // put
+            0,
+            (currentTick / tickSpacing) * tickSpacing - 6 * tickSpacing,
+            2
+        );
+
+        TokenId[] memory posIdList = new TokenId[](1);
+        posIdList[0] = tokenId;
+
+        mintOptions(
+            pp,
+            posIdList,
+            uint128((positionSizeSeed * 100) / 100),
+            0,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
+        );
+
+        // Create tick array
+        int24[] memory atTicks = new int24[](5);
+        atTicks[0] = currentTick - 100 * tickSpacing;
+        atTicks[1] = currentTick - 50 * tickSpacing;
+        atTicks[2] = currentTick;
+        atTicks[3] = currentTick + 50 * tickSpacing;
+        atTicks[4] = currentTick + 100 * tickSpacing;
+
+        // Call getPortfolioValueAtTicks
+        (int256[] memory value0, int256[] memory value1) = pq.getPortfolioValueAtTicks(
+            pp,
+            Alice,
+            atTicks,
+            posIdList
+        );
+
+        // Verify array lengths
+        assertEq(value0.length, 5, "value0 length mismatch");
+        assertEq(value1.length, 5, "value1 length mismatch");
+
+        // Verify consistency with getPortfolioValue for each tick
+        for (uint256 i; i < atTicks.length; ++i) {
+            (int256 expectedV0, int256 expectedV1) = pq.getPortfolioValue(
+                pp,
+                Alice,
+                atTicks[i],
+                posIdList
+            );
+            assertEq(value0[i], expectedV0, "value0 mismatch at tick index");
+            assertEq(value1[i], expectedV1, "value1 mismatch at tick index");
+        }
+    }
+
+    function test_Success_getPortfolioValueAtTicks_Strangle(uint256 x) public {
+        _initPool(x);
+
+        uint256 positionSizeSeed = 1e18;
+
+        vm.startPrank(Alice);
+        ct0.redeem(ct0.maxRedeem(Alice), Alice, Alice);
+        ct1.redeem(ct1.maxRedeem(Alice), Alice, Alice);
+
+        uint256 deposit1 = positionSizeSeed;
+        uint256 deposit0 = ((((positionSizeSeed * 2 ** 96) / currentSqrtPriceX96) * 2 ** 96) /
+            currentSqrtPriceX96);
+
+        ct0.deposit(deposit0, Alice);
+        ct1.deposit(deposit1, Alice);
+
+        // Short strangle (2 legs)
+        TokenId tokenId = TokenId
+            .wrap(0)
+            .addPoolId(poolId)
+            .addLeg(
+                0,
+                1,
+                1,
+                0,
+                0,
+                0,
+                (currentTick / tickSpacing) * tickSpacing - 6 * tickSpacing,
+                2
+            )
+            .addLeg(
+                1,
+                1,
+                1,
+                0,
+                1,
+                1,
+                (currentTick / tickSpacing) * tickSpacing + 6 * tickSpacing,
+                2
+            );
+
+        TokenId[] memory posIdList = new TokenId[](1);
+        posIdList[0] = tokenId;
+
+        mintOptions(
+            pp,
+            posIdList,
+            uint128((positionSizeSeed * 100) / 100),
+            0,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
+        );
+
+        // Create tick array covering a wide range
+        int24[] memory atTicks = new int24[](11);
+        for (uint256 i; i < 11; ++i) {
+            atTicks[i] = currentTick + int24(int256(i) - 5) * 20 * tickSpacing;
+        }
+
+        (int256[] memory value0, int256[] memory value1) = pq.getPortfolioValueAtTicks(
+            pp,
+            Alice,
+            atTicks,
+            posIdList
+        );
+
+        assertEq(value0.length, 11, "value0 length mismatch");
+        assertEq(value1.length, 11, "value1 length mismatch");
+
+        // Verify consistency with getPortfolioValue
+        for (uint256 i; i < atTicks.length; ++i) {
+            (int256 expectedV0, int256 expectedV1) = pq.getPortfolioValue(
+                pp,
+                Alice,
+                atTicks[i],
+                posIdList
+            );
+            assertEq(value0[i], expectedV0, "value0 mismatch at tick index");
+            assertEq(value1[i], expectedV1, "value1 mismatch at tick index");
+        }
+
+        // Short positions should have positive value
+        for (uint256 i; i < value0.length; ++i) {
+            assertTrue(value0[i] >= 0 || value1[i] >= 0, "short position should have value");
+        }
+    }
+
+    function test_Success_getPortfolioValueAtTicks_LongPosition(uint256 x) public {
+        _initPool(x);
+
+        uint256 positionSizeSeed = 1e18;
+
+        // Bob mints short position first so Alice can go long
+        vm.startPrank(Bob);
+        ct0.redeem(ct0.maxRedeem(Bob), Bob, Bob);
+        ct1.redeem(ct1.maxRedeem(Bob), Bob, Bob);
+
+        uint256 deposit1 = positionSizeSeed;
+        uint256 deposit0 = ((((positionSizeSeed * 2 ** 96) / currentSqrtPriceX96) * 2 ** 96) /
+            currentSqrtPriceX96);
+
+        ct0.deposit(deposit0, Bob);
+        ct1.deposit(deposit1, Bob);
+
+        TokenId shortTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            0, // short
+            0,
+            0,
+            (currentTick / tickSpacing) * tickSpacing - 6 * tickSpacing,
+            2
+        );
+
+        TokenId[] memory shortPosIdList = new TokenId[](1);
+        shortPosIdList[0] = shortTokenId;
+
+        mintOptions(
+            pp,
+            shortPosIdList,
+            uint128((positionSizeSeed * 100) / 100),
+            0,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
+        );
+
+        // Alice goes long on the same chunk
+        vm.startPrank(Alice);
+        ct0.redeem(ct0.maxRedeem(Alice), Alice, Alice);
+        ct1.redeem(ct1.maxRedeem(Alice), Alice, Alice);
+
+        ct0.deposit(deposit0, Alice);
+        ct1.deposit(deposit1, Alice);
+
+        TokenId longTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            1, // long
+            0,
+            0,
+            (currentTick / tickSpacing) * tickSpacing - 6 * tickSpacing,
+            2
+        );
+
+        TokenId[] memory longPosIdList = new TokenId[](1);
+        longPosIdList[0] = longTokenId;
+
+        mintOptions(
+            pp,
+            longPosIdList,
+            uint128((positionSizeSeed * 50) / 100),
+            type(uint24).max,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
+        );
+
+        // Create tick array
+        int24[] memory atTicks = new int24[](5);
+        atTicks[0] = currentTick - 100 * tickSpacing;
+        atTicks[1] = currentTick - 50 * tickSpacing;
+        atTicks[2] = currentTick;
+        atTicks[3] = currentTick + 50 * tickSpacing;
+        atTicks[4] = currentTick + 100 * tickSpacing;
+
+        (int256[] memory value0, int256[] memory value1) = pq.getPortfolioValueAtTicks(
+            pp,
+            Alice,
+            atTicks,
+            longPosIdList
+        );
+
+        assertEq(value0.length, 5, "value0 length mismatch");
+        assertEq(value1.length, 5, "value1 length mismatch");
+
+        // Verify consistency with getPortfolioValue
+        for (uint256 i; i < atTicks.length; ++i) {
+            (int256 expectedV0, int256 expectedV1) = pq.getPortfolioValue(
+                pp,
+                Alice,
+                atTicks[i],
+                longPosIdList
+            );
+            assertEq(value0[i], expectedV0, "value0 mismatch at tick index");
+            assertEq(value1[i], expectedV1, "value1 mismatch at tick index");
+        }
+
+        // Long positions should have negative value (debt)
+        for (uint256 i; i < value0.length; ++i) {
+            assertTrue(
+                value0[i] <= 0 || value1[i] <= 0,
+                "long position should have negative value"
+            );
+        }
+    }
+
+    function test_Success_getPortfolioValueAtTicks_EmptyPositions(uint256 x) public {
+        _initPool(x);
+
+        // No positions minted
+        TokenId[] memory emptyPosIdList = new TokenId[](0);
+
+        int24[] memory atTicks = new int24[](3);
+        atTicks[0] = currentTick - 10 * tickSpacing;
+        atTicks[1] = currentTick;
+        atTicks[2] = currentTick + 10 * tickSpacing;
+
+        (int256[] memory value0, int256[] memory value1) = pq.getPortfolioValueAtTicks(
+            pp,
+            Alice,
+            atTicks,
+            emptyPosIdList
+        );
+
+        assertEq(value0.length, 3, "value0 length mismatch");
+        assertEq(value1.length, 3, "value1 length mismatch");
+
+        // With no positions, all values should be 0
+        for (uint256 i; i < value0.length; ++i) {
+            assertEq(value0[i], 0, "value0 should be 0 for empty positions");
+            assertEq(value1[i], 0, "value1 should be 0 for empty positions");
+        }
+    }
+
+    function test_Success_getPortfolioValueAtTicks_SingleTick(uint256 x) public {
+        _initPool(x);
+
+        uint256 positionSizeSeed = 1e18;
+
+        vm.startPrank(Alice);
+        ct0.redeem(ct0.maxRedeem(Alice), Alice, Alice);
+        ct1.redeem(ct1.maxRedeem(Alice), Alice, Alice);
+
+        uint256 deposit1 = positionSizeSeed;
+        uint256 deposit0 = ((((positionSizeSeed * 2 ** 96) / currentSqrtPriceX96) * 2 ** 96) /
+            currentSqrtPriceX96);
+
+        ct0.deposit(deposit0, Alice);
+        ct1.deposit(deposit1, Alice);
+
+        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            0,
+            0,
+            0,
+            (currentTick / tickSpacing) * tickSpacing - 6 * tickSpacing,
+            2
+        );
+
+        TokenId[] memory posIdList = new TokenId[](1);
+        posIdList[0] = tokenId;
+
+        mintOptions(
+            pp,
+            posIdList,
+            uint128((positionSizeSeed * 100) / 100),
+            0,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
+        );
+
+        // Single tick
+        int24[] memory atTicks = new int24[](1);
+        atTicks[0] = currentTick;
+
+        (int256[] memory value0, int256[] memory value1) = pq.getPortfolioValueAtTicks(
+            pp,
+            Alice,
+            atTicks,
+            posIdList
+        );
+
+        assertEq(value0.length, 1, "value0 length mismatch");
+        assertEq(value1.length, 1, "value1 length mismatch");
+
+        // Should match getPortfolioValue exactly
+        (int256 expectedV0, int256 expectedV1) = pq.getPortfolioValue(
+            pp,
+            Alice,
+            currentTick,
+            posIdList
+        );
+        assertEq(value0[0], expectedV0, "value0 mismatch");
+        assertEq(value1[0], expectedV1, "value1 mismatch");
+    }
+
+    function test_Success_getPortfolioValueAtTicks_MultiplePositions(uint256 x) public {
+        _initPool(x);
+
+        uint256 positionSizeSeed = 1e18;
+
+        vm.startPrank(Alice);
+        ct0.redeem(ct0.maxRedeem(Alice), Alice, Alice);
+        ct1.redeem(ct1.maxRedeem(Alice), Alice, Alice);
+
+        uint256 deposit1 = positionSizeSeed;
+        uint256 deposit0 = ((((positionSizeSeed * 2 ** 96) / currentSqrtPriceX96) * 2 ** 96) /
+            currentSqrtPriceX96);
+
+        ct0.deposit(deposit0, Alice);
+        ct1.deposit(deposit1, Alice);
+
+        // First position: put
+        TokenId tokenId1 = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            0,
+            0,
+            0,
+            (currentTick / tickSpacing) * tickSpacing - 6 * tickSpacing,
+            2
+        );
+
+        TokenId[] memory posIdList1 = new TokenId[](1);
+        posIdList1[0] = tokenId1;
+
+        mintOptions(
+            pp,
+            posIdList1,
+            uint128((positionSizeSeed * 50) / 100),
+            0,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
+        );
+
+        // Second position: call
+        TokenId tokenId2 = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            0,
+            1,
+            0,
+            (currentTick / tickSpacing) * tickSpacing + 6 * tickSpacing,
+            2
+        );
+
+        TokenId[] memory posIdList2 = new TokenId[](2);
+        posIdList2[0] = tokenId1;
+        posIdList2[1] = tokenId2;
+
+        mintOptions(
+            pp,
+            posIdList2,
+            uint128((positionSizeSeed * 50) / 100),
+            0,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
+        );
+
+        // Create tick array
+        int24[] memory atTicks = new int24[](7);
+        for (uint256 i; i < 7; ++i) {
+            atTicks[i] = currentTick + int24(int256(i) - 3) * 30 * tickSpacing;
+        }
+
+        (int256[] memory value0, int256[] memory value1) = pq.getPortfolioValueAtTicks(
+            pp,
+            Alice,
+            atTicks,
+            posIdList2
+        );
+
+        assertEq(value0.length, 7, "value0 length mismatch");
+        assertEq(value1.length, 7, "value1 length mismatch");
+
+        // Verify consistency with getPortfolioValue
+        for (uint256 i; i < atTicks.length; ++i) {
+            (int256 expectedV0, int256 expectedV1) = pq.getPortfolioValue(
+                pp,
+                Alice,
+                atTicks[i],
+                posIdList2
+            );
+            assertEq(value0[i], expectedV0, "value0 mismatch at tick index");
+            assertEq(value1[i], expectedV1, "value1 mismatch at tick index");
+        }
+    }
 }
