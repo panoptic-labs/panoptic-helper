@@ -229,7 +229,7 @@ contract PanopticQuery {
         address account,
         TokenId[] calldata positionIdList
     )
-        public
+        external
         view
         returns (
             uint256[4] memory collateralBalances0,
@@ -277,30 +277,25 @@ contract PanopticQuery {
         int24 currentTick;
         (currentTick, , , , ) = pool.getOracleTicks();
 
-        {
-            if (!isAccountSolvent(pool, account, positionIdList, MIN_TICK)) {
-                // There's a liquidation price somewhere below current tick
-                liquidationPriceDown = binarySearchDown(
-                    pool,
-                    account,
-                    MIN_TICK,
-                    currentTick,
-                    positionIdList
-                );
-            }
+        if (!isAccountSolvent(pool, account, positionIdList, MIN_TICK)) {
+            liquidationPriceDown = _binarySearch(
+                pool,
+                account,
+                MIN_TICK,
+                currentTick,
+                positionIdList,
+                false
+            );
         }
-        {
-            if (!isAccountSolvent(pool, account, positionIdList, MAX_TICK)) {
-                // Find liquidation price above current tick (liquidationPriceUp)
-                // There's a liquidation price somewhere above current tick
-                liquidationPriceUp = binarySearchUp(
-                    pool,
-                    account,
-                    currentTick,
-                    MAX_TICK,
-                    positionIdList
-                );
-            }
+        if (!isAccountSolvent(pool, account, positionIdList, MAX_TICK)) {
+            liquidationPriceUp = _binarySearch(
+                pool,
+                account,
+                currentTick,
+                MAX_TICK,
+                positionIdList,
+                true
+            );
         }
     }
 
@@ -315,7 +310,7 @@ contract PanopticQuery {
         PanopticPool pool,
         address account,
         TokenId[] calldata positionIdList
-    ) public view returns (uint256[4][] memory, int256[] memory, int24[] memory) {
+    ) external view returns (uint256[4][] memory, int256[] memory, int24[] memory) {
         int256[] memory tickData = new int256[](301);
         int24[] memory liquidationPrices = new int24[](2);
         {
@@ -360,90 +355,33 @@ contract PanopticQuery {
         uint256[4][] memory balanceRequired = new uint256[4][](301);
 
         for (uint256 i; i < 301; ) {
-            {
-                uint160 sqrtPriceX96 = Math.getSqrtRatioAtTick(int24(tickData[i]));
-                if (tickData[150] < 0) {
-                    balanceRequired[i] = checkCollateral(
-                        pool,
-                        account,
-                        positionIdList,
-                        int24(tickData[i])
-                    );
-                    //collateralBalance = (collateralBalance * sqrtPriceX96) >> 96;
-                    //requiredCollateral = (requiredCollateral * sqrtPriceX96) >> 96;
-                } else {
-                    balanceRequired[i] = checkCollateral(
-                        pool,
-                        account,
-                        positionIdList,
-                        int24(tickData[i])
-                    );
-                    //collateralBalance = (collateralBalance << 96) / sqrtPriceX96;
-                    //requiredCollateral = (requiredCollateral << 96) / sqrtPriceX96;
-                }
+            balanceRequired[i] = checkCollateral(pool, account, positionIdList, int24(tickData[i]));
+            unchecked {
+                ++i;
             }
-            ++i;
         }
 
         return (balanceRequired, tickData, liquidationPrices);
     }
 
-    /**
-     * @notice Binary search for liquidation price going down from current tick
-     * @dev Finds the tick where collateral transitions from >= required to < required
-     */
-    function binarySearchDown(
+    function _binarySearch(
         PanopticPool pool,
         address account,
         int24 lowerBound,
         int24 upperBound,
-        TokenId[] calldata positionIdList
+        TokenId[] calldata positionIdList,
+        bool searchUp
     ) internal view returns (int24) {
         while (upperBound - lowerBound > TICK_PRECISION) {
             int24 midTick = (lowerBound + upperBound) / 2;
-
             bool solvent = isAccountSolvent(pool, account, positionIdList, midTick);
-
-            if (solvent) {
-                // Still solvent at midTick, liquidation is lower
-                upperBound = midTick;
-            } else {
-                // Insolvent at midTick, liquidation is higher
-                lowerBound = midTick;
-            }
-        }
-
-        // Return the tick just before insolvency
-        return upperBound;
-    }
-
-    /**
-     * @notice Binary search for liquidation price going up from current tick
-     * @dev Finds the tick where collateral transitions from >= required to < required
-     */
-    function binarySearchUp(
-        PanopticPool pool,
-        address account,
-        int24 lowerBound,
-        int24 upperBound,
-        TokenId[] calldata positionIdList
-    ) internal view returns (int24) {
-        while (upperBound - lowerBound > TICK_PRECISION) {
-            int24 midTick = (lowerBound + upperBound) / 2;
-
-            bool solvent = isAccountSolvent(pool, account, positionIdList, midTick);
-
-            if (solvent) {
-                // Still solvent at midTick, liquidation is higher
+            if (solvent == searchUp) {
                 lowerBound = midTick;
             } else {
-                // Insolvent at midTick, liquidation is lower
                 upperBound = midTick;
             }
         }
-
-        // Return the tick just before insolvency
-        return lowerBound;
+        return searchUp ? lowerBound : upperBound;
     }
 
     /// @notice Calculate NAV of user's option portfolio with respect to Uniswap liquidity at a given tick.
@@ -614,11 +552,11 @@ contract PanopticQuery {
             LeftRightUnsigned[2][] memory
         )
     {
-        require(width > 0, "width<=0");
-        require(tickLower < tickUpper, "bad range");
+        if (width <= 0) revert();
+        if (tickLower >= tickUpper) revert();
 
         int24 tickSpacing = pool.tickSpacing();
-        require(tickSpacing > 0, "tickSpacing=0");
+        if (tickSpacing <= 0) revert();
 
         int24[] memory s_strikes;
         uint128[2][] memory s_net;
@@ -628,7 +566,7 @@ contract PanopticQuery {
         {
             int256 span = int256(tickUpper) - int256(tickLower);
             int256 eff = span - int256(width);
-            require(eff >= 0, "range too small");
+            if (eff < 0) revert();
             uint256 maxChunks = uint256(eff / int256(tickSpacing) + 1);
             s_strikes = new int24[](maxChunks);
             s_net = new uint128[2][](maxChunks);
@@ -774,7 +712,7 @@ contract PanopticQuery {
         PanopticPool pool,
         int24 atTick,
         TokenId tokenId
-    ) public view returns (TokenId) {
+    ) external view returns (TokenId) {
         uint256 numberOfLegs = tokenId.countLegs();
         if (numberOfLegs == 1) {
             return tokenId;
@@ -1195,7 +1133,7 @@ contract PanopticQuery {
         PanopticPool pool,
         int24 startTick,
         uint256 nTicks
-    ) public view returns (int256[] memory tickData, int256[] memory liquidityNets) {
+    ) external view returns (int256[] memory tickData, int256[] memory liquidityNets) {
         // Check if V3 (poolManager == address(0)) or V4
         address poolManager = pool.poolManager();
 
