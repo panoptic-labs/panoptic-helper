@@ -266,6 +266,40 @@ contract PanopticQueryTest is PositionUtils {
         pp.dispatch(burnList, positionIdList, sizeList, tickAndSpreadLimits, premiaAsCollateral, 0);
     }
 
+    function _assertScanEntryMatchesSFPM(
+        bytes memory poolKey,
+        address account,
+        int24 tl,
+        int24 tu,
+        uint256 idx,
+        uint128[2][] memory net,
+        uint128[2][] memory removed
+    ) internal view {
+        LeftRightUnsigned liq0 = sfpm.getAccountLiquidity(poolKey, account, 0, tl, tu);
+        LeftRightUnsigned liq1 = sfpm.getAccountLiquidity(poolKey, account, 1, tl, tu);
+
+        assertEq(net[idx][0], liq0.rightSlot(), "scan net0 mismatch");
+        assertEq(removed[idx][0], liq0.leftSlot(), "scan removed0 mismatch");
+
+        assertEq(net[idx][1], liq1.rightSlot(), "scan net1 mismatch");
+        assertEq(removed[idx][1], liq1.leftSlot(), "scan removed1 mismatch");
+    }
+
+    function _findStrike(int24[] memory strikes, int24 target) internal pure returns (uint256) {
+        for (uint256 i; i < strikes.length; ++i) {
+            if (strikes[i] == target) return i;
+        }
+        return type(uint256).max;
+    }
+
+    function _min24(int24 a, int24 b) internal pure returns (int24) {
+        return a < b ? a : b;
+    }
+
+    function _max24(int24 a, int24 b) internal pure returns (int24) {
+        return a > b ? a : b;
+    }
+
     /*//////////////////////////////////////////////////////////////
                                ENV SETUP
     //////////////////////////////////////////////////////////////*/
@@ -445,7 +479,7 @@ contract PanopticQueryTest is PositionUtils {
         manager = new PoolManager(address(0));
         sfpm = new SemiFungiblePositionManagerHarness(manager);
 
-        pq = new PanopticQuery(ISemiFungiblePositionManager(address(sfpm)));
+        pq = new PanopticQuery();
         tih = new TokenIdHelper(ISemiFungiblePositionManager(address(sfpm)));
 
         poolReference = address(
@@ -657,19 +691,6 @@ contract PanopticQueryTest is PositionUtils {
                 (currentTick / tickSpacing) * tickSpacing + 6 * tickSpacing,
                 2
             );
-        // leg 2
-        /*
-        TokenId tokenId2 = TokenId.wrap(0).addPoolId(poolId).addLeg(
-            0,
-            1,
-            1,
-            0,
-            1,
-            0,
-            (currentTick / tickSpacing) * tickSpacing - 0 * tickSpacing,
-            2
-        );
-       */
         TokenId[] memory posIdList = new TokenId[](1);
         {
             posIdList[0] = tokenId;
@@ -692,23 +713,6 @@ contract PanopticQueryTest is PositionUtils {
         }
 
         {
-            /*
-            TokenId[] memory posIdList = new TokenId[](2);
-            posIdList[0] = tokenId;
-            posIdList[1] = tokenId2;
-            console2.log('mint 2');
-
-            mintOptions(
-                pp,
-                posIdList,
-                uint128((positionSizeSeed * 1) / 1000000),
-                0,
-                Constants.MIN_POOL_TICK,
-                Constants.MAX_POOL_TICK,
-                true
-            );
-
-           */
             console2.log("pp.numberOfLegs", pp.numberOfLegs(Alice));
 
             console2.log(
@@ -754,13 +758,283 @@ contract PanopticQueryTest is PositionUtils {
         }
     }
 
-    function test_getChunkData_returns_correct_liquidities() public {
-        // TODO:
-        // - PLP via the SFPM with token0,
-        // - mint a call-purchase at some fuzzed proportion of the sold volume
-        // - call getChunkData
-        // it should return a netLiquidity of originalSize - purchaseSize, and removedLiquidity of purchaseSize
-        // (both converted to liquidity units)
+    function test_ScanChunks_and_GetChunkData_UsesPoolAsAccount(uint256 x) public {
+        _initPool(x);
+
+        // --- fund Alice similarly to your sample ---
+        uint256 positionSizeSeed = 1e18;
+
+        ct0.redeem(ct0.maxRedeem(Alice), Alice, Alice);
+        ct1.redeem(ct1.maxRedeem(Alice), Alice, Alice);
+
+        uint256 deposit1 = positionSizeSeed;
+        uint256 deposit0 = ((((positionSizeSeed * 2 ** 96) / currentSqrtPriceX96) * 2 ** 96) /
+            currentSqrtPriceX96);
+
+        ct0.deposit(deposit0, Alice);
+        ct1.deposit(deposit1, Alice);
+
+        TokenId tokenId = TokenId
+            .wrap(0)
+            .addPoolId(poolId)
+            .addLeg(
+                0,
+                1,
+                1,
+                0,
+                0,
+                0,
+                (currentTick / tickSpacing) * tickSpacing - 6 * tickSpacing,
+                2
+            )
+            .addLeg(
+                1,
+                1,
+                1,
+                0,
+                1,
+                1,
+                (currentTick / tickSpacing) * tickSpacing + 6 * tickSpacing,
+                2
+            );
+
+        TokenId[] memory posIdList = new TokenId[](1);
+        posIdList[0] = tokenId;
+
+        mintOptions(
+            pp,
+            posIdList,
+            uint128((positionSizeSeed * 350) / 100),
+            0,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
+        );
+
+        // ============ 1) getChunkData correctness ============
+        // It should now read SFPM.getAccountLiquidity(poolKey, address(pp), ...)
+        uint256[2][4][] memory chunkData = pq.getChunkData(pp, posIdList);
+
+        // check each leg matches raw SFPM reads for account=address(pp)
+        bytes memory poolKey = pp.poolKey();
+        address poolAsAccount = address(pp);
+
+        for (uint256 j; j < tokenId.countLegs(); ++j) {
+            (int24 tl, int24 tu) = tokenId.asTicks(j);
+            uint8 tokenType = uint8(tokenId.tokenType(j));
+
+            LeftRightUnsigned liq = sfpm.getAccountLiquidity(
+                poolKey,
+                poolAsAccount,
+                tokenType,
+                tl,
+                tu
+            );
+
+            // net liquidity
+            assertEq(chunkData[0][j][0], liq.rightSlot(), "net mismatch");
+            // removed liquidity
+            assertEq(chunkData[0][j][1], liq.leftSlot(), "removed mismatch");
+        }
+
+        // ============ 2) scanChunks discovers those chunks ============
+        // We scan a range that definitely covers both legs, using the per-leg width.
+        (int24 tl0, int24 tu0) = tokenId.asTicks(0);
+        (int24 tl1, int24 tu1) = tokenId.asTicks(1);
+
+        int24 width0 = tu0 - tl0;
+        int24 width1 = tu1 - tl1;
+        // In your constructions width should be identical for both legs; enforce to avoid silent mismatches.
+        assertEq(width0, width1, "legs have different widths");
+
+        int24[] memory strikes;
+        uint128[2][] memory net;
+        uint128[2][] memory removed;
+
+        {
+            int24 width = width0;
+
+            int24 lower = _min24(tl0, tl1) - 2 * tickSpacing;
+            int24 upper = _max24(tu0, tu1) + 2 * tickSpacing;
+
+            (strikes, net, removed, ) = pq.scanChunks(pp, lower, upper, width);
+        }
+        // We expect to see exactly two non-empty chunks (one at each leg's tick range).
+        // If your protocol can accumulate extra liquidity at adjacent ranges in this setup, loosen this to ">=2"
+        // and then check membership instead of length.
+        assertEq(strikes.length, 2, "unexpected number of discovered chunks");
+        assertEq(net.length, 2, "net len");
+        assertEq(removed.length, 2, "removed len");
+
+        uint256 idxA;
+        uint256 idxB;
+
+        {
+            int24 strikeA = (tu0 + tl0) / 2;
+            int24 strikeB = (tu1 + tl1) / 2;
+
+            // find indices in returned arrays
+            idxA = _findStrike(strikes, strikeA);
+            idxB = _findStrike(strikes, strikeB);
+        }
+        assertTrue(idxA != type(uint256).max, "strikeA not found");
+        assertTrue(idxB != type(uint256).max, "strikeB not found");
+        assertTrue(idxA != idxB, "same index for both strikes");
+        // verify returned liquidity matches SFPM for BOTH token types at that (tl,tu)
+        _assertScanEntryMatchesSFPM(poolKey, poolAsAccount, tl0, tu0, idxA, net, removed);
+        _assertScanEntryMatchesSFPM(poolKey, poolAsAccount, tl1, tu1, idxB, net, removed);
+    }
+
+    function test_ScanChunks_FindsRemovedLiquidity_ForLongStraddle(uint256 x) public {
+        _initPool(x);
+
+        uint256 positionSizeSeed = 1e18;
+
+        vm.startPrank(Bob);
+        ct0.redeem(ct0.maxRedeem(Bob), Bob, Bob);
+        ct1.redeem(ct1.maxRedeem(Bob), Bob, Bob);
+
+        uint256 deposit1 = positionSizeSeed;
+        uint256 deposit0 = ((((positionSizeSeed * 2 ** 96) / currentSqrtPriceX96) * 2 ** 96) /
+            currentSqrtPriceX96);
+
+        ct0.deposit(deposit0, Bob);
+        ct1.deposit(deposit1, Bob);
+
+        TokenId tokenId = TokenId
+            .wrap(0)
+            .addPoolId(poolId)
+            .addLeg(
+                0,
+                1,
+                1,
+                0,
+                0,
+                0,
+                (currentTick / tickSpacing) * tickSpacing - 6 * tickSpacing,
+                2
+            )
+            .addLeg(
+                1,
+                1,
+                1,
+                0,
+                1,
+                1,
+                (currentTick / tickSpacing) * tickSpacing + 6 * tickSpacing,
+                2
+            );
+
+        TokenId[] memory posIdList = new TokenId[](1);
+        posIdList[0] = tokenId;
+
+        mintOptions(
+            pp,
+            posIdList,
+            uint128((positionSizeSeed * 350) / 100),
+            0,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
+        );
+
+        vm.startPrank(Alice);
+
+        ct0.redeem(ct0.maxRedeem(Alice), Alice, Alice);
+        ct1.redeem(ct1.maxRedeem(Alice), Alice, Alice);
+
+        deposit1 = positionSizeSeed;
+        deposit0 = ((((positionSizeSeed * 2 ** 96) / currentSqrtPriceX96) * 2 ** 96) /
+            currentSqrtPriceX96);
+
+        ct0.deposit(deposit0, Alice);
+        ct1.deposit(deposit1, Alice);
+
+        // long straddle (removed-liquidity legs)
+        TokenId longStraddleTokenId = TokenId
+            .wrap(0)
+            .addPoolId(poolId)
+            .addLeg(
+                0,
+                1,
+                1,
+                1, // remove liquidity
+                0,
+                0,
+                (currentTick / tickSpacing) * tickSpacing - 6 * tickSpacing,
+                2
+            )
+            .addLeg(
+                1,
+                1,
+                1,
+                1, // remove liquidity
+                1,
+                1,
+                (currentTick / tickSpacing) * tickSpacing + 6 * tickSpacing,
+                2
+            );
+
+        TokenId[] memory posIdList2 = new TokenId[](1);
+        posIdList2[0] = longStraddleTokenId;
+
+        mintOptions(
+            pp,
+            posIdList2,
+            uint128((positionSizeSeed * 250) / 100),
+            type(uint24).max,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
+        );
+
+        bytes memory poolKey = pp.poolKey();
+        address poolAsAccount = address(pp);
+
+        (int24 tl0, int24 tu0) = longStraddleTokenId.asTicks(0);
+        (int24 tl1, int24 tu1) = longStraddleTokenId.asTicks(1);
+
+        int24[] memory strikes;
+        uint128[2][] memory net;
+        uint128[2][] memory removed;
+        {
+            int24 width = tu0 - tl0;
+            assertEq(width, tu1 - tl1, "legs have different widths");
+
+            int24 lower = _min24(tl0, tl1) - 2 * tickSpacing;
+            int24 upper = _max24(tu0, tu1) + 2 * tickSpacing;
+
+            (strikes, net, removed, ) = pq.scanChunks(pp, lower, upper, width);
+        }
+
+        // Must at least discover the two leg ranges.
+        assertTrue(strikes.length >= 2, "did not discover enough chunks");
+
+        uint256 idxA;
+        uint256 idxB;
+        {
+            int24 strikeA = (tu0 + tl0) / 2;
+            int24 strikeB = (tu1 + tl1) / 2;
+
+            idxA = _findStrike(strikes, strikeA);
+            idxB = _findStrike(strikes, strikeB);
+        }
+        assertTrue(idxA != type(uint256).max, "strikeA not found");
+        assertTrue(idxB != type(uint256).max, "strikeB not found");
+
+        _assertScanEntryMatchesSFPM(poolKey, poolAsAccount, tl0, tu0, idxA, net, removed);
+        _assertScanEntryMatchesSFPM(poolKey, poolAsAccount, tl1, tu1, idxB, net, removed);
+
+        // For removed-liquidity positions, we expect at least one of the removed slots to be nonzero
+        // at each discovered leg range.
+        assertTrue(
+            (removed[idxA][0] | removed[idxA][1]) != 0,
+            "expected removed liquidity at strikeA"
+        );
+        assertTrue(
+            (removed[idxB][0] | removed[idxB][1]) != 0,
+            "expected removed liquidity at strikeB"
+        );
     }
 
     /// forge-config: default.fuzz.runs = 100
@@ -848,6 +1122,1130 @@ contract PanopticQueryTest is PositionUtils {
                     optimizedTokenId.riskPartner(leg)
                 );
             }
+        }
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    getMaxPositionSizeBounds TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_Success_getMaxPositionSizeBounds_NoExistingPositions(uint256 x) public {
+        _initPool(x);
+        uint256 positionSizeSeed = bound(x, 1e15, 1e18);
+
+        // Alice has collateral but no positions
+        vm.startPrank(Alice);
+        ct0.redeem(ct0.maxRedeem(Alice), Alice, Alice);
+        ct1.redeem(ct1.maxRedeem(Alice), Alice, Alice);
+
+        uint256 deposit1 = positionSizeSeed;
+        uint256 deposit0 = ((((positionSizeSeed * 2 ** 96) / currentSqrtPriceX96) * 2 ** 96) /
+            currentSqrtPriceX96);
+
+        ct0.deposit(deposit0, Alice);
+        ct1.deposit(deposit1, Alice);
+
+        // Create a simple short put tokenId
+        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            0, // short
+            0, // put
+            0,
+            (currentTick / tickSpacing) * tickSpacing - 6 * tickSpacing,
+            2
+        );
+
+        TokenId[] memory emptyPositionIds = new TokenId[](0);
+
+        (uint128 maxSizeAtMinUtil, uint128 maxSizeAtMaxUtil) = pq.getMaxPositionSizeBounds(
+            pp,
+            emptyPositionIds,
+            Alice,
+            tokenId
+        );
+
+        // Min utilization should allow >= max utilization size
+        assertGe(maxSizeAtMinUtil, maxSizeAtMaxUtil, "minUtil should allow larger or equal size");
+
+        // Both should be > 0 since Alice has collateral
+        assertGt(maxSizeAtMinUtil, 0, "maxSizeAtMinUtil should be > 0");
+        assertGt(maxSizeAtMaxUtil, 0, "maxSizeAtMaxUtil should be > 0");
+
+        console2.log("maxSizeAtMinUtil", maxSizeAtMinUtil);
+        console2.log("maxSizeAtMaxUtil", maxSizeAtMaxUtil);
+    }
+
+    function test_Success_getMaxPositionSizeBounds_WithExistingPosition(uint256 x) public {
+        _initPool(x);
+
+        uint256 positionSizeSeed = 1e18;
+
+        vm.startPrank(Alice);
+        ct0.redeem(ct0.maxRedeem(Alice), Alice, Alice);
+        ct1.redeem(ct1.maxRedeem(Alice), Alice, Alice);
+
+        uint256 deposit1 = positionSizeSeed;
+        uint256 deposit0 = ((((positionSizeSeed * 2 ** 96) / currentSqrtPriceX96) * 2 ** 96) /
+            currentSqrtPriceX96);
+
+        ct0.deposit(deposit0, Alice);
+        ct1.deposit(deposit1, Alice);
+
+        // First, mint an existing position
+        TokenId existingTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            0,
+            0,
+            0,
+            (currentTick / tickSpacing) * tickSpacing - 6 * tickSpacing,
+            2
+        );
+
+        TokenId[] memory posIdList = new TokenId[](1);
+        posIdList[0] = existingTokenId;
+
+        mintOptions(
+            pp,
+            posIdList,
+            uint128((positionSizeSeed * 25) / 100), // smaller position
+            0,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
+        );
+
+        // Now query max size for a NEW position
+        TokenId newTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            0,
+            1, // call instead of put
+            0,
+            (currentTick / tickSpacing) * tickSpacing + 6 * tickSpacing,
+            2
+        );
+
+        (uint128 maxSizeAtMinUtil, uint128 maxSizeAtMaxUtil) = pq.getMaxPositionSizeBounds(
+            pp,
+            posIdList,
+            Alice,
+            newTokenId
+        );
+
+        // Min utilization should allow >= max utilization size
+        assertGe(maxSizeAtMinUtil, maxSizeAtMaxUtil, "minUtil should allow larger or equal size");
+
+        console2.log("With existing position:");
+        console2.log("maxSizeAtMinUtil", maxSizeAtMinUtil);
+        console2.log("maxSizeAtMaxUtil", maxSizeAtMaxUtil);
+    }
+
+    function test_Success_getMaxPositionSizeBounds_MaxSizeIsSolvent(uint256 x) public {
+        _initPool(x);
+
+        uint256 positionSizeSeed = 1e18;
+
+        vm.startPrank(Alice);
+        ct0.redeem(ct0.maxRedeem(Alice), Alice, Alice);
+        ct1.redeem(ct1.maxRedeem(Alice), Alice, Alice);
+
+        uint256 deposit1 = positionSizeSeed;
+        uint256 deposit0 = ((((positionSizeSeed * 2 ** 96) / currentSqrtPriceX96) * 2 ** 96) /
+            currentSqrtPriceX96);
+
+        ct0.deposit(deposit0, Alice);
+        ct1.deposit(deposit1, Alice);
+
+        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            0,
+            0,
+            0,
+            (currentTick / tickSpacing) * tickSpacing - 6 * tickSpacing,
+            2
+        );
+
+        TokenId[] memory emptyPositionIds = new TokenId[](0);
+
+        (uint128 maxSizeAtMinUtil, uint128 maxSizeAtMaxUtil) = pq.getMaxPositionSizeBounds(
+            pp,
+            emptyPositionIds,
+            Alice,
+            tokenId
+        );
+
+        // Skip if max size is 0 (account can't open any position)
+        vm.assume(maxSizeAtMaxUtil > 0);
+
+        // Verify that minting at maxSizeAtMaxUtil keeps account solvent
+        // Use a size slightly below to account for 10% precision
+        uint128 testSize = maxSizeAtMinUtil > 10 ? (maxSizeAtMinUtil * 9) / 10 : maxSizeAtMinUtil;
+
+        TokenId[] memory posIdList = new TokenId[](1);
+        posIdList[0] = tokenId;
+
+        // This should succeed (not revert)
+        mintOptions(
+            pp,
+            posIdList,
+            (testSize * 10) / 100,
+            0,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
+        );
+
+        // Verify account is solvent after mint
+        bool solvent = pq.isAccountSolvent(pp, Alice, posIdList, currentTick);
+        assertTrue(solvent, "Account should be solvent at maxSizeAtMaxUtil");
+
+        console2.log("Minted size", testSize);
+        console2.log("Account solvent", solvent);
+    }
+
+    function test_Success_getMaxPositionSizeBounds_ZeroCollateral(uint256 x) public {
+        _initPool(x);
+
+        // Charlie has no collateral deposited
+        vm.startPrank(Charlie);
+
+        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            0,
+            0,
+            0,
+            (currentTick / tickSpacing) * tickSpacing - 6 * tickSpacing,
+            2
+        );
+
+        TokenId[] memory emptyPositionIds = new TokenId[](0);
+
+        (uint128 maxSizeAtMinUtil, uint128 maxSizeAtMaxUtil) = pq.getMaxPositionSizeBounds(
+            pp,
+            emptyPositionIds,
+            Charlie,
+            tokenId
+        );
+
+        // With no collateral, max size should be 0
+        assertEq(maxSizeAtMinUtil, 0, "maxSizeAtMinUtil should be 0 with no collateral");
+        assertEq(maxSizeAtMaxUtil, 0, "maxSizeAtMaxUtil should be 0 with no collateral");
+    }
+
+    function test_Success_getMaxPositionSizeBounds_Strangle(uint256 x) public {
+        _initPool(x);
+
+        uint256 positionSizeSeed = 1e18;
+
+        vm.startPrank(Alice);
+        ct0.redeem(ct0.maxRedeem(Alice), Alice, Alice);
+        ct1.redeem(ct1.maxRedeem(Alice), Alice, Alice);
+
+        uint256 deposit1 = positionSizeSeed;
+        uint256 deposit0 = ((((positionSizeSeed * 2 ** 96) / currentSqrtPriceX96) * 2 ** 96) /
+            currentSqrtPriceX96);
+
+        ct0.deposit(deposit0, Alice);
+        ct1.deposit(deposit1, Alice);
+
+        // Short strangle (2 legs)
+        TokenId tokenId = TokenId
+            .wrap(0)
+            .addPoolId(poolId)
+            .addLeg(
+                0,
+                1,
+                1,
+                0,
+                0,
+                0,
+                (currentTick / tickSpacing) * tickSpacing - 6 * tickSpacing,
+                2
+            )
+            .addLeg(
+                1,
+                1,
+                1,
+                0,
+                1,
+                1,
+                (currentTick / tickSpacing) * tickSpacing + 6 * tickSpacing,
+                2
+            );
+
+        TokenId[] memory emptyPositionIds = new TokenId[](0);
+
+        (uint128 maxSizeAtMinUtil, uint128 maxSizeAtMaxUtil) = pq.getMaxPositionSizeBounds(
+            pp,
+            emptyPositionIds,
+            Alice,
+            tokenId
+        );
+
+        assertGe(maxSizeAtMinUtil, maxSizeAtMaxUtil, "minUtil should allow larger or equal size");
+        assertGt(maxSizeAtMinUtil, 0, "strangle maxSizeAtMinUtil should be > 0");
+
+        console2.log("Strangle maxSizeAtMinUtil", maxSizeAtMinUtil);
+        console2.log("Strangle maxSizeAtMaxUtil", maxSizeAtMaxUtil);
+    }
+
+    /// @notice Test accuracy of getMaxPositionSizeBounds by comparing to actual mint limits
+    function test_Success_getMaxPositionSizeBounds_Accuracy(uint256 x) public {
+        _initPool(x);
+
+        uint256 positionSizeSeed = bound(x, 1e15, 1e18);
+
+        vm.startPrank(Alice);
+        ct0.redeem(ct0.maxRedeem(Alice), Alice, Alice);
+        ct1.redeem(ct1.maxRedeem(Alice), Alice, Alice);
+
+        uint256 deposit1 = positionSizeSeed;
+        uint256 deposit0 = ((((positionSizeSeed * 2 ** 96) / currentSqrtPriceX96) * 2 ** 96) /
+            currentSqrtPriceX96);
+
+        ct0.deposit(deposit0, Alice);
+        ct1.deposit(deposit1, Alice);
+
+        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            0,
+            0,
+            0,
+            (currentTick / tickSpacing) * tickSpacing - 6 * tickSpacing,
+            2
+        );
+
+        TokenId[] memory emptyPositionIds = new TokenId[](0);
+
+        // Step 1: Get the max size bounds from the function
+        (uint128 maxSizeAtMinUtil, uint128 maxSizeAtMaxUtil) = pq.getMaxPositionSizeBounds(
+            pp,
+            emptyPositionIds,
+            Alice,
+            tokenId
+        );
+
+        vm.assume(maxSizeAtMinUtil > 100); // Need enough size to test precision
+
+        TokenId[] memory posIdList = new TokenId[](1);
+        posIdList[0] = tokenId;
+
+        // Step 2: Binary search to find actual largest mintable size
+        uint128 low = maxSizeAtMaxUtil / 2;
+        uint128 high = maxSizeAtMinUtil * 2; // Search above the estimate too
+
+        while (high - low > 1) {
+            uint128 mid = low + (high - low) / 2;
+
+            // Take a snapshot to revert after each attempt
+            uint256 snapshot = vm.snapshot();
+
+            bool success = _tryMint(Alice, posIdList, mid);
+
+            vm.revertTo(snapshot);
+
+            if (success) {
+                low = mid;
+            } else {
+                high = mid;
+            }
+        }
+
+        uint128 actualMaxSize = low;
+
+        console2.log("Estimated maxSizeAtMinUtil", maxSizeAtMinUtil);
+        console2.log("Estimated maxSizeAtMaxUtil", maxSizeAtMaxUtil);
+        console2.log("Actual max mintable size", actualMaxSize);
+
+        // Step 3: Confirm mint succeeds at actualMaxSize, fails at actualMaxSize + 1
+        {
+            uint256 snapshot = vm.snapshot();
+            bool successAtMax = _tryMint(Alice, posIdList, actualMaxSize);
+            vm.revertTo(snapshot);
+            assertTrue(successAtMax, "Mint should succeed at actualMaxSize");
+        }
+
+        {
+            uint256 snapshot = vm.snapshot();
+            bool successAboveMax = _tryMint(Alice, posIdList, actualMaxSize + 1);
+            vm.revertTo(snapshot);
+            assertFalse(successAboveMax, "Mint should fail at actualMaxSize + 1");
+        }
+
+        // Verify our estimate is within 10% of actual (since we use 10% precision in binary search)
+        assertTrue(
+            (actualMaxSize <= maxSizeAtMinUtil) && (actualMaxSize >= maxSizeAtMaxUtil),
+            "actual size is within limits"
+        );
+
+        console2.log(
+            "Accuracy check passed. Difference:",
+            maxSizeAtMinUtil > actualMaxSize
+                ? maxSizeAtMinUtil - actualMaxSize
+                : actualMaxSize - maxSizeAtMinUtil
+        );
+    }
+
+    /// @notice Helper to attempt a mint and return success/failure using low-level call
+    function _tryMint(
+        address account,
+        TokenId[] memory posIdList,
+        uint128 size
+    ) internal returns (bool) {
+        // Use low-level call to catch reverts without try-catch issues
+        (bool success, ) = address(this).call(
+            abi.encodeCall(this.externalMint, (account, posIdList, size))
+        );
+        return success;
+    }
+
+    /// @notice External wrapper for mint (needed for low-level call)
+    function externalMint(address account, TokenId[] memory posIdList, uint128 size) external {
+        vm.startPrank(account);
+        mintOptions(pp, posIdList, size, 0, Constants.MIN_POOL_TICK, Constants.MAX_POOL_TICK, true);
+        vm.stopPrank();
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        GET TICK NETS TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_Success_getTickNets_V4Pool(uint256 x) public {
+        _initPool(x);
+
+        // Get current tick from pool
+        (int24 currentTick, , , , ) = pp.getOracleTicks();
+
+        // Test with 100 ticks in each direction
+        uint256 nTicks = 100;
+        (int256[] memory tickData, int256[] memory liquidityNets) = pq.getTickNets(
+            pp,
+            currentTick,
+            nTicks
+        );
+
+        // Verify array sizes
+        assertEq(tickData.length, 2 * nTicks + 1);
+        assertEq(liquidityNets.length, 2 * nTicks + 1);
+
+        // Verify ticks are correctly spaced
+        for (uint256 i = 1; i < tickData.length; i++) {
+            assertEq(tickData[i] - tickData[i - 1], int256(int256(tickSpacing)));
+        }
+
+        // Verify middle tick equals scaled startTick
+        int256 middleTick = tickData[nTicks];
+        int256 scaledStartTick = int256((currentTick / tickSpacing) * tickSpacing);
+        assertEq(middleTick, scaledStartTick);
+
+        // Verify liquidity at current tick matches pool liquidity (if current tick is in range)
+        IPoolManager _manager = IPoolManager(pp.poolManager());
+        PoolKey memory key = abi.decode(pp.poolKey(), (PoolKey));
+        uint128 poolLiquidity = StateLibrary.getLiquidity(_manager, key.toId());
+
+        // Find the index closest to current tick
+        int256 scaledCurrentTick = int256((currentTick / tickSpacing) * tickSpacing);
+        for (uint256 i = 0; i < tickData.length; i++) {
+            if (tickData[i] == scaledCurrentTick) {
+                assertEq(uint256(liquidityNets[i]), uint256(poolLiquidity));
+                break;
+            }
+        }
+    }
+
+    function test_Success_getTickNets_V4Pool_WideRange(uint256 x) public {
+        _initPool(x);
+
+        (int24 currentTick, , , , ) = pp.getOracleTicks();
+
+        // Test with larger range
+        uint256 nTicks = 500;
+        (int256[] memory tickData, int256[] memory liquidityNets) = pq.getTickNets(
+            pp,
+            currentTick,
+            nTicks
+        );
+
+        // Verify array sizes
+        assertEq(tickData.length, 2 * nTicks + 1);
+        assertEq(liquidityNets.length, 2 * nTicks + 1);
+
+        // Verify ticks are sequential
+        for (uint256 i = 1; i < tickData.length; i++) {
+            assertEq(tickData[i] - tickData[i - 1], int256((tickSpacing)));
+        }
+    }
+
+    function test_Success_getTickNets_V4Pool_SmallRange(uint256 x) public {
+        _initPool(x);
+
+        (int24 currentTick, , , , ) = pp.getOracleTicks();
+
+        // Add liquidity positions to create initialized ticks
+        vm.startPrank(Alice);
+
+        // Mint multiple positions at different strikes to create liquidity
+        int24 strike = (currentTick / tickSpacing) * tickSpacing;
+
+        // Position 1: at current strike
+        TokenId tokenId1 = TokenId.wrap(0).addPoolId(poolId).addLeg(0, 1, 1, 0, 0, 0, strike, 2);
+        TokenId[] memory posIdList1 = new TokenId[](1);
+        posIdList1[0] = tokenId1;
+        mintOptions(
+            pp,
+            posIdList1,
+            1e15,
+            0,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
+        );
+
+        // Position 2: below current strike
+        TokenId tokenId2 = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            0,
+            0,
+            0,
+            strike - 3 * tickSpacing,
+            12
+        );
+        TokenId[] memory posIdList2 = new TokenId[](2);
+        posIdList2[0] = tokenId1;
+        posIdList2[1] = tokenId2;
+        mintOptions(
+            pp,
+            posIdList2,
+            1e15,
+            0,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
+        );
+
+        // Position 3: above current strike
+        TokenId tokenId3 = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            0,
+            0,
+            0,
+            strike + 4 * tickSpacing,
+            16
+        );
+        TokenId[] memory posIdList3 = new TokenId[](3);
+        posIdList3[0] = tokenId1;
+        posIdList3[1] = tokenId2;
+        posIdList3[2] = tokenId3;
+        mintOptions(
+            pp,
+            posIdList3,
+            1e15,
+            0,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
+        );
+
+        vm.stopPrank();
+
+        // Test with small range
+        uint256 nTicks = 10;
+        (int256[] memory tickData, int256[] memory liquidityNets) = pq.getTickNets(
+            pp,
+            currentTick,
+            nTicks
+        );
+
+        // Verify array sizes
+        assertEq(tickData.length, 21); // 2 * 10 + 1
+        assertEq(liquidityNets.length, 21);
+
+        // Print array contents
+        console.log("Current Tick:", currentTick);
+        console.log("Tick Spacing:", uint256(int256(tickSpacing)));
+        console.log("\nTick Data and Liquidity Nets:");
+        for (uint256 i = 0; i < tickData.length; i++) {
+            console.log("Index:", i);
+            console.log("  Tick:", tickData[i]);
+            console.logInt(liquidityNets[i]);
+        }
+        // Verify liquidity is cumulative (monotonic if all liquidityNets are positive)
+        // Note: liquidityNets can decrease if there are negative liquidityNet values
+    }
+
+    function test_Success_getTickNets_V4Pool_OffsetStart(uint256 x) public {
+        _initPool(x);
+
+        (int24 currentTick, , , , ) = pp.getOracleTicks();
+
+        // Start 1000 ticks away from current tick
+        int24 startTick = currentTick + 1000 * tickSpacing;
+        uint256 nTicks = 50;
+
+        (int256[] memory tickData, int256[] memory liquidityNets) = pq.getTickNets(
+            pp,
+            startTick,
+            nTicks
+        );
+
+        // Verify array sizes
+        assertEq(tickData.length, 2 * nTicks + 1);
+        assertEq(liquidityNets.length, 2 * nTicks + 1);
+
+        // Verify middle tick equals scaled startTick
+        int256 scaledStartTick = int256((startTick / tickSpacing) * tickSpacing);
+        assertEq(tickData[nTicks], scaledStartTick);
+
+        // When current tick is not in range, liquidity should still be computed correctly
+        // but rescaling won't happen
+    }
+
+    function test_Success_getTickNets_V4Pool_AfterSwap(uint256 x) public {
+        _initPool(x);
+
+        // Mint a position first
+        {
+            int24 strike = (currentTick / tickSpacing) * tickSpacing;
+            TokenId tokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(0, 1, 1, 0, 0, 0, strike, 6);
+            TokenId[] memory posIdList = new TokenId[](1);
+            posIdList[0] = tokenId;
+
+            vm.startPrank(Alice);
+            mintOptions(
+                pp,
+                posIdList,
+                1e6,
+                0,
+                Constants.MIN_POOL_TICK,
+                Constants.MAX_POOL_TICK,
+                true
+            );
+            vm.stopPrank();
+        }
+
+        (int24 tickBefore, , , , ) = pp.getOracleTicks();
+
+        // Get tick nets before swap
+        (int256[] memory tickDataBefore, int256[] memory liquidityNetsBefore) = pq.getTickNets(
+            pp,
+            tickBefore,
+            100
+        );
+
+        // Perform a swap to change price
+        vm.startPrank(Swapper);
+        router.exactInputSingle(
+            ISwapRouter.ExactInputSingleParams({
+                tokenIn: token0,
+                tokenOut: token1,
+                fee: fee,
+                recipient: Swapper,
+                deadline: block.timestamp,
+                amountIn: 1e4,
+                amountOutMinimum: 0,
+                sqrtPriceLimitX96: 0
+            })
+        );
+        vm.stopPrank();
+
+        (int24 tickAfter, , , , ) = pp.getOracleTicks();
+
+        // Get tick nets after swap
+        (int256[] memory tickDataAfter, int256[] memory liquidityNetsAfter) = pq.getTickNets(
+            pp,
+            tickAfter,
+            100
+        );
+
+        // Verify both calls succeeded
+        assertEq(tickDataBefore.length, 201);
+        assertEq(tickDataAfter.length, 201);
+
+        // Ticks should be different if the swap moved the price
+        if (tickBefore != tickAfter) {
+            assertNotEq(tickDataBefore[100], tickDataAfter[100]);
+        }
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    GET PORTFOLIO VALUE AT TICKS TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_Success_getPortfolioValueAtTicks_SinglePosition(uint256 x) public {
+        _initPool(x);
+
+        uint256 positionSizeSeed = 1e18;
+
+        vm.startPrank(Alice);
+        ct0.redeem(ct0.maxRedeem(Alice), Alice, Alice);
+        ct1.redeem(ct1.maxRedeem(Alice), Alice, Alice);
+
+        uint256 deposit1 = positionSizeSeed;
+        uint256 deposit0 = ((((positionSizeSeed * 2 ** 96) / currentSqrtPriceX96) * 2 ** 96) /
+            currentSqrtPriceX96);
+
+        ct0.deposit(deposit0, Alice);
+        ct1.deposit(deposit1, Alice);
+
+        // Create a simple short put position
+        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            0, // short
+            0, // put
+            0,
+            (currentTick / tickSpacing) * tickSpacing - 6 * tickSpacing,
+            2
+        );
+
+        TokenId[] memory posIdList = new TokenId[](1);
+        posIdList[0] = tokenId;
+
+        mintOptions(
+            pp,
+            posIdList,
+            uint128((positionSizeSeed * 100) / 100),
+            0,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
+        );
+
+        // Create tick array
+        int24[] memory atTicks = new int24[](5);
+        atTicks[0] = currentTick - 100 * tickSpacing;
+        atTicks[1] = currentTick - 50 * tickSpacing;
+        atTicks[2] = currentTick;
+        atTicks[3] = currentTick + 50 * tickSpacing;
+        atTicks[4] = currentTick + 100 * tickSpacing;
+
+        // Call getPortfolioValueAtTicks
+        (int256[] memory value0, int256[] memory value1) = pq.getPortfolioValueAtTicks(
+            pp,
+            Alice,
+            atTicks,
+            posIdList
+        );
+
+        // Verify array lengths
+        assertEq(value0.length, 5, "value0 length mismatch");
+        assertEq(value1.length, 5, "value1 length mismatch");
+
+        // Verify consistency with getPortfolioValue for each tick
+        for (uint256 i; i < atTicks.length; ++i) {
+            (int256 expectedV0, int256 expectedV1) = pq.getPortfolioValue(
+                pp,
+                Alice,
+                atTicks[i],
+                posIdList
+            );
+            assertEq(value0[i], expectedV0, "value0 mismatch at tick index");
+            assertEq(value1[i], expectedV1, "value1 mismatch at tick index");
+        }
+    }
+
+    function test_Success_getPortfolioValueAtTicks_Strangle(uint256 x) public {
+        _initPool(x);
+
+        uint256 positionSizeSeed = 1e18;
+
+        vm.startPrank(Alice);
+        ct0.redeem(ct0.maxRedeem(Alice), Alice, Alice);
+        ct1.redeem(ct1.maxRedeem(Alice), Alice, Alice);
+
+        uint256 deposit1 = positionSizeSeed;
+        uint256 deposit0 = ((((positionSizeSeed * 2 ** 96) / currentSqrtPriceX96) * 2 ** 96) /
+            currentSqrtPriceX96);
+
+        ct0.deposit(deposit0, Alice);
+        ct1.deposit(deposit1, Alice);
+
+        // Short strangle (2 legs)
+        TokenId tokenId = TokenId
+            .wrap(0)
+            .addPoolId(poolId)
+            .addLeg(
+                0,
+                1,
+                1,
+                0,
+                0,
+                0,
+                (currentTick / tickSpacing) * tickSpacing - 6 * tickSpacing,
+                2
+            )
+            .addLeg(
+                1,
+                1,
+                1,
+                0,
+                1,
+                1,
+                (currentTick / tickSpacing) * tickSpacing + 6 * tickSpacing,
+                2
+            );
+
+        TokenId[] memory posIdList = new TokenId[](1);
+        posIdList[0] = tokenId;
+
+        mintOptions(
+            pp,
+            posIdList,
+            uint128((positionSizeSeed * 100) / 100),
+            0,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
+        );
+
+        // Create tick array covering a wide range
+        int24[] memory atTicks = new int24[](11);
+        for (uint256 i; i < 11; ++i) {
+            atTicks[i] = currentTick + int24(int256(i) - 5) * 20 * tickSpacing;
+        }
+
+        (int256[] memory value0, int256[] memory value1) = pq.getPortfolioValueAtTicks(
+            pp,
+            Alice,
+            atTicks,
+            posIdList
+        );
+
+        assertEq(value0.length, 11, "value0 length mismatch");
+        assertEq(value1.length, 11, "value1 length mismatch");
+
+        // Verify consistency with getPortfolioValue
+        for (uint256 i; i < atTicks.length; ++i) {
+            (int256 expectedV0, int256 expectedV1) = pq.getPortfolioValue(
+                pp,
+                Alice,
+                atTicks[i],
+                posIdList
+            );
+            assertEq(value0[i], expectedV0, "value0 mismatch at tick index");
+            assertEq(value1[i], expectedV1, "value1 mismatch at tick index");
+        }
+
+        // Short positions should have positive value
+        for (uint256 i; i < value0.length; ++i) {
+            assertTrue(value0[i] >= 0 || value1[i] >= 0, "short position should have value");
+        }
+    }
+
+    function test_Success_getPortfolioValueAtTicks_LongPosition(uint256 x) public {
+        _initPool(x);
+
+        uint256 positionSizeSeed = 1e18;
+
+        // Bob mints short position first so Alice can go long
+        vm.startPrank(Bob);
+        ct0.redeem(ct0.maxRedeem(Bob), Bob, Bob);
+        ct1.redeem(ct1.maxRedeem(Bob), Bob, Bob);
+
+        uint256 deposit1 = positionSizeSeed;
+        uint256 deposit0 = ((((positionSizeSeed * 2 ** 96) / currentSqrtPriceX96) * 2 ** 96) /
+            currentSqrtPriceX96);
+
+        ct0.deposit(deposit0, Bob);
+        ct1.deposit(deposit1, Bob);
+
+        TokenId shortTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            0, // short
+            0,
+            0,
+            (currentTick / tickSpacing) * tickSpacing - 6 * tickSpacing,
+            2
+        );
+
+        TokenId[] memory shortPosIdList = new TokenId[](1);
+        shortPosIdList[0] = shortTokenId;
+
+        mintOptions(
+            pp,
+            shortPosIdList,
+            uint128((positionSizeSeed * 100) / 100),
+            0,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
+        );
+
+        // Alice goes long on the same chunk
+        vm.startPrank(Alice);
+        ct0.redeem(ct0.maxRedeem(Alice), Alice, Alice);
+        ct1.redeem(ct1.maxRedeem(Alice), Alice, Alice);
+
+        ct0.deposit(deposit0, Alice);
+        ct1.deposit(deposit1, Alice);
+
+        TokenId longTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            1, // long
+            0,
+            0,
+            (currentTick / tickSpacing) * tickSpacing - 6 * tickSpacing,
+            2
+        );
+
+        TokenId[] memory longPosIdList = new TokenId[](1);
+        longPosIdList[0] = longTokenId;
+
+        mintOptions(
+            pp,
+            longPosIdList,
+            uint128((positionSizeSeed * 50) / 100),
+            type(uint24).max,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
+        );
+
+        // Create tick array
+        int24[] memory atTicks = new int24[](5);
+        atTicks[0] = currentTick - 100 * tickSpacing;
+        atTicks[1] = currentTick - 50 * tickSpacing;
+        atTicks[2] = currentTick;
+        atTicks[3] = currentTick + 50 * tickSpacing;
+        atTicks[4] = currentTick + 100 * tickSpacing;
+
+        (int256[] memory value0, int256[] memory value1) = pq.getPortfolioValueAtTicks(
+            pp,
+            Alice,
+            atTicks,
+            longPosIdList
+        );
+
+        assertEq(value0.length, 5, "value0 length mismatch");
+        assertEq(value1.length, 5, "value1 length mismatch");
+
+        // Verify consistency with getPortfolioValue
+        for (uint256 i; i < atTicks.length; ++i) {
+            (int256 expectedV0, int256 expectedV1) = pq.getPortfolioValue(
+                pp,
+                Alice,
+                atTicks[i],
+                longPosIdList
+            );
+            assertEq(value0[i], expectedV0, "value0 mismatch at tick index");
+            assertEq(value1[i], expectedV1, "value1 mismatch at tick index");
+        }
+
+        // Long positions should have negative value (debt)
+        for (uint256 i; i < value0.length; ++i) {
+            assertTrue(
+                value0[i] <= 0 || value1[i] <= 0,
+                "long position should have negative value"
+            );
+        }
+    }
+
+    function test_Success_getPortfolioValueAtTicks_EmptyPositions(uint256 x) public {
+        _initPool(x);
+
+        // No positions minted
+        TokenId[] memory emptyPosIdList = new TokenId[](0);
+
+        int24[] memory atTicks = new int24[](3);
+        atTicks[0] = currentTick - 10 * tickSpacing;
+        atTicks[1] = currentTick;
+        atTicks[2] = currentTick + 10 * tickSpacing;
+
+        (int256[] memory value0, int256[] memory value1) = pq.getPortfolioValueAtTicks(
+            pp,
+            Alice,
+            atTicks,
+            emptyPosIdList
+        );
+
+        assertEq(value0.length, 3, "value0 length mismatch");
+        assertEq(value1.length, 3, "value1 length mismatch");
+
+        // With no positions, all values should be 0
+        for (uint256 i; i < value0.length; ++i) {
+            assertEq(value0[i], 0, "value0 should be 0 for empty positions");
+            assertEq(value1[i], 0, "value1 should be 0 for empty positions");
+        }
+    }
+
+    function test_Success_getPortfolioValueAtTicks_SingleTick(uint256 x) public {
+        _initPool(x);
+
+        uint256 positionSizeSeed = 1e18;
+
+        vm.startPrank(Alice);
+        ct0.redeem(ct0.maxRedeem(Alice), Alice, Alice);
+        ct1.redeem(ct1.maxRedeem(Alice), Alice, Alice);
+
+        uint256 deposit1 = positionSizeSeed;
+        uint256 deposit0 = ((((positionSizeSeed * 2 ** 96) / currentSqrtPriceX96) * 2 ** 96) /
+            currentSqrtPriceX96);
+
+        ct0.deposit(deposit0, Alice);
+        ct1.deposit(deposit1, Alice);
+
+        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            0,
+            0,
+            0,
+            (currentTick / tickSpacing) * tickSpacing - 6 * tickSpacing,
+            2
+        );
+
+        TokenId[] memory posIdList = new TokenId[](1);
+        posIdList[0] = tokenId;
+
+        mintOptions(
+            pp,
+            posIdList,
+            uint128((positionSizeSeed * 100) / 100),
+            0,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
+        );
+
+        // Single tick
+        int24[] memory atTicks = new int24[](1);
+        atTicks[0] = currentTick;
+
+        (int256[] memory value0, int256[] memory value1) = pq.getPortfolioValueAtTicks(
+            pp,
+            Alice,
+            atTicks,
+            posIdList
+        );
+
+        assertEq(value0.length, 1, "value0 length mismatch");
+        assertEq(value1.length, 1, "value1 length mismatch");
+
+        // Should match getPortfolioValue exactly
+        (int256 expectedV0, int256 expectedV1) = pq.getPortfolioValue(
+            pp,
+            Alice,
+            currentTick,
+            posIdList
+        );
+        assertEq(value0[0], expectedV0, "value0 mismatch");
+        assertEq(value1[0], expectedV1, "value1 mismatch");
+    }
+
+    function test_Success_getPortfolioValueAtTicks_MultiplePositions(uint256 x) public {
+        _initPool(x);
+
+        uint256 positionSizeSeed = 1e18;
+
+        vm.startPrank(Alice);
+        ct0.redeem(ct0.maxRedeem(Alice), Alice, Alice);
+        ct1.redeem(ct1.maxRedeem(Alice), Alice, Alice);
+
+        uint256 deposit1 = positionSizeSeed;
+        uint256 deposit0 = ((((positionSizeSeed * 2 ** 96) / currentSqrtPriceX96) * 2 ** 96) /
+            currentSqrtPriceX96);
+
+        ct0.deposit(deposit0, Alice);
+        ct1.deposit(deposit1, Alice);
+
+        // First position: put
+        TokenId tokenId1 = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            0,
+            0,
+            0,
+            (currentTick / tickSpacing) * tickSpacing - 6 * tickSpacing,
+            2
+        );
+
+        TokenId[] memory posIdList1 = new TokenId[](1);
+        posIdList1[0] = tokenId1;
+
+        mintOptions(
+            pp,
+            posIdList1,
+            uint128((positionSizeSeed * 50) / 100),
+            0,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
+        );
+
+        // Second position: call
+        TokenId tokenId2 = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            0,
+            1,
+            0,
+            (currentTick / tickSpacing) * tickSpacing + 6 * tickSpacing,
+            2
+        );
+
+        TokenId[] memory posIdList2 = new TokenId[](2);
+        posIdList2[0] = tokenId1;
+        posIdList2[1] = tokenId2;
+
+        mintOptions(
+            pp,
+            posIdList2,
+            uint128((positionSizeSeed * 50) / 100),
+            0,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
+        );
+
+        // Create tick array
+        int24[] memory atTicks = new int24[](7);
+        for (uint256 i; i < 7; ++i) {
+            atTicks[i] = currentTick + int24(int256(i) - 3) * 30 * tickSpacing;
+        }
+
+        (int256[] memory value0, int256[] memory value1) = pq.getPortfolioValueAtTicks(
+            pp,
+            Alice,
+            atTicks,
+            posIdList2
+        );
+
+        assertEq(value0.length, 7, "value0 length mismatch");
+        assertEq(value1.length, 7, "value1 length mismatch");
+
+        // Verify consistency with getPortfolioValue
+        for (uint256 i; i < atTicks.length; ++i) {
+            (int256 expectedV0, int256 expectedV1) = pq.getPortfolioValue(
+                pp,
+                Alice,
+                atTicks[i],
+                posIdList2
+            );
+            assertEq(value0[i], expectedV0, "value0 mismatch at tick index");
+            assertEq(value1[i], expectedV1, "value1 mismatch at tick index");
         }
     }
 }

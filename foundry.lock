@@ -1,0 +1,14 @@
+{
+  "lib/panoptic-v2-core": {
+    "branch": {
+      "name": "dev6",
+      "rev": "f6599768a47a9d45a5269db3304ef3a9e5b4198e"
+    }
+  },
+  "lib/v4-core": {
+    "tag": {
+      "name": "v4.0.0",
+      "rev": "e50237c43811bd9b526eff40f26772152a42daba"
+    }
+  }
+}

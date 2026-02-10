@@ -5,8 +5,8 @@ pragma solidity ^0.8.0;
 import {IUniswapV3Pool} from "univ3-core/interfaces/IUniswapV3Pool.sol";
 import {PanopticPool} from "@contracts/PanopticPool.sol";
 import {CollateralTracker} from "@contracts/CollateralTracker.sol";
-import {ISemiFungiblePositionManager} from "@contracts/interfaces/ISemiFungiblePositionManager.sol";
 import {IRiskEngine} from "@contracts/interfaces/IRiskEngine.sol";
+import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 // Libraries
 import {LiquidityAmounts} from "univ3-periphery/libraries/LiquidityAmounts.sol";
 import {FullMath} from "univ3-core/libraries/FullMath.sol";
@@ -14,11 +14,15 @@ import {FixedPoint96} from "univ3-core/libraries/FixedPoint96.sol";
 import {Constants} from "@libraries/Constants.sol";
 import {PanopticMath} from "@libraries/PanopticMath.sol";
 import {Math} from "@libraries/Math.sol";
+import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
+import {V4StateReader} from "@libraries/V4StateReader.sol";
 // Custom types
 import {LeftRightUnsigned, LeftRightSigned} from "@types/LeftRight.sol";
 import {LiquidityChunk, LiquidityChunkLibrary} from "@types/LiquidityChunk.sol";
 import {TokenId, TokenIdLibrary} from "@types/TokenId.sol";
 import {PositionBalance, PositionBalanceLibrary} from "@types/PositionBalance.sol";
+import {PoolId} from "v4-core/types/PoolId.sol";
+import {PoolKey} from "v4-core/types/PoolKey.sol";
 
 /// @title Utility contract for token ID construction and advanced queries.
 /// @author Axicon Labs Limited
@@ -28,19 +32,10 @@ contract PanopticQuery {
     uint256 internal constant DECIMALS = 10_000;
     uint256 internal constant NO_BUFFER = 10_000_000;
 
-    /// @notice The SemiFungiblePositionManager of the Panoptic instance this querying helper is intended for.
-    ISemiFungiblePositionManager internal immutable SFPM;
-
     int24 constant MIN_TICK = -887272;
     int24 constant MAX_TICK = 887272;
 
     int24 constant TICK_PRECISION = 1;
-
-    /// @notice Construct the PanopticQuery and store the SFPM address.
-    /// @param SFPM_ The canonical SFPM address for the Panoptic instance this helper queries
-    constructor(ISemiFungiblePositionManager SFPM_) payable {
-        SFPM = SFPM_;
-    }
 
     /// @notice Compute the total amount of collateral needed to cover the existing list of active positions in positionIdList.
     /// @param pool The PanopticPool instance to check collateral on
@@ -224,7 +219,7 @@ contract PanopticQuery {
         address account,
         TokenId[] calldata positionIdList
     )
-        public
+        external
         view
         returns (
             uint256[4] memory collateralBalances0,
@@ -272,30 +267,25 @@ contract PanopticQuery {
         int24 currentTick;
         (currentTick, , , , ) = pool.getOracleTicks();
 
-        {
-            if (!isAccountSolvent(pool, account, positionIdList, MIN_TICK)) {
-                // There's a liquidation price somewhere below current tick
-                liquidationPriceDown = binarySearchDown(
-                    pool,
-                    account,
-                    MIN_TICK,
-                    currentTick,
-                    positionIdList
-                );
-            }
+        if (!isAccountSolvent(pool, account, positionIdList, MIN_TICK)) {
+            liquidationPriceDown = _binarySearch(
+                pool,
+                account,
+                MIN_TICK,
+                currentTick,
+                positionIdList,
+                false
+            );
         }
-        {
-            if (!isAccountSolvent(pool, account, positionIdList, MAX_TICK)) {
-                // Find liquidation price above current tick (liquidationPriceUp)
-                // There's a liquidation price somewhere above current tick
-                liquidationPriceUp = binarySearchUp(
-                    pool,
-                    account,
-                    currentTick,
-                    MAX_TICK,
-                    positionIdList
-                );
-            }
+        if (!isAccountSolvent(pool, account, positionIdList, MAX_TICK)) {
+            liquidationPriceUp = _binarySearch(
+                pool,
+                account,
+                currentTick,
+                MAX_TICK,
+                positionIdList,
+                true
+            );
         }
     }
 
@@ -310,7 +300,7 @@ contract PanopticQuery {
         PanopticPool pool,
         address account,
         TokenId[] calldata positionIdList
-    ) public view returns (uint256[4][] memory, int256[] memory, int24[] memory) {
+    ) external view returns (uint256[4][] memory, int256[] memory, int24[] memory) {
         int256[] memory tickData = new int256[](301);
         int24[] memory liquidationPrices = new int24[](2);
         {
@@ -355,90 +345,33 @@ contract PanopticQuery {
         uint256[4][] memory balanceRequired = new uint256[4][](301);
 
         for (uint256 i; i < 301; ) {
-            {
-                uint160 sqrtPriceX96 = Math.getSqrtRatioAtTick(int24(tickData[i]));
-                if (tickData[150] < 0) {
-                    balanceRequired[i] = checkCollateral(
-                        pool,
-                        account,
-                        positionIdList,
-                        int24(tickData[i])
-                    );
-                    //collateralBalance = (collateralBalance * sqrtPriceX96) >> 96;
-                    //requiredCollateral = (requiredCollateral * sqrtPriceX96) >> 96;
-                } else {
-                    balanceRequired[i] = checkCollateral(
-                        pool,
-                        account,
-                        positionIdList,
-                        int24(tickData[i])
-                    );
-                    //collateralBalance = (collateralBalance << 96) / sqrtPriceX96;
-                    //requiredCollateral = (requiredCollateral << 96) / sqrtPriceX96;
-                }
+            balanceRequired[i] = checkCollateral(pool, account, positionIdList, int24(tickData[i]));
+            unchecked {
+                ++i;
             }
-            ++i;
         }
 
         return (balanceRequired, tickData, liquidationPrices);
     }
 
-    /**
-     * @notice Binary search for liquidation price going down from current tick
-     * @dev Finds the tick where collateral transitions from >= required to < required
-     */
-    function binarySearchDown(
+    function _binarySearch(
         PanopticPool pool,
         address account,
         int24 lowerBound,
         int24 upperBound,
-        TokenId[] calldata positionIdList
+        TokenId[] calldata positionIdList,
+        bool searchUp
     ) internal view returns (int24) {
         while (upperBound - lowerBound > TICK_PRECISION) {
             int24 midTick = (lowerBound + upperBound) / 2;
-
             bool solvent = isAccountSolvent(pool, account, positionIdList, midTick);
-
-            if (solvent) {
-                // Still solvent at midTick, liquidation is lower
-                upperBound = midTick;
-            } else {
-                // Insolvent at midTick, liquidation is higher
-                lowerBound = midTick;
-            }
-        }
-
-        // Return the tick just before insolvency
-        return upperBound;
-    }
-
-    /**
-     * @notice Binary search for liquidation price going up from current tick
-     * @dev Finds the tick where collateral transitions from >= required to < required
-     */
-    function binarySearchUp(
-        PanopticPool pool,
-        address account,
-        int24 lowerBound,
-        int24 upperBound,
-        TokenId[] calldata positionIdList
-    ) internal view returns (int24) {
-        while (upperBound - lowerBound > TICK_PRECISION) {
-            int24 midTick = (lowerBound + upperBound) / 2;
-
-            bool solvent = isAccountSolvent(pool, account, positionIdList, midTick);
-
-            if (solvent) {
-                // Still solvent at midTick, liquidation is higher
+            if (solvent == searchUp) {
                 lowerBound = midTick;
             } else {
-                // Insolvent at midTick, liquidation is lower
                 upperBound = midTick;
             }
         }
-
-        // Return the tick just before insolvency
-        return lowerBound;
+        return searchUp ? lowerBound : upperBound;
     }
 
     /// @notice Calculate NAV of user's option portfolio with respect to Uniswap liquidity at a given tick.
@@ -496,14 +429,64 @@ contract PanopticQuery {
         }
     }
 
+    function getPortfolioValueAtTicks(
+        PanopticPool pool,
+        address account,
+        int24[] calldata atTicks,
+        TokenId[] calldata positionIdList
+    ) external view returns (int256[] memory value0, int256[] memory value1) {
+        (, , PositionBalance[] memory positionBalanceArray) = pool
+            .getAccumulatedFeesAndPositionsData(account, false, positionIdList);
+
+        // Precompute chunks per position/leg
+        LiquidityChunk[][] memory chunks = new LiquidityChunk[][](positionIdList.length);
+        for (uint256 k; k < positionIdList.length; ++k) {
+            TokenId tokenId = positionIdList[k];
+            uint128 size = positionBalanceArray[k].positionSize();
+            uint256 numLegs = tokenId.countLegs();
+
+            LiquidityChunk[] memory legs = new LiquidityChunk[](numLegs);
+            for (uint256 leg; leg < numLegs; ++leg) {
+                legs[leg] = PanopticMath.getLiquidityChunk(tokenId, leg, size);
+            }
+            chunks[k] = legs;
+        }
+
+        value0 = new int256[](atTicks.length);
+        value1 = new int256[](atTicks.length);
+
+        for (uint256 i; i < atTicks.length; ++i) {
+            int24 tick = atTicks[i];
+            int256 v0;
+            int256 v1;
+
+            for (uint256 k; k < chunks.length; ++k) {
+                LiquidityChunk[] memory legs = chunks[k];
+                TokenId tokenId = positionIdList[k];
+
+                for (uint256 leg; leg < legs.length; ++leg) {
+                    (uint256 a0, uint256 a1) = Math.getAmountsForLiquidity(tick, legs[leg]);
+                    if (tokenId.isLong(leg) == 0) {
+                        v0 += int256(a0);
+                        v1 += int256(a1);
+                    } else {
+                        v0 -= int256(a0);
+                        v1 -= int256(a1);
+                    }
+                }
+            }
+
+            value0[i] = v0;
+            value1[i] = v1;
+        }
+    }
+
     /// @notice Fetch data about chunks in a positionIdList.
     /// @param pool The PanopticPool instance containing the positions
-    /// @param account The address of the account to retrieve liquidity data for
     /// @param positionIdList List of TokenIds to evaluate
     /// @return chunkData A [2][4][positionIdList.length] array containing netLiquidity and removedLiquidity for each leg
     function getChunkData(
         PanopticPool pool,
-        address account,
         TokenId[] memory positionIdList
     ) external view returns (uint256[2][4][] memory) {
         uint256[2][4][] memory chunkData = new uint256[2][4][](positionIdList.length);
@@ -511,13 +494,12 @@ contract PanopticQuery {
         for (uint256 i; i < positionIdList.length; ) {
             for (uint256 j; j < positionIdList[i].countLegs(); ) {
                 (int24 tickLower, int24 tickUpper) = positionIdList[i].asTicks(j);
-                LeftRightUnsigned liquidityData = SFPM.getAccountLiquidity(
-                    pool.poolKey(),
-                    account,
-                    positionIdList[i].tokenType(j),
-                    tickLower,
-                    tickUpper
-                );
+                (LeftRightUnsigned liquidities0, LeftRightUnsigned liquidities1, , ) = pool
+                    .getChunkData(tickLower, tickUpper);
+
+                LeftRightUnsigned liquidityData = positionIdList[i].tokenType(j) == 0
+                    ? liquidities0
+                    : liquidities1;
 
                 // net liquidity:
                 chunkData[i][j][0] = liquidityData.rightSlot();
@@ -533,6 +515,107 @@ contract PanopticQuery {
         }
 
         return chunkData;
+    }
+
+    /// @notice Scan for non-empty liquidity chunks in a tick range
+    /// @param pool The PanopticPool address
+    /// @param tickLower Lower bound of range to scan
+    /// @param tickUpper Upper bound of range to scan
+    /// @param width Width of the chunks to be scanned
+    /// @return strikes Array of chunk's strikes (defined as tickUpper/2 + tickLower/2)
+    /// @return netLiquidities Array[2] of chunk's net liquidity (defined as total - removed), index0 = tokenType0
+    /// @return removedLiquidities Array[2] of chunk's removed liquidities, index0 = tokenType0
+    /// @return settledTokens Array[2] of chunk's settled tokens, index0 = tokenType0
+    function scanChunks(
+        PanopticPool pool,
+        int24 tickLower,
+        int24 tickUpper,
+        int24 width
+    )
+        external
+        view
+        returns (
+            int24[] memory,
+            uint128[2][] memory,
+            uint128[2][] memory,
+            LeftRightUnsigned[2][] memory
+        )
+    {
+        if (width <= 0) revert();
+        if (tickLower >= tickUpper) revert();
+
+        int24 tickSpacing = pool.tickSpacing();
+        if (tickSpacing <= 0) revert();
+
+        int24[] memory s_strikes;
+        uint128[2][] memory s_net;
+        uint128[2][] memory s_removed;
+        LeftRightUnsigned[2][] memory s_settled;
+
+        {
+            int256 span = int256(tickUpper) - int256(tickLower);
+            int256 eff = span - int256(width);
+            if (eff < 0) revert();
+            uint256 maxChunks = uint256(eff / int256(tickSpacing) + 1);
+            s_strikes = new int24[](maxChunks);
+            s_net = new uint128[2][](maxChunks);
+            s_removed = new uint128[2][](maxChunks);
+            s_settled = new LeftRightUnsigned[2][](maxChunks);
+        }
+
+        uint256 k;
+        int256 _width = int256(width);
+        PanopticPool _pool = pool;
+        for (int256 t = tickLower; t + _width <= tickUpper; t += tickSpacing) {
+            int24 strike;
+            LeftRightUnsigned liq0;
+            LeftRightUnsigned liq1;
+            LeftRightUnsigned settled0;
+            LeftRightUnsigned settled1;
+            {
+                int24 tl = int24(t);
+                int24 tu = int24(t + _width);
+
+                (liq0, liq1, settled0, settled1) = _pool.getChunkData(tl, tu);
+                strike = (tu + tl) / 2;
+            }
+
+            uint128[2] memory net;
+            uint128[2] memory removed;
+
+            net[0] = liq0.rightSlot();
+            removed[0] = liq0.leftSlot();
+
+            net[1] = liq1.rightSlot();
+            removed[1] = liq1.leftSlot();
+
+            if ((net[0] | removed[0] | net[1] | removed[1]) == 0) continue;
+
+            s_strikes[k] = strike;
+            s_net[k] = net;
+            s_removed[k] = removed;
+            s_settled[k][0] = settled0;
+            s_settled[k][1] = settled1;
+            unchecked {
+                ++k;
+            }
+        }
+
+        int24[] memory strikes = new int24[](k);
+        uint128[2][] memory netLiquidities = new uint128[2][](k);
+        uint128[2][] memory removedLiquidities = new uint128[2][](k);
+        LeftRightUnsigned[2][] memory settledTokens = new LeftRightUnsigned[2][](k);
+
+        for (uint256 i; i < k; ) {
+            strikes[i] = s_strikes[i];
+            netLiquidities[i] = s_net[i];
+            removedLiquidities[i] = s_removed[i];
+            settledTokens[i] = s_settled[i];
+            unchecked {
+                ++i;
+            }
+        }
+        return (strikes, netLiquidities, removedLiquidities, settledTokens);
     }
 
     /// @notice Calculate approximate NLV of user's option portfolio (token delta after closing `positionIdList`) at a given tick.
@@ -618,7 +701,7 @@ contract PanopticQuery {
         PanopticPool pool,
         int24 atTick,
         TokenId tokenId
-    ) public view returns (TokenId) {
+    ) external view returns (TokenId) {
         uint256 numberOfLegs = tokenId.countLegs();
         if (numberOfLegs == 1) {
             return tokenId;
@@ -789,6 +872,213 @@ contract PanopticQuery {
         }
     }
 
+    function getMaxPositionSizeBounds(
+        PanopticPool pool,
+        TokenId[] calldata existingPositionIds,
+        address account,
+        TokenId tokenId
+    ) external view returns (uint128 maxSizeAtMinUtil, uint128 maxSizeAtMaxUtil) {
+        // Get premia for existing positions (new position has zero premia)
+        LeftRightUnsigned[2] memory shortLongPremium;
+        (
+            LeftRightUnsigned shortPremium,
+            LeftRightUnsigned longPremium,
+            PositionBalance[] memory positionBalanceArray
+        ) = pool.getAccumulatedFeesAndPositionsData(account, false, existingPositionIds);
+        shortLongPremium[0] = shortPremium;
+        shortLongPremium[1] = longPremium;
+        // Cache expensive external calls once
+        // Utilization encoding: lower 16 bits = token0 util, upper 16 bits = token1 util
+        uint32 minUtil = 0; // 0% for both tokens
+
+        TokenId[] memory allPositionIds;
+        PositionBalance[] memory allBalances;
+        {
+            uint256 numExisting = existingPositionIds.length + 1;
+            allPositionIds = new TokenId[](numExisting);
+            allBalances = new PositionBalance[](numExisting);
+            // Copy existing positions ONCE
+            for (uint256 i = 0; i < numExisting - 1; ) {
+                allPositionIds[i] = existingPositionIds[i];
+                allBalances[i] = positionBalanceArray[i];
+                unchecked {
+                    ++i;
+                }
+            }
+
+            // Index where we'll update the size (either existing or appended)
+            allPositionIds[numExisting - 1] = tokenId;
+        }
+
+        maxSizeAtMinUtil = _binarySearchMaxSize(
+            pool,
+            account,
+            allPositionIds,
+            allBalances,
+            minUtil,
+            shortLongPremium
+        );
+
+        uint32 maxUtil = (10_000 << 16) | 10_000; // 100% for both tokens
+
+        maxSizeAtMaxUtil = _binarySearchMaxSize(
+            pool,
+            account,
+            allPositionIds,
+            allBalances,
+            maxUtil,
+            shortLongPremium
+        );
+    }
+
+    /// @notice Binary search to find maximum position size that maintains solvency
+    function _binarySearchMaxSize(
+        PanopticPool pool,
+        address account,
+        TokenId[] memory allPositionIds,
+        PositionBalance[] memory allBalances,
+        uint32 utilization,
+        LeftRightUnsigned[2] memory shortLongPremium
+    ) internal view returns (uint128) {
+        int24 atTick;
+        (atTick, , , , ) = pool.getOracleTicks();
+
+        CollateralTracker[2] memory cts;
+        {
+            cts[0] = pool.collateralToken0();
+            cts[1] = pool.collateralToken1();
+        }
+        IRiskEngine riskEngine = pool.riskEngine();
+        // Phase 1: Exponential bracketing to find [low, high] where:
+        //   canOpen(low) = true, canOpen(high) = false
+        uint128 low = 0;
+        uint128 high = 1;
+
+        if (
+            _canOpenSize(
+                riskEngine,
+                atTick,
+                account,
+                allPositionIds,
+                allBalances,
+                high,
+                utilization,
+                shortLongPremium,
+                cts
+            )
+        ) {
+            // size=1 works, find upper bound by doubling
+            while (true) {
+                low = high;
+
+                // Check for overflow before doubling
+                if (high >= type(uint128).max / 100) {
+                    high = type(uint128).max;
+                    // If max is solvable, return it
+                    if (
+                        _canOpenSize(
+                            riskEngine,
+                            atTick,
+                            account,
+                            allPositionIds,
+                            allBalances,
+                            high,
+                            utilization,
+                            shortLongPremium,
+                            cts
+                        )
+                    ) {
+                        return high;
+                    }
+                    break; // Max is not solvable, proceed to binary search
+                }
+
+                high *= 100;
+                if (
+                    !_canOpenSize(
+                        riskEngine,
+                        atTick,
+                        account,
+                        allPositionIds,
+                        allBalances,
+                        high,
+                        utilization,
+                        shortLongPremium,
+                        cts
+                    )
+                ) {
+                    break; // Found bracket
+                }
+            }
+        }
+        // else: size=1 fails, so low=0 (works trivially), high=1 (fails)
+
+        // Phase 2: Binary search in [low, high], close within 10%
+        // Invariant: canOpen(low) = true, canOpen(high) = false
+        while (high - low > 1 && high - low > low / 10) {
+            uint128 mid = low + (high - low) / 2;
+            if (
+                _canOpenSize(
+                    riskEngine,
+                    atTick,
+                    account,
+                    allPositionIds,
+                    allBalances,
+                    mid,
+                    utilization,
+                    shortLongPremium,
+                    cts
+                )
+            ) {
+                low = mid;
+            } else {
+                high = mid;
+            }
+        }
+
+        return low;
+    }
+
+    /// @notice Checks if opening a position with given size maintains solvency
+    function _canOpenSize(
+        IRiskEngine riskEngine,
+        int24 atTick,
+        address account,
+        TokenId[] memory allPositionIds,
+        PositionBalance[] memory allBalances,
+        uint128 size,
+        uint32 utilization,
+        LeftRightUnsigned[2] memory shortLongPremium,
+        CollateralTracker[2] memory cts
+    ) internal view returns (bool) {
+        // Create synthetic balance for the position
+        // PositionBalance encoding:
+        //   bits 0-127:   positionSize (uint128)
+        //   bits 128-143: poolUtilization0 (uint16)
+        //   bits 144-159: poolUtilization1 (uint16)
+        //   bits 160+:    tickAtMint, timestamps, etc. (unused in solvency check)
+        PositionBalance syntheticBalance = PositionBalance.wrap(
+            uint256(size) | (uint256(utilization) << 128)
+        );
+
+        // Update only the target element (no allocation)
+        allBalances[allBalances.length - 1] = syntheticBalance;
+
+        // Check solvency using ground truth
+        return
+            riskEngine.isAccountSolvent(
+                allBalances,
+                allPositionIds,
+                atTick,
+                account,
+                shortLongPremium[0],
+                shortLongPremium[1],
+                cts[0],
+                cts[1],
+                NO_BUFFER // 10_000_000 = 100% collateral ratio, no buffer
+            );
+    }
+
     /// @notice An external function that validates a tokenId.
     /// @param self the tokenId to be tested
     function validateTokenId(TokenId self) external pure {
@@ -819,5 +1109,154 @@ contract PanopticQuery {
             }
         }
         return true;
+    }
+
+    /// @notice Retrieves cumulative liquidity across a range of ticks around a starting point
+    /// @dev Automatically detects V3 or V4 by checking poolManager() (address(0) for V3)
+    /// @param pool The PanopticPool instance
+    /// @param startTick The center tick of the range to scan
+    /// @param nTicks The number of ticks to scan in each direction from startTick
+    /// @return tickData Array of tick values in the scanned range
+    /// @return liquidityNets Array of cumulative liquidity at each tick, rescaled to match actual pool liquidity at currentTick
+    function getTickNets(
+        PanopticPool pool,
+        int24 startTick,
+        uint256 nTicks
+    ) external view returns (int256[] memory tickData, int256[] memory liquidityNets) {
+        // Check if V3 (poolManager == address(0)) or V4
+        address poolManager = pool.poolManager();
+
+        if (poolManager == address(0)) {
+            // V3 Pool
+            IUniswapV3Pool univ3pool = IUniswapV3Pool(abi.decode(pool.poolKey(), (address)));
+            return _getTickNetsV3(univ3pool, startTick, nTicks);
+        } else {
+            // V4 Pool
+            IPoolManager manager = IPoolManager(poolManager);
+            PoolKey memory key = abi.decode(pool.poolKey(), (PoolKey));
+            return _getTickNetsV4(manager, key.toId(), key.tickSpacing, startTick, nTicks);
+        }
+    }
+
+    /// @notice Internal helper for V4 tick net retrieval
+    /// @param manager The Uniswap V4 pool manager
+    /// @param poolId The pool ID
+    /// @param tickSpacing The tick spacing for the pool
+    /// @param startTick The center tick of the range to scan
+    /// @param nTicks The number of ticks to scan in each direction from startTick
+    /// @return tickData Array of tick values in the scanned range
+    /// @return liquidityNets Array of cumulative liquidity at each tick
+    function _getTickNetsV4(
+        IPoolManager manager,
+        PoolId poolId,
+        int24 tickSpacing,
+        int24 startTick,
+        uint256 nTicks
+    ) internal view returns (int256[] memory tickData, int256[] memory liquidityNets) {
+        int256 scaledCurrentTick;
+        int256 scaledStartTick;
+        uint256 arraySize;
+        uint256 currentTickIndex;
+
+        {
+            int24 currentTick = V4StateReader.getTick(manager, poolId);
+            scaledCurrentTick = int256((currentTick / tickSpacing) * tickSpacing);
+            scaledStartTick = int256((startTick / tickSpacing) * tickSpacing);
+            arraySize = 2 * nTicks + 1;
+            currentTickIndex = type(uint256).max;
+        }
+
+        tickData = new int256[](arraySize);
+        liquidityNets = new int256[](arraySize);
+
+        int256 cumulativeLiquidity;
+
+        for (uint256 i; i < arraySize; ) {
+            int24 tick;
+            int128 liquidityNet;
+            {
+                tick = int24(scaledStartTick + (int256(i) - int256(nTicks)) * tickSpacing);
+                (, liquidityNet) = StateLibrary.getTickLiquidity(manager, poolId, tick);
+            }
+
+            cumulativeLiquidity += liquidityNet;
+            tickData[i] = int256(tick);
+            liquidityNets[i] = cumulativeLiquidity;
+
+            if (int256(tick) == scaledCurrentTick) {
+                currentTickIndex = i;
+            }
+
+            unchecked {
+                ++i;
+            }
+        }
+
+        // Rescale only if the range includes the current tick
+        if (currentTickIndex < type(uint256).max) {
+            uint128 liquidity = StateLibrary.getLiquidity(manager, poolId);
+            int256 liquidityDelta = int256(uint256(liquidity)) - liquidityNets[currentTickIndex];
+            for (uint256 j; j < arraySize; ) {
+                liquidityNets[j] += liquidityDelta;
+                unchecked {
+                    ++j;
+                }
+            }
+        }
+    }
+
+    /// @notice Internal helper for V3 tick net retrieval
+    /// @param univ3pool The Uniswap V3 pool
+    /// @param startTick The center tick of the range to scan
+    /// @param nTicks The number of ticks to scan in each direction from startTick
+    /// @return tickData Array of tick values in the scanned range
+    /// @return liquidityNets Array of cumulative liquidity at each tick
+    function _getTickNetsV3(
+        IUniswapV3Pool univ3pool,
+        int24 startTick,
+        uint256 nTicks
+    ) internal view returns (int256[] memory tickData, int256[] memory liquidityNets) {
+        (, int24 currentTick, , , , , ) = univ3pool.slot0();
+        uint128 liquidity = univ3pool.liquidity();
+        int24 tickSpacing = univ3pool.tickSpacing();
+
+        int256 scaledCurrentTick = int256((currentTick / tickSpacing) * tickSpacing);
+        int256 scaledStartTick = int256((startTick / tickSpacing) * tickSpacing);
+
+        uint256 arraySize = 2 * nTicks + 1;
+        tickData = new int256[](arraySize);
+        liquidityNets = new int256[](arraySize);
+
+        int256 cumulativeLiquidity;
+        uint256 currentTickIndex = type(uint256).max;
+
+        for (uint256 i; i < arraySize; ) {
+            int24 tick = int24(scaledStartTick + (int256(i) - int256(nTicks)) * tickSpacing);
+
+            (, int128 liquidityNet, , , , , , ) = univ3pool.ticks(tick);
+
+            cumulativeLiquidity += liquidityNet;
+            tickData[i] = int256(tick);
+            liquidityNets[i] = cumulativeLiquidity;
+
+            if (int256(tick) == scaledCurrentTick) {
+                currentTickIndex = i;
+            }
+
+            unchecked {
+                ++i;
+            }
+        }
+
+        // Rescale only if the range includes the current tick
+        if (currentTickIndex < type(uint256).max) {
+            int256 liquidityDelta = int256(uint256(liquidity)) - liquidityNets[currentTickIndex];
+            for (uint256 j; j < arraySize; ) {
+                liquidityNets[j] += liquidityDelta;
+                unchecked {
+                    ++j;
+                }
+            }
+        }
     }
 }
