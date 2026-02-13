@@ -124,6 +124,11 @@ contract PanopticQuery {
         balancesAndRequired[3] = effectiveReq1;
     }
 
+    /// @notice Computes utilization-adjusted cross-buffer ratio via the pool risk engine.
+    /// @param pool The PanopticPool whose risk engine is queried.
+    /// @param utilization The utilization value to evaluate.
+    /// @param crossBuffer The configured cross-buffer parameter.
+    /// @return crossBufferRatio The resulting ratio used to scale surplus collateral.
     function _crossBufferRatio(
         PanopticPool pool,
         int256 utilization,
@@ -168,6 +173,14 @@ contract PanopticQuery {
         );
     }
 
+    /// @notice Computes premium-adjusted collateral state for an account at a specific tick.
+    /// @param pool The PanopticPool instance to query.
+    /// @param atTick The tick used for margin evaluation.
+    /// @param account The account to evaluate.
+    /// @param positionIdList The list of open position token IDs for the account.
+    /// @return tokenData0 Packed required and available collateral data for token0.
+    /// @return tokenData1 Packed required and available collateral data for token1.
+    /// @return globalUtilizations Global utilization values used by risk calculations.
     function _getMargin(
         PanopticPool pool,
         int24 atTick,
@@ -354,6 +367,14 @@ contract PanopticQuery {
         return (balanceRequired, tickData, liquidationPrices);
     }
 
+    /// @notice Binary-searches for the nearest solvency boundary tick.
+    /// @param pool The PanopticPool instance.
+    /// @param account The account whose solvency is checked.
+    /// @param lowerBound The lower search bound.
+    /// @param upperBound The upper search bound.
+    /// @param positionIdList The account's position list.
+    /// @param searchUp If true, searches upward boundary; otherwise downward boundary.
+    /// @return The boundary tick found at `TICK_PRECISION` granularity.
     function _binarySearch(
         PanopticPool pool,
         address account,
@@ -429,6 +450,13 @@ contract PanopticQuery {
         }
     }
 
+    /// @notice Calculates portfolio value across multiple ticks in one call.
+    /// @param pool The PanopticPool instance to query.
+    /// @param account The account whose portfolio is evaluated.
+    /// @param atTicks The tick array to evaluate against.
+    /// @param positionIdList The account positions to include in valuation.
+    /// @return value0 Portfolio values denominated in token0 at each tick.
+    /// @return value1 Portfolio values denominated in token1 at each tick.
     function getPortfolioValueAtTicks(
         PanopticPool pool,
         address account,
@@ -872,6 +900,13 @@ contract PanopticQuery {
         }
     }
 
+    /// @notice Computes max mintable size bounds under min/max utilization assumptions.
+    /// @param pool The PanopticPool instance.
+    /// @param existingPositionIds Existing position IDs for the account.
+    /// @param account The account being evaluated.
+    /// @param tokenId The candidate tokenId to size.
+    /// @return maxSizeAtMinUtil Max size assuming 0% utilization.
+    /// @return maxSizeAtMaxUtil Max size assuming 100% utilization.
     function getMaxPositionSizeBounds(
         PanopticPool pool,
         TokenId[] calldata existingPositionIds,
@@ -1136,6 +1171,38 @@ contract PanopticQuery {
             PoolKey memory key = abi.decode(pool.poolKey(), (PoolKey));
             return _getTickNetsV4(manager, key.toId(), key.tickSpacing, startTick, nTicks);
         }
+    }
+
+    /// @notice Retrieves cumulative liquidity across a range of ticks for a Uniswap V3 pool.
+    /// @param univ3pool The Uniswap V3 pool to query.
+    /// @param startTick The center tick of the range to scan.
+    /// @param nTicks The number of ticks to scan in each direction from `startTick`.
+    /// @return tickData Array of tick values in the scanned range.
+    /// @return liquidityNets Array of cumulative liquidity at each tick.
+    function getTickNetsFromUniswapV3(
+        IUniswapV3Pool univ3pool,
+        int24 startTick,
+        uint256 nTicks
+    ) external view returns (int256[] memory tickData, int256[] memory liquidityNets) {
+        return _getTickNetsV3(univ3pool, startTick, nTicks);
+    }
+
+    /// @notice Retrieves cumulative liquidity across a range of ticks for a Uniswap V4 pool.
+    /// @param manager The Uniswap V4 pool manager.
+    /// @param poolId The Uniswap V4 pool ID.
+    /// @param tickSpacing The pool tick spacing.
+    /// @param startTick The center tick of the range to scan.
+    /// @param nTicks The number of ticks to scan in each direction from `startTick`.
+    /// @return tickData Array of tick values in the scanned range.
+    /// @return liquidityNets Array of cumulative liquidity at each tick.
+    function getTickNetsFromUniswapV4PoolId(
+        IPoolManager manager,
+        PoolId poolId,
+        int24 tickSpacing,
+        int24 startTick,
+        uint256 nTicks
+    ) external view returns (int256[] memory tickData, int256[] memory liquidityNets) {
+        return _getTickNetsV4(manager, poolId, tickSpacing, startTick, nTicks);
     }
 
     /// @notice Internal helper for V4 tick net retrieval

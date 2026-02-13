@@ -1521,6 +1521,59 @@ contract PanopticQueryTest is PositionUtils {
                         GET TICK NETS TESTS
     //////////////////////////////////////////////////////////////*/
 
+    function test_Success_getTickNets_V3PoolWithoutPanopticPool(uint256 x) public view {
+        IUniswapV3Pool univ3pool = pools[bound(x, 0, pools.length - 1)];
+        (, int24 startTick, , , , , ) = univ3pool.slot0();
+        int24 spacing = univ3pool.tickSpacing();
+        uint128 poolLiquidity = univ3pool.liquidity();
+
+        uint256 nTicks = 100;
+        (int256[] memory tickData, int256[] memory liquidityNets) = pq.getTickNetsFromUniswapV3(
+            univ3pool,
+            startTick,
+            nTicks
+        );
+
+        assertEq(tickData.length, 2 * nTicks + 1);
+        assertEq(liquidityNets.length, 2 * nTicks + 1);
+
+        for (uint256 i = 1; i < tickData.length; i++) {
+            assertEq(tickData[i] - tickData[i - 1], int256(int256(spacing)));
+        }
+
+        int256 scaledStartTick = int256((startTick / spacing) * spacing);
+        assertEq(tickData[nTicks], scaledStartTick);
+        assertEq(uint256(liquidityNets[nTicks]), uint256(poolLiquidity));
+    }
+
+    function test_Success_getTickNets_V4PoolIdWithoutPanopticPool(uint256 x) public {
+        _cacheWorldState(pools[bound(x, 0, pools.length - 1)]);
+
+        // Initialize only the Uniswap V4 pool; no PanopticPool deployment.
+        deal(token0, address(manager), type(uint128).max);
+        deal(token1, address(manager), type(uint128).max);
+        manager.initialize(poolKey, currentSqrtPriceX96);
+
+        uint256 nTicks = 100;
+        PoolId v4PoolId = poolKey.toId();
+        (int256[] memory tickData, int256[] memory liquidityNets) = pq
+            .getTickNetsFromUniswapV4PoolId(manager, v4PoolId, tickSpacing, currentTick, nTicks);
+
+        assertEq(tickData.length, 2 * nTicks + 1);
+        assertEq(liquidityNets.length, 2 * nTicks + 1);
+
+        for (uint256 i = 1; i < tickData.length; i++) {
+            assertEq(tickData[i] - tickData[i - 1], int256(int256(tickSpacing)));
+        }
+
+        int256 scaledStartTick = int256((currentTick / tickSpacing) * tickSpacing);
+        assertEq(tickData[nTicks], scaledStartTick);
+
+        uint128 poolLiquidity = StateLibrary.getLiquidity(manager, v4PoolId);
+        assertEq(poolLiquidity, 0);
+        assertEq(uint256(liquidityNets[nTicks]), uint256(poolLiquidity));
+    }
+
     function test_Success_getTickNets_V4Pool(uint256 x) public {
         _initPool(x);
 
