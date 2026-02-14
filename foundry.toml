@@ -9,7 +9,6 @@ optimizer = true
 optimizer_runs = 999_999
 viaIR = false
 gas_limit = 9223372036854775807
-eth_rpc_url = "https://eth.public-rpc.com"
 
 [profile.ci_test]
 fork_block_number = 18963715
