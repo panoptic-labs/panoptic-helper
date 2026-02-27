@@ -1125,6 +1125,62 @@ contract PanopticQueryTest is PositionUtils {
         }
     }
 
+    function test_Success_optimizePartners_strangle(
+        uint256 x,
+        int256 callStrikeSeed,
+        int256 putStrikeSeed,
+        uint256 callWidthSeed,
+        uint256 putWidthSeed
+    ) public {
+        _initPool(x);
+
+        int24 _tickSpacing = tickSpacing;
+        int24 _currentTick = currentTick;
+
+        int24 callStrike = (int24(bound(callStrikeSeed, -500_000, 500_000)) / _tickSpacing) *
+            _tickSpacing;
+        int24 putStrike = (int24(bound(putStrikeSeed, -500_000, 500_000)) / _tickSpacing) *
+            _tickSpacing;
+        int24 callWidth = int24(uint24(2 * bound(callWidthSeed, 1, 100)));
+        int24 putWidth = int24(uint24(2 * bound(putWidthSeed, 1, 100)));
+
+        // Build a short strangle with self-partnered legs (unoptimized)
+        // Leg 0: short call (tokenType=0), Leg 1: short put (tokenType=1)
+        // Both: isLong=0, asset=0
+        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId);
+        tokenId = tokenId.addRiskPartner(0, 0);
+        tokenId = tokenId.addRiskPartner(1, 1);
+
+        // Leg 0: short call
+        tokenId = tokenId.addTokenType(0, 0);
+        tokenId = tokenId.addOptionRatio(1, 0);
+        tokenId = tokenId.addIsLong(0, 0);
+        tokenId = tokenId.addAsset(0, 0);
+        tokenId = tokenId.addStrike(callStrike, 0);
+        tokenId = tokenId.addWidth(callWidth, 0);
+
+        // Leg 1: short put
+        tokenId = tokenId.addTokenType(1, 1);
+        tokenId = tokenId.addOptionRatio(1, 1);
+        tokenId = tokenId.addIsLong(0, 1);
+        tokenId = tokenId.addAsset(0, 1);
+        tokenId = tokenId.addStrike(putStrike, 1);
+        tokenId = tokenId.addWidth(putWidth, 1);
+
+        uint256 requiredBefore = pq.getRequiredBase(pp, tokenId, _currentTick);
+        TokenId optimizedTokenId = pq.optimizeRiskPartners(pp, _currentTick, tokenId);
+        uint256 requiredAfter = pq.getRequiredBase(pp, optimizedTokenId, _currentTick);
+
+        // Optimized collateral should never be worse
+        assertTrue(requiredAfter <= requiredBefore, "optimization should not increase collateral");
+
+        // When optimization reduced collateral, confirm risk partners were swapped
+        if (requiredAfter < requiredBefore) {
+            assertEq(optimizedTokenId.riskPartner(0), 1, "leg 0 should partner with leg 1");
+            assertEq(optimizedTokenId.riskPartner(1), 0, "leg 1 should partner with leg 0");
+        }
+    }
+
     /*//////////////////////////////////////////////////////////////
                     getMaxPositionSizeBounds TESTS
     //////////////////////////////////////////////////////////////*/

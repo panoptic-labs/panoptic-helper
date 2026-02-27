@@ -29,7 +29,8 @@ import {PoolKey} from "v4-core/types/PoolKey.sol";
 contract PanopticQuery {
     using Math for uint256;
 
-    uint256 internal constant DECIMALS = 10_000;
+    uint256 internal constant DECIMALS = 10_000_000;
+
     uint256 internal constant NO_BUFFER = 10_000_000;
 
     int24 constant MIN_TICK = -887272;
@@ -866,7 +867,7 @@ contract PanopticQuery {
             // Create a synthetic position balance with type(uint104).max size and max utilization
             positionBalanceArray[0] = PositionBalanceLibrary.storeBalanceData(
                 type(uint64).max,
-                10000 + (10000 << 16),
+                0 + (0 << 16), // use 0 utilization to get a proper baseline
                 0,
                 0,
                 0,
