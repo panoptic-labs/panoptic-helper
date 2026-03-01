@@ -1181,6 +1181,80 @@ contract PanopticQueryTest is PositionUtils {
         }
     }
 
+    function test_Success_optimizePartners_concrete4Leg() public {
+        int24 atTick = -199532;
+        _initWorldAtTick(0, atTick);
+
+        // 4-leg position: all short, optionRatio=2, asset=0, width=480
+        // Legs 0,1: tokenType=1 (put), self-partnered
+        // Legs 2,3: tokenType=0 (call), self-partnered
+        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId);
+
+        // Leg 0: short put, strike=-198720, self-partnered
+        tokenId = tokenId.addOptionRatio(2, 0);
+        tokenId = tokenId.addAsset(0, 0);
+        tokenId = tokenId.addIsLong(0, 0);
+        tokenId = tokenId.addTokenType(1, 0);
+        tokenId = tokenId.addRiskPartner(0, 0);
+        tokenId = tokenId.addStrike(-198720, 0);
+        tokenId = tokenId.addWidth(480, 0);
+
+        // Leg 1: short put, strike=-199200, self-partnered
+        tokenId = tokenId.addOptionRatio(2, 1);
+        tokenId = tokenId.addAsset(0, 1);
+        tokenId = tokenId.addIsLong(0, 1);
+        tokenId = tokenId.addTokenType(1, 1);
+        tokenId = tokenId.addRiskPartner(1, 1);
+        tokenId = tokenId.addStrike(-199200, 1);
+        tokenId = tokenId.addWidth(480, 1);
+
+        // Leg 2: short call, strike=-200160, self-partnered
+        tokenId = tokenId.addOptionRatio(2, 2);
+        tokenId = tokenId.addAsset(0, 2);
+        tokenId = tokenId.addIsLong(0, 2);
+        tokenId = tokenId.addTokenType(0, 2);
+        tokenId = tokenId.addRiskPartner(2, 2);
+        tokenId = tokenId.addStrike(-200160, 2);
+        tokenId = tokenId.addWidth(480, 2);
+
+        // Leg 3: short call, strike=-198960, self-partnered
+        tokenId = tokenId.addOptionRatio(2, 3);
+        tokenId = tokenId.addAsset(0, 3);
+        tokenId = tokenId.addIsLong(0, 3);
+        tokenId = tokenId.addTokenType(0, 3);
+        tokenId = tokenId.addRiskPartner(3, 3);
+        tokenId = tokenId.addStrike(-198960, 3);
+        tokenId = tokenId.addWidth(480, 3);
+
+        uint256 requiredBefore = pq.getRequiredBase(pp, tokenId, atTick);
+        TokenId optimizedTokenId = pq.optimizeRiskPartners(pp, atTick, tokenId);
+        uint256 requiredAfter = pq.getRequiredBase(pp, optimizedTokenId, atTick);
+
+        console2.log("requiredBefore", requiredBefore);
+        console2.log("requiredAfter", requiredAfter);
+        for (uint256 leg; leg < 4; leg++) {
+            console2.log(
+                "leg, partner BEFORE, AFTER",
+                leg,
+                tokenId.riskPartner(leg),
+                optimizedTokenId.riskPartner(leg)
+            );
+        }
+
+        // Optimization should reduce collateral by cross-pairing puts with calls
+        assertTrue(requiredAfter < requiredBefore, "optimization should reduce collateral");
+
+        // Each leg should be partnered with a leg of different tokenType (put↔call)
+        assertTrue(
+            optimizedTokenId.riskPartner(0) != 0 && optimizedTokenId.riskPartner(0) != 1,
+            "leg 0 (put) should partner with a call leg"
+        );
+        assertTrue(
+            optimizedTokenId.riskPartner(1) != 0 && optimizedTokenId.riskPartner(1) != 1,
+            "leg 1 (put) should partner with a call leg"
+        );
+    }
+
     /*//////////////////////////////////////////////////////////////
                     getMaxPositionSizeBounds TESTS
     //////////////////////////////////////////////////////////////*/
@@ -1894,6 +1968,92 @@ contract PanopticQueryTest is PositionUtils {
     /*//////////////////////////////////////////////////////////////
                     GET PORTFOLIO VALUE AT TICKS TESTS
     //////////////////////////////////////////////////////////////*/
+
+    function test_Success_getPortfolioValue_WidthZeroLeg(uint256 x) public {
+        _initPool(x);
+
+        vm.startPrank(Alice);
+
+        int24 roundedTick = (currentTick / tickSpacing) * tickSpacing;
+
+        // Mint a normal short put first
+        TokenId normalTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            0, // short
+            0, // put
+            0,
+            roundedTick - 6 * tickSpacing,
+            2
+        );
+
+        TokenId[] memory posIdList = new TokenId[](1);
+        posIdList[0] = normalTokenId;
+
+        mintOptions(pp, posIdList, 1e15, 0, Constants.MIN_POOL_TICK, Constants.MAX_POOL_TICK, true);
+
+        // Now build a fabricated 2-leg tokenId: leg 0 = same short put, leg 1 = loan/credit (width==0)
+        // We pass this to the query functions to verify they don't revert on width==0 legs
+        TokenId loanTokenId = TokenId.wrap(0).addPoolId(poolId);
+        loanTokenId = loanTokenId.addLeg(
+            0,
+            1,
+            1,
+            0, // short
+            0, // put
+            0,
+            roundedTick - 6 * tickSpacing,
+            2
+        );
+        loanTokenId = loanTokenId.addLeg(
+            1,
+            1,
+            0,
+            0, // short
+            1, // call
+            1,
+            roundedTick + 6 * tickSpacing,
+            0 // width == 0 => loan/credit
+        );
+
+        TokenId[] memory loanList = new TokenId[](2);
+
+        loanList[0] = normalTokenId;
+        loanList[1] = loanTokenId;
+        mintOptions(pp, loanList, 1e15, 0, Constants.MIN_POOL_TICK, Constants.MAX_POOL_TICK, true);
+
+        // All three query functions should not revert on width==0 legs
+        (int256 v0, int256 v1) = pq.getPortfolioValue(pp, Alice, currentTick, loanList);
+        assertTrue(v0 != 0 || v1 != 0, "portfolio value should be non-zero");
+
+        int24[] memory atTicks = new int24[](3);
+        atTicks[0] = currentTick - 50 * tickSpacing;
+        atTicks[1] = currentTick;
+        atTicks[2] = currentTick + 50 * tickSpacing;
+
+        (int256[] memory value0, int256[] memory value1) = pq.getPortfolioValueAtTicks(
+            pp,
+            Alice,
+            atTicks,
+            loanList
+        );
+        assertEq(value0.length, 3);
+        assertEq(value1.length, 3);
+
+        // getPortfolioValueAtTicks at currentTick should match getPortfolioValue
+        assertEq(value0[1], v0, "value0 mismatch at currentTick");
+        assertEq(value1[1], v1, "value1 mismatch at currentTick");
+
+        (int256 nlv0, int256 nlv1) = pq.getNetLiquidationValue(
+            pp,
+            Alice,
+            true,
+            loanList,
+            currentTick
+        );
+        assertTrue(nlv0 != 0 || nlv1 != 0, "net liquidation value should be non-zero");
+    }
 
     function test_Success_getPortfolioValueAtTicks_SinglePosition(uint256 x) public {
         _initPool(x);

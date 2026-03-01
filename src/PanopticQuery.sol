@@ -418,16 +418,28 @@ contract PanopticQuery {
             uint128 positionSize = positionBalanceArray[k].positionSize();
             uint256 numLegs = tokenId.countLegs();
             for (uint256 leg = 0; leg < numLegs; ) {
-                LiquidityChunk liquidityChunk = PanopticMath.getLiquidityChunk(
-                    tokenId,
-                    leg,
-                    positionSize
-                );
+                uint256 amount0;
+                uint256 amount1;
 
-                (uint256 amount0, uint256 amount1) = Math.getAmountsForLiquidity(
-                    atTick,
-                    liquidityChunk
-                );
+                if (tokenId.width(leg) == 0) {
+                    // Loan/credit legs: fixed notional independent of tick
+                    LeftRightUnsigned amountsMoved = PanopticMath.getAmountsMoved(
+                        tokenId,
+                        positionSize,
+                        leg,
+                        false
+                    );
+                    amount0 = amountsMoved.rightSlot();
+                    amount1 = amountsMoved.leftSlot();
+                } else {
+                    // Normal legs: tick-dependent liquidity valuation
+                    LiquidityChunk liquidityChunk = PanopticMath.getLiquidityChunk(
+                        tokenId,
+                        leg,
+                        positionSize
+                    );
+                    (amount0, amount1) = Math.getAmountsForLiquidity(atTick, liquidityChunk);
+                }
 
                 if (tokenId.isLong(leg) == 0) {
                     unchecked {
@@ -467,18 +479,26 @@ contract PanopticQuery {
         (, , PositionBalance[] memory positionBalanceArray) = pool
             .getAccumulatedFeesAndPositionsData(account, false, positionIdList);
 
-        // Precompute chunks per position/leg
+        // Precompute chunks and loan amounts per position/leg
         LiquidityChunk[][] memory chunks = new LiquidityChunk[][](positionIdList.length);
+        LeftRightUnsigned[][] memory loanAmounts = new LeftRightUnsigned[][](positionIdList.length);
         for (uint256 k; k < positionIdList.length; ++k) {
             TokenId tokenId = positionIdList[k];
             uint128 size = positionBalanceArray[k].positionSize();
             uint256 numLegs = tokenId.countLegs();
 
             LiquidityChunk[] memory legs = new LiquidityChunk[](numLegs);
+            LeftRightUnsigned[] memory loans = new LeftRightUnsigned[](numLegs);
             for (uint256 leg; leg < numLegs; ++leg) {
-                legs[leg] = PanopticMath.getLiquidityChunk(tokenId, leg, size);
+                if (tokenId.width(leg) == 0) {
+                    // Loan/credit: fixed notional, precompute once
+                    loans[leg] = PanopticMath.getAmountsMoved(tokenId, size, leg, false);
+                } else {
+                    legs[leg] = PanopticMath.getLiquidityChunk(tokenId, leg, size);
+                }
             }
             chunks[k] = legs;
+            loanAmounts[k] = loans;
         }
 
         value0 = new int256[](atTicks.length);
@@ -491,10 +511,18 @@ contract PanopticQuery {
 
             for (uint256 k; k < chunks.length; ++k) {
                 LiquidityChunk[] memory legs = chunks[k];
+                LeftRightUnsigned[] memory loans = loanAmounts[k];
                 TokenId tokenId = positionIdList[k];
 
                 for (uint256 leg; leg < legs.length; ++leg) {
-                    (uint256 a0, uint256 a1) = Math.getAmountsForLiquidity(tick, legs[leg]);
+                    uint256 a0;
+                    uint256 a1;
+                    if (tokenId.width(leg) == 0) {
+                        a0 = loans[leg].rightSlot();
+                        a1 = loans[leg].leftSlot();
+                    } else {
+                        (a0, a1) = Math.getAmountsForLiquidity(tick, legs[leg]);
+                    }
                     if (tokenId.isLong(leg) == 0) {
                         v0 += int256(a0);
                         v1 += int256(a1);
@@ -674,16 +702,28 @@ contract PanopticQuery {
             uint128 positionSize = positionBalanceArray[k].positionSize();
             uint256 numLegs = tokenId.countLegs();
             for (uint256 leg = 0; leg < numLegs; ) {
-                LiquidityChunk liquidityChunk = PanopticMath.getLiquidityChunk(
-                    tokenId,
-                    leg,
-                    positionSize
-                );
+                uint256 amount0;
+                uint256 amount1;
 
-                (uint256 amount0, uint256 amount1) = Math.getAmountsForLiquidity(
-                    atTick,
-                    liquidityChunk
-                );
+                if (tokenId.width(leg) == 0) {
+                    // Loan/credit legs: fixed notional independent of tick
+                    LeftRightUnsigned amountsMoved = PanopticMath.getAmountsMoved(
+                        tokenId,
+                        positionSize,
+                        leg,
+                        false
+                    );
+                    amount0 = amountsMoved.rightSlot();
+                    amount1 = amountsMoved.leftSlot();
+                } else {
+                    // Normal legs: tick-dependent liquidity valuation
+                    LiquidityChunk liquidityChunk = PanopticMath.getLiquidityChunk(
+                        tokenId,
+                        leg,
+                        positionSize
+                    );
+                    (amount0, amount1) = Math.getAmountsForLiquidity(atTick, liquidityChunk);
+                }
 
                 if (tokenId.isLong(leg) == 0) {
                     unchecked {
@@ -864,10 +904,10 @@ contract PanopticQuery {
             TokenId[] memory positionIdList = new TokenId[](1);
 
             positionIdList[0] = tokenId;
-            // Create a synthetic position balance with type(uint104).max size and max utilization
+            // Create a synthetic position balance with max size and 0 utilization baseline
             positionBalanceArray[0] = PositionBalanceLibrary.storeBalanceData(
                 type(uint64).max,
-                0 + (0 << 16), // use 0 utilization to get a proper baseline
+                0 + (0 << 16),
                 0,
                 0,
                 0,
@@ -1172,38 +1212,6 @@ contract PanopticQuery {
             PoolKey memory key = abi.decode(pool.poolKey(), (PoolKey));
             return _getTickNetsV4(manager, key.toId(), key.tickSpacing, startTick, nTicks);
         }
-    }
-
-    /// @notice Retrieves cumulative liquidity across a range of ticks for a Uniswap V3 pool.
-    /// @param univ3pool The Uniswap V3 pool to query.
-    /// @param startTick The center tick of the range to scan.
-    /// @param nTicks The number of ticks to scan in each direction from `startTick`.
-    /// @return tickData Array of tick values in the scanned range.
-    /// @return liquidityNets Array of cumulative liquidity at each tick.
-    function getTickNetsFromUniswapV3(
-        IUniswapV3Pool univ3pool,
-        int24 startTick,
-        uint256 nTicks
-    ) external view returns (int256[] memory tickData, int256[] memory liquidityNets) {
-        return _getTickNetsV3(univ3pool, startTick, nTicks);
-    }
-
-    /// @notice Retrieves cumulative liquidity across a range of ticks for a Uniswap V4 pool.
-    /// @param manager The Uniswap V4 pool manager.
-    /// @param poolId The Uniswap V4 pool ID.
-    /// @param tickSpacing The pool tick spacing.
-    /// @param startTick The center tick of the range to scan.
-    /// @param nTicks The number of ticks to scan in each direction from `startTick`.
-    /// @return tickData Array of tick values in the scanned range.
-    /// @return liquidityNets Array of cumulative liquidity at each tick.
-    function getTickNetsFromUniswapV4PoolId(
-        IPoolManager manager,
-        PoolId poolId,
-        int24 tickSpacing,
-        int24 startTick,
-        uint256 nTicks
-    ) external view returns (int256[] memory tickData, int256[] memory liquidityNets) {
-        return _getTickNetsV4(manager, poolId, tickSpacing, startTick, nTicks);
     }
 
     /// @notice Internal helper for V4 tick net retrieval
