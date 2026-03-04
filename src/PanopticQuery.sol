@@ -421,17 +421,7 @@ contract PanopticQuery {
                 uint256 amount0;
                 uint256 amount1;
 
-                if (tokenId.width(leg) == 0) {
-                    // Loan/credit legs: fixed notional independent of tick
-                    LeftRightUnsigned amountsMoved = PanopticMath.getAmountsMoved(
-                        tokenId,
-                        positionSize,
-                        leg,
-                        false
-                    );
-                    amount0 = amountsMoved.rightSlot();
-                    amount1 = amountsMoved.leftSlot();
-                } else {
+                if (tokenId.width(leg) != 0) {
                     // Normal legs: tick-dependent liquidity valuation
                     LiquidityChunk liquidityChunk = PanopticMath.getLiquidityChunk(
                         tokenId,
@@ -705,17 +695,7 @@ contract PanopticQuery {
                 uint256 amount0;
                 uint256 amount1;
 
-                if (tokenId.width(leg) == 0) {
-                    // Loan/credit legs: fixed notional independent of tick
-                    LeftRightUnsigned amountsMoved = PanopticMath.getAmountsMoved(
-                        tokenId,
-                        positionSize,
-                        leg,
-                        false
-                    );
-                    amount0 = amountsMoved.rightSlot();
-                    amount1 = amountsMoved.leftSlot();
-                } else {
+                if (tokenId.width(leg) != 0) {
                     // Normal legs: tick-dependent liquidity valuation
                     LiquidityChunk liquidityChunk = PanopticMath.getLiquidityChunk(
                         tokenId,
