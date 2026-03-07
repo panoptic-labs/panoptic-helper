@@ -421,7 +421,17 @@ contract PanopticQuery {
                 uint256 amount0;
                 uint256 amount1;
 
-                if (tokenId.width(leg) != 0) {
+                if (tokenId.width(leg) == 0) {
+                    // Loan/credit: fixed notional, tick-independent
+                    LeftRightUnsigned loanAmounts = PanopticMath.getAmountsMoved(
+                        tokenId,
+                        positionSize,
+                        leg,
+                        false
+                    );
+                    amount0 = loanAmounts.rightSlot();
+                    amount1 = loanAmounts.leftSlot();
+                } else {
                     // Normal legs: tick-dependent liquidity valuation
                     LiquidityChunk liquidityChunk = PanopticMath.getLiquidityChunk(
                         tokenId,
@@ -540,18 +550,20 @@ contract PanopticQuery {
 
         for (uint256 i; i < positionIdList.length; ) {
             for (uint256 j; j < positionIdList[i].countLegs(); ) {
-                (int24 tickLower, int24 tickUpper) = positionIdList[i].asTicks(j);
-                (LeftRightUnsigned liquidities0, LeftRightUnsigned liquidities1, , ) = pool
-                    .getChunkData(tickLower, tickUpper);
+                if (positionIdList[i].width(j) != 0) {
+                    (int24 tickLower, int24 tickUpper) = positionIdList[i].asTicks(j);
+                    (LeftRightUnsigned liquidities0, LeftRightUnsigned liquidities1, , ) = pool
+                        .getChunkData(tickLower, tickUpper);
 
-                LeftRightUnsigned liquidityData = positionIdList[i].tokenType(j) == 0
-                    ? liquidities0
-                    : liquidities1;
+                    LeftRightUnsigned liquidityData = positionIdList[i].tokenType(j) == 0
+                        ? liquidities0
+                        : liquidities1;
 
-                // net liquidity:
-                chunkData[i][j][0] = liquidityData.rightSlot();
-                // removed liquidity:
-                chunkData[i][j][1] = liquidityData.leftSlot();
+                    // net liquidity:
+                    chunkData[i][j][0] = liquidityData.rightSlot();
+                    // removed liquidity:
+                    chunkData[i][j][1] = liquidityData.leftSlot();
+                }
                 unchecked {
                     ++j;
                 }

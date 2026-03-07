@@ -885,6 +885,71 @@ contract PanopticQueryTest is PositionUtils {
         _assertScanEntryMatchesSFPM(poolKey, poolAsAccount, tl1, tu1, idxB, net, removed);
     }
 
+    function test_Success_getChunkData_WidthZeroLeg(uint256 x) public {
+        _initPool(x);
+
+        vm.startPrank(Alice);
+
+        int24 roundedTick = (currentTick / tickSpacing) * tickSpacing;
+
+        // Mint a normal short put first
+        TokenId normalTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            0, // short
+            0, // put
+            0,
+            roundedTick - 6 * tickSpacing,
+            2
+        );
+
+        TokenId[] memory posIdList = new TokenId[](1);
+        posIdList[0] = normalTokenId;
+
+        mintOptions(pp, posIdList, 1e15, 0, Constants.MIN_POOL_TICK, Constants.MAX_POOL_TICK, true);
+
+        // Build a fabricated 2-leg tokenId: leg 0 = same short put, leg 1 = loan/credit (width==0)
+        TokenId loanTokenId = TokenId.wrap(0).addPoolId(poolId);
+        loanTokenId = loanTokenId.addLeg(
+            0,
+            1,
+            1,
+            0, // short
+            0, // put
+            0,
+            roundedTick - 6 * tickSpacing,
+            2
+        );
+        loanTokenId = loanTokenId.addLeg(
+            1,
+            1,
+            0,
+            0, // short
+            1, // call
+            1,
+            roundedTick + 6 * tickSpacing,
+            0 // width == 0 => loan/credit
+        );
+
+        TokenId[] memory loanList = new TokenId[](2);
+        loanList[0] = normalTokenId;
+        loanList[1] = loanTokenId;
+        mintOptions(pp, loanList, 1e15, 0, Constants.MIN_POOL_TICK, Constants.MAX_POOL_TICK, true);
+
+        // getChunkData should not revert on width==0 legs
+        uint256[2][4][] memory chunkData = pq.getChunkData(pp, loanList);
+
+        assertEq(chunkData.length, 2, "should have data for 2 positions");
+
+        // leg 0 of loanTokenId (normal leg with width=2) should have non-zero net liquidity
+        assertTrue(chunkData[1][0][0] > 0, "normal leg should have net liquidity");
+
+        // leg 1 of loanTokenId (width==0 loan/credit) should have zero net and removed liquidity
+        assertEq(chunkData[1][1][0], 0, "width-0 leg should have zero net liquidity");
+        assertEq(chunkData[1][1][1], 0, "width-0 leg should have zero removed liquidity");
+    }
+
     function test_ScanChunks_FindsRemovedLiquidity_ForLongStraddle(uint256 x) public {
         _initPool(x);
 
