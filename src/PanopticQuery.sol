@@ -422,15 +422,18 @@ contract PanopticQuery {
                 uint256 amount1;
 
                 if (tokenId.width(leg) == 0) {
-                    // Loan/credit legs: fixed notional independent of tick
-                    LeftRightUnsigned amountsMoved = PanopticMath.getAmountsMoved(
+                    // Loan/credit: fixed notional, tick-independent
+                    LeftRightUnsigned loanAmounts = PanopticMath.getAmountsMoved(
                         tokenId,
                         positionSize,
                         leg,
                         false
                     );
-                    amount0 = amountsMoved.rightSlot();
-                    amount1 = amountsMoved.leftSlot();
+                    if (tokenId.tokenType(leg) == 0) {
+                        amount0 = loanAmounts.rightSlot();
+                    } else {
+                        amount1 = loanAmounts.leftSlot();
+                    }
                 } else {
                     // Normal legs: tick-dependent liquidity valuation
                     LiquidityChunk liquidityChunk = PanopticMath.getLiquidityChunk(
@@ -463,81 +466,6 @@ contract PanopticQuery {
         }
     }
 
-    /// @notice Calculates portfolio value across multiple ticks in one call.
-    /// @param pool The PanopticPool instance to query.
-    /// @param account The account whose portfolio is evaluated.
-    /// @param atTicks The tick array to evaluate against.
-    /// @param positionIdList The account positions to include in valuation.
-    /// @return value0 Portfolio values denominated in token0 at each tick.
-    /// @return value1 Portfolio values denominated in token1 at each tick.
-    function getPortfolioValueAtTicks(
-        PanopticPool pool,
-        address account,
-        int24[] calldata atTicks,
-        TokenId[] calldata positionIdList
-    ) external view returns (int256[] memory value0, int256[] memory value1) {
-        (, , PositionBalance[] memory positionBalanceArray) = pool
-            .getAccumulatedFeesAndPositionsData(account, false, positionIdList);
-
-        // Precompute chunks and loan amounts per position/leg
-        LiquidityChunk[][] memory chunks = new LiquidityChunk[][](positionIdList.length);
-        LeftRightUnsigned[][] memory loanAmounts = new LeftRightUnsigned[][](positionIdList.length);
-        for (uint256 k; k < positionIdList.length; ++k) {
-            TokenId tokenId = positionIdList[k];
-            uint128 size = positionBalanceArray[k].positionSize();
-            uint256 numLegs = tokenId.countLegs();
-
-            LiquidityChunk[] memory legs = new LiquidityChunk[](numLegs);
-            LeftRightUnsigned[] memory loans = new LeftRightUnsigned[](numLegs);
-            for (uint256 leg; leg < numLegs; ++leg) {
-                if (tokenId.width(leg) == 0) {
-                    // Loan/credit: fixed notional, precompute once
-                    loans[leg] = PanopticMath.getAmountsMoved(tokenId, size, leg, false);
-                } else {
-                    legs[leg] = PanopticMath.getLiquidityChunk(tokenId, leg, size);
-                }
-            }
-            chunks[k] = legs;
-            loanAmounts[k] = loans;
-        }
-
-        value0 = new int256[](atTicks.length);
-        value1 = new int256[](atTicks.length);
-
-        for (uint256 i; i < atTicks.length; ++i) {
-            int24 tick = atTicks[i];
-            int256 v0;
-            int256 v1;
-
-            for (uint256 k; k < chunks.length; ++k) {
-                LiquidityChunk[] memory legs = chunks[k];
-                LeftRightUnsigned[] memory loans = loanAmounts[k];
-                TokenId tokenId = positionIdList[k];
-
-                for (uint256 leg; leg < legs.length; ++leg) {
-                    uint256 a0;
-                    uint256 a1;
-                    if (tokenId.width(leg) == 0) {
-                        a0 = loans[leg].rightSlot();
-                        a1 = loans[leg].leftSlot();
-                    } else {
-                        (a0, a1) = Math.getAmountsForLiquidity(tick, legs[leg]);
-                    }
-                    if (tokenId.isLong(leg) == 0) {
-                        v0 += int256(a0);
-                        v1 += int256(a1);
-                    } else {
-                        v0 -= int256(a0);
-                        v1 -= int256(a1);
-                    }
-                }
-            }
-
-            value0[i] = v0;
-            value1[i] = v1;
-        }
-    }
-
     /// @notice Fetch data about chunks in a positionIdList.
     /// @param pool The PanopticPool instance containing the positions
     /// @param positionIdList List of TokenIds to evaluate
@@ -550,18 +478,20 @@ contract PanopticQuery {
 
         for (uint256 i; i < positionIdList.length; ) {
             for (uint256 j; j < positionIdList[i].countLegs(); ) {
-                (int24 tickLower, int24 tickUpper) = positionIdList[i].asTicks(j);
-                (LeftRightUnsigned liquidities0, LeftRightUnsigned liquidities1, , ) = pool
-                    .getChunkData(tickLower, tickUpper);
+                if (positionIdList[i].width(j) != 0) {
+                    (int24 tickLower, int24 tickUpper) = positionIdList[i].asTicks(j);
+                    (LeftRightUnsigned liquidities0, LeftRightUnsigned liquidities1, , ) = pool
+                        .getChunkData(tickLower, tickUpper);
 
-                LeftRightUnsigned liquidityData = positionIdList[i].tokenType(j) == 0
-                    ? liquidities0
-                    : liquidities1;
+                    LeftRightUnsigned liquidityData = positionIdList[i].tokenType(j) == 0
+                        ? liquidities0
+                        : liquidities1;
 
-                // net liquidity:
-                chunkData[i][j][0] = liquidityData.rightSlot();
-                // removed liquidity:
-                chunkData[i][j][1] = liquidityData.leftSlot();
+                    // net liquidity:
+                    chunkData[i][j][0] = liquidityData.rightSlot();
+                    // removed liquidity:
+                    chunkData[i][j][1] = liquidityData.leftSlot();
+                }
                 unchecked {
                     ++j;
                 }
@@ -680,6 +610,84 @@ contract PanopticQuery {
     /// @param account Address of the user that owns the positions
     /// @param includePendingPremium If true, include premium that is owed to the user but has not yet settled; if false, only include premium that is available to collect
     /// @param positionIdList A list of all positions the user holds on that pool
+    /// @param atTicks The tick to calculate the value at
+    /// @return value0 The NLV of `positionIdList` owned by `account` at the price `atTick` in terms of token0
+    /// @return value1 The NLV of `positionIdList` owned by `account` at the price `atTick` in terms of token1
+    function getNetLiquidationValue(
+        PanopticPool pool,
+        address account,
+        bool includePendingPremium,
+        TokenId[] calldata positionIdList,
+        int24[] memory atTicks
+    ) public view returns (int256[] memory value0, int256[] memory value1) {
+        value0 = new int256[](atTicks.length);
+        value1 = new int256[](atTicks.length);
+
+        PositionBalance[] memory positionBalanceArray;
+        {
+            // Compute premia for all options (includes short+long premium)
+            LeftRightUnsigned shortPremium;
+            LeftRightUnsigned longPremium;
+            (shortPremium, longPremium, positionBalanceArray) = pool
+                .getAccumulatedFeesAndPositionsData(account, includePendingPremium, positionIdList);
+
+            // pre-fill with the premium values
+            for (uint256 j; j < atTicks.length; ++j) {
+                value0[j] +=
+                    int256(uint256(shortPremium.rightSlot())) -
+                    int256(uint256(longPremium.rightSlot()));
+                value1[j] +=
+                    int256(uint256(shortPremium.leftSlot())) -
+                    int256(uint256(longPremium.leftSlot()));
+            }
+        }
+
+        for (uint256 k = 0; k < positionIdList.length; ++k) {
+            TokenId tokenId = positionIdList[k];
+            uint128 positionSize = positionBalanceArray[k].positionSize();
+
+            (LeftRightSigned longAmounts, LeftRightSigned shortAmounts) = PanopticMath
+                .computeExercisedAmounts(tokenId, positionSize, false);
+
+            uint256 numLegs = tokenId.countLegs();
+
+            LiquidityChunk[] memory legChunks = new LiquidityChunk[](numLegs);
+            for (uint256 leg; leg < numLegs; ++leg) {
+                if (tokenId.width(leg) != 0) {
+                    legChunks[leg] = PanopticMath.getLiquidityChunk(tokenId, leg, positionSize);
+                }
+            }
+            for (uint256 j; j < atTicks.length; ++j) {
+                int24 _atTick = atTicks[j];
+
+                value0[j] += int256(longAmounts.rightSlot()) - int256(shortAmounts.rightSlot());
+                value1[j] += int256(longAmounts.leftSlot()) - int256(shortAmounts.leftSlot());
+
+                for (uint256 leg = 0; leg < numLegs; ++leg) {
+                    uint256 amount0;
+                    uint256 amount1;
+
+                    if (tokenId.width(leg) != 0) {
+                        (amount0, amount1) = Math.getAmountsForLiquidity(_atTick, legChunks[leg]);
+                    }
+
+                    if (tokenId.isLong(leg) == 0) {
+                        value0[j] += (amount0).toInt256();
+                        value1[j] += (amount1).toInt256();
+                    } else {
+                        value0[j] -= (amount0).toInt256();
+                        value1[j] -= (amount1).toInt256();
+                    }
+                }
+            }
+        }
+    }
+
+    /// @notice Calculate approximate NLV of user's option portfolio (token delta after closing `positionIdList`) at a given tick.
+    /// @param pool The PanopticPool instance to check collateral on
+    /// @param account Address of the user that owns the positions
+    /// @param includePendingPremium If true, include premium that is owed to the user but has not yet settled; if false, only include premium that is available to collect
+    /// @param positionIdList A list of all positions the user holds on that pool
     /// @param atTick The tick to calculate the value at
     /// @return value0 The NLV of `positionIdList` owned by `account` at the price `atTick` in terms of token0
     /// @return value1 The NLV of `positionIdList` owned by `account` at the price `atTick` in terms of token1
@@ -689,76 +697,20 @@ contract PanopticQuery {
         bool includePendingPremium,
         TokenId[] calldata positionIdList,
         int24 atTick
-    ) external view returns (int256 value0, int256 value1) {
-        // Compute premia for all options (includes short+long premium)
-        (
-            LeftRightUnsigned shortPremium,
-            LeftRightUnsigned longPremium,
-            PositionBalance[] memory positionBalanceArray
-        ) = pool.getAccumulatedFeesAndPositionsData(account, includePendingPremium, positionIdList);
+    ) public view returns (int256 value0, int256 value1) {
+        int24[] memory _atTick = new int24[](1);
+        _atTick[0] = atTick;
 
-        for (uint256 k = 0; k < positionIdList.length; ) {
-            TokenId tokenId = positionIdList[k];
-            uint128 positionSize = positionBalanceArray[k].positionSize();
-            uint256 numLegs = tokenId.countLegs();
-            for (uint256 leg = 0; leg < numLegs; ) {
-                uint256 amount0;
-                uint256 amount1;
+        (int256[] memory v0, int256[] memory v1) = getNetLiquidationValue(
+            pool,
+            account,
+            includePendingPremium,
+            positionIdList,
+            _atTick
+        );
 
-                if (tokenId.width(leg) == 0) {
-                    // Loan/credit legs: fixed notional independent of tick
-                    LeftRightUnsigned amountsMoved = PanopticMath.getAmountsMoved(
-                        tokenId,
-                        positionSize,
-                        leg,
-                        false
-                    );
-                    amount0 = amountsMoved.rightSlot();
-                    amount1 = amountsMoved.leftSlot();
-                } else {
-                    // Normal legs: tick-dependent liquidity valuation
-                    LiquidityChunk liquidityChunk = PanopticMath.getLiquidityChunk(
-                        tokenId,
-                        leg,
-                        positionSize
-                    );
-                    (amount0, amount1) = Math.getAmountsForLiquidity(atTick, liquidityChunk);
-                }
-
-                if (tokenId.isLong(leg) == 0) {
-                    unchecked {
-                        value0 += (amount0).toInt256();
-                        value1 += (amount1).toInt256();
-                    }
-                } else {
-                    unchecked {
-                        value0 -= (amount0).toInt256();
-                        value1 -= (amount1).toInt256();
-                    }
-                }
-
-                unchecked {
-                    ++leg;
-                }
-            }
-
-            (LeftRightSigned longAmounts, LeftRightSigned shortAmounts) = PanopticMath
-                .computeExercisedAmounts(tokenId, positionSize, false);
-
-            value0 += int256(longAmounts.rightSlot()) - int256(shortAmounts.rightSlot());
-            value1 += int256(longAmounts.leftSlot()) - int256(shortAmounts.leftSlot());
-
-            unchecked {
-                ++k;
-            }
-        }
-
-        value0 +=
-            int256(uint256(shortPremium.rightSlot())) -
-            int256(uint256(longPremium.rightSlot()));
-        value1 +=
-            int256(uint256(shortPremium.leftSlot())) -
-            int256(uint256(longPremium.leftSlot()));
+        value0 = v0[0];
+        value1 = v1[0];
     }
 
     /// @notice Optimize the risk partnering of all legs within a tokenId.
