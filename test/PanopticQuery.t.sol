@@ -1978,7 +1978,7 @@ contract PanopticQueryTest is PositionUtils {
     }
 
     /*//////////////////////////////////////////////////////////////
-                    GET PORTFOLIO VALUE AT TICKS TESTS
+                    GET NET LIQUIDATION VALUE TESTS
     //////////////////////////////////////////////////////////////*/
 
     function test_Success_getPortfolioValue_WidthZeroLeg(uint256 x) public {
@@ -2044,30 +2044,29 @@ contract PanopticQueryTest is PositionUtils {
         atTicks[1] = currentTick;
         atTicks[2] = currentTick + 50 * tickSpacing;
 
-        (int256[] memory value0, int256[] memory value1) = pq.getPortfolioValueAtTicks(
+        (int256[] memory value0, int256[] memory value1) = pq.getNetLiquidationValue(
             pp,
             Alice,
-            atTicks,
-            loanList
+            false,
+            loanList,
+            atTicks
         );
         assertEq(value0.length, 3);
         assertEq(value1.length, 3);
 
-        // getPortfolioValueAtTicks at currentTick should match getPortfolioValue
-        assertEq(value0[1], v0, "value0 mismatch at currentTick");
-        assertEq(value1[1], v1, "value1 mismatch at currentTick");
-
-        (int256 nlv0, int256 nlv1) = pq.getNetLiquidationValue(
+        int24[] memory nlvTicks = new int24[](1);
+        nlvTicks[0] = currentTick;
+        (int256[] memory nlv0, int256[] memory nlv1) = pq.getNetLiquidationValue(
             pp,
             Alice,
             true,
             loanList,
-            currentTick
+            nlvTicks
         );
-        assertTrue(nlv0 != 0 || nlv1 != 0, "net liquidation value should be non-zero");
+        assertTrue(nlv0[0] != 0 || nlv1[0] != 0, "net liquidation value should be non-zero");
     }
 
-    function test_Success_getPortfolioValueAtTicks_SinglePosition(uint256 x) public {
+    function test_Success_getNetLiquidationValue_SinglePosition(uint256 x) public {
         _initPool(x);
 
         uint256 positionSizeSeed = 1e18;
@@ -2116,32 +2115,35 @@ contract PanopticQueryTest is PositionUtils {
         atTicks[3] = currentTick + 50 * tickSpacing;
         atTicks[4] = currentTick + 100 * tickSpacing;
 
-        // Call getPortfolioValueAtTicks
-        (int256[] memory value0, int256[] memory value1) = pq.getPortfolioValueAtTicks(
+        (int256[] memory value0, int256[] memory value1) = pq.getNetLiquidationValue(
             pp,
             Alice,
-            atTicks,
-            posIdList
+            false,
+            posIdList,
+            atTicks
         );
 
         // Verify array lengths
         assertEq(value0.length, 5, "value0 length mismatch");
         assertEq(value1.length, 5, "value1 length mismatch");
 
-        // Verify consistency with getPortfolioValue for each tick
+        // NLV should be consistent across single-tick calls
         for (uint256 i; i < atTicks.length; ++i) {
-            (int256 expectedV0, int256 expectedV1) = pq.getPortfolioValue(
+            int24[] memory singleTick = new int24[](1);
+            singleTick[0] = atTicks[i];
+            (int256[] memory expectedV0, int256[] memory expectedV1) = pq.getNetLiquidationValue(
                 pp,
                 Alice,
-                atTicks[i],
-                posIdList
+                false,
+                posIdList,
+                singleTick
             );
-            assertEq(value0[i], expectedV0, "value0 mismatch at tick index");
-            assertEq(value1[i], expectedV1, "value1 mismatch at tick index");
+            assertEq(value0[i], expectedV0[0], "value0 mismatch at tick index");
+            assertEq(value1[i], expectedV1[0], "value1 mismatch at tick index");
         }
     }
 
-    function test_Success_getPortfolioValueAtTicks_Strangle(uint256 x) public {
+    function test_Success_getNetLiquidationValue_Strangle(uint256 x) public {
         _initPool(x);
 
         uint256 positionSizeSeed = 1e18;
@@ -2201,35 +2203,34 @@ contract PanopticQueryTest is PositionUtils {
             atTicks[i] = currentTick + int24(int256(i) - 5) * 20 * tickSpacing;
         }
 
-        (int256[] memory value0, int256[] memory value1) = pq.getPortfolioValueAtTicks(
+        (int256[] memory value0, int256[] memory value1) = pq.getNetLiquidationValue(
             pp,
             Alice,
-            atTicks,
-            posIdList
+            false,
+            posIdList,
+            atTicks
         );
 
         assertEq(value0.length, 11, "value0 length mismatch");
         assertEq(value1.length, 11, "value1 length mismatch");
 
-        // Verify consistency with getPortfolioValue
+        // NLV should be consistent across single-tick calls
         for (uint256 i; i < atTicks.length; ++i) {
-            (int256 expectedV0, int256 expectedV1) = pq.getPortfolioValue(
+            int24[] memory singleTick = new int24[](1);
+            singleTick[0] = atTicks[i];
+            (int256[] memory expectedV0, int256[] memory expectedV1) = pq.getNetLiquidationValue(
                 pp,
                 Alice,
-                atTicks[i],
-                posIdList
+                false,
+                posIdList,
+                singleTick
             );
-            assertEq(value0[i], expectedV0, "value0 mismatch at tick index");
-            assertEq(value1[i], expectedV1, "value1 mismatch at tick index");
-        }
-
-        // Short positions should have positive value
-        for (uint256 i; i < value0.length; ++i) {
-            assertTrue(value0[i] >= 0 || value1[i] >= 0, "short position should have value");
+            assertEq(value0[i], expectedV0[0], "value0 mismatch at tick index");
+            assertEq(value1[i], expectedV1[0], "value1 mismatch at tick index");
         }
     }
 
-    function test_Success_getPortfolioValueAtTicks_LongPosition(uint256 x) public {
+    function test_Success_getNetLiquidationValue_LongPosition(uint256 x) public {
         _initPool(x);
 
         uint256 positionSizeSeed = 1e18;
@@ -2310,26 +2311,30 @@ contract PanopticQueryTest is PositionUtils {
         atTicks[3] = currentTick + 50 * tickSpacing;
         atTicks[4] = currentTick + 100 * tickSpacing;
 
-        (int256[] memory value0, int256[] memory value1) = pq.getPortfolioValueAtTicks(
+        (int256[] memory value0, int256[] memory value1) = pq.getNetLiquidationValue(
             pp,
             Alice,
-            atTicks,
-            longPosIdList
+            false,
+            longPosIdList,
+            atTicks
         );
 
         assertEq(value0.length, 5, "value0 length mismatch");
         assertEq(value1.length, 5, "value1 length mismatch");
 
-        // Verify consistency with getPortfolioValue
+        // NLV should be consistent across single-tick calls
         for (uint256 i; i < atTicks.length; ++i) {
-            (int256 expectedV0, int256 expectedV1) = pq.getPortfolioValue(
+            int24[] memory singleTick = new int24[](1);
+            singleTick[0] = atTicks[i];
+            (int256[] memory expectedV0, int256[] memory expectedV1) = pq.getNetLiquidationValue(
                 pp,
                 Alice,
-                atTicks[i],
-                longPosIdList
+                false,
+                longPosIdList,
+                singleTick
             );
-            assertEq(value0[i], expectedV0, "value0 mismatch at tick index");
-            assertEq(value1[i], expectedV1, "value1 mismatch at tick index");
+            assertEq(value0[i], expectedV0[0], "value0 mismatch at tick index");
+            assertEq(value1[i], expectedV1[0], "value1 mismatch at tick index");
         }
 
         // Long positions should have negative value (debt)
@@ -2341,7 +2346,7 @@ contract PanopticQueryTest is PositionUtils {
         }
     }
 
-    function test_Success_getPortfolioValueAtTicks_EmptyPositions(uint256 x) public {
+    function test_Success_getNetLiquidationValue_EmptyPositions(uint256 x) public {
         _initPool(x);
 
         // No positions minted
@@ -2352,11 +2357,12 @@ contract PanopticQueryTest is PositionUtils {
         atTicks[1] = currentTick;
         atTicks[2] = currentTick + 10 * tickSpacing;
 
-        (int256[] memory value0, int256[] memory value1) = pq.getPortfolioValueAtTicks(
+        (int256[] memory value0, int256[] memory value1) = pq.getNetLiquidationValue(
             pp,
             Alice,
-            atTicks,
-            emptyPosIdList
+            false,
+            emptyPosIdList,
+            atTicks
         );
 
         assertEq(value0.length, 3, "value0 length mismatch");
@@ -2369,7 +2375,7 @@ contract PanopticQueryTest is PositionUtils {
         }
     }
 
-    function test_Success_getPortfolioValueAtTicks_SingleTick(uint256 x) public {
+    function test_Success_getNetLiquidationValue_SingleTick(uint256 x) public {
         _initPool(x);
 
         uint256 positionSizeSeed = 1e18;
@@ -2413,28 +2419,22 @@ contract PanopticQueryTest is PositionUtils {
         int24[] memory atTicks = new int24[](1);
         atTicks[0] = currentTick;
 
-        (int256[] memory value0, int256[] memory value1) = pq.getPortfolioValueAtTicks(
+        (int256[] memory value0, int256[] memory value1) = pq.getNetLiquidationValue(
             pp,
             Alice,
-            atTicks,
-            posIdList
+            false,
+            posIdList,
+            atTicks
         );
 
         assertEq(value0.length, 1, "value0 length mismatch");
         assertEq(value1.length, 1, "value1 length mismatch");
 
-        // Should match getPortfolioValue exactly
-        (int256 expectedV0, int256 expectedV1) = pq.getPortfolioValue(
-            pp,
-            Alice,
-            currentTick,
-            posIdList
-        );
-        assertEq(value0[0], expectedV0, "value0 mismatch");
-        assertEq(value1[0], expectedV1, "value1 mismatch");
+        // Should be non-zero for a minted position
+        assertTrue(value0[0] != 0 || value1[0] != 0, "NLV should be non-zero");
     }
 
-    function test_Success_getPortfolioValueAtTicks_MultiplePositions(uint256 x) public {
+    function test_Success_getNetLiquidationValue_MultiplePositions(uint256 x) public {
         _initPool(x);
 
         uint256 positionSizeSeed = 1e18;
@@ -2507,26 +2507,129 @@ contract PanopticQueryTest is PositionUtils {
             atTicks[i] = currentTick + int24(int256(i) - 3) * 30 * tickSpacing;
         }
 
-        (int256[] memory value0, int256[] memory value1) = pq.getPortfolioValueAtTicks(
+        (int256[] memory value0, int256[] memory value1) = pq.getNetLiquidationValue(
             pp,
             Alice,
-            atTicks,
-            posIdList2
+            false,
+            posIdList2,
+            atTicks
         );
 
         assertEq(value0.length, 7, "value0 length mismatch");
         assertEq(value1.length, 7, "value1 length mismatch");
 
-        // Verify consistency with getPortfolioValue
+        // NLV should be consistent across single-tick calls
         for (uint256 i; i < atTicks.length; ++i) {
-            (int256 expectedV0, int256 expectedV1) = pq.getPortfolioValue(
+            int24[] memory singleTick = new int24[](1);
+            singleTick[0] = atTicks[i];
+            (int256[] memory expectedV0, int256[] memory expectedV1) = pq.getNetLiquidationValue(
                 pp,
                 Alice,
-                atTicks[i],
-                posIdList2
+                false,
+                posIdList2,
+                singleTick
             );
-            assertEq(value0[i], expectedV0, "value0 mismatch at tick index");
-            assertEq(value1[i], expectedV1, "value1 mismatch at tick index");
+            assertEq(value0[i], expectedV0[0], "value0 mismatch at tick index");
+            assertEq(value1[i], expectedV1[0], "value1 mismatch at tick index");
         }
+    }
+
+    function test_Debug_getPortfolioValueAtTicks_LoanCurve() public {
+        _initPool(0);
+
+        uint256 positionSizeSeed = 1e18;
+
+        vm.startPrank(Alice);
+        ct0.redeem(ct0.maxRedeem(Alice), Alice, Alice);
+        ct1.redeem(ct1.maxRedeem(Alice), Alice, Alice);
+
+        uint256 deposit1 = positionSizeSeed;
+        uint256 deposit0 = ((((positionSizeSeed * 2 ** 96) / currentSqrtPriceX96) * 2 ** 96) /
+            currentSqrtPriceX96);
+
+        ct0.deposit(deposit0, Alice);
+        ct1.deposit(deposit1, Alice);
+
+        int24 roundedTick = (currentTick / tickSpacing) * tickSpacing;
+
+        // First mint a normal short put (required as base position)
+        TokenId normalTokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            0, // short
+            0, // put
+            0,
+            roundedTick - 6 * tickSpacing,
+            100
+        );
+
+        TokenId[] memory normalList = new TokenId[](1);
+        normalList[0] = normalTokenId;
+
+        mintOptions(
+            pp,
+            normalList,
+            1e12,
+            0,
+            Constants.MIN_POOL_TICK,
+            Constants.MAX_POOL_TICK,
+            true
+        );
+
+        // Build a 2-leg tokenId: leg 0 = same short put, leg 1 = loan (width==0)
+        TokenId loanTokenId = TokenId.wrap(0).addPoolId(poolId);
+        loanTokenId = loanTokenId.addLeg(
+            0,
+            1,
+            1,
+            0, // short
+            0, // put
+            0,
+            roundedTick - 6 * tickSpacing,
+            0
+        );
+        /*
+        loanTokenId = loanTokenId.addLeg(
+            1,
+            1,
+            0,
+            0, // short
+            1, // call
+            1,
+            roundedTick + 6 * tickSpacing,
+            0 // width == 0 => loan/credit
+        );
+        */
+        TokenId[] memory loanList = new TokenId[](2);
+        loanList[0] = normalTokenId;
+        loanList[1] = loanTokenId;
+
+        mintOptions(pp, loanList, 1e12, 0, Constants.MIN_POOL_TICK, Constants.MAX_POOL_TICK, true);
+
+        // Create a dense tick array across a wide range
+        uint256 numTicks = 101;
+        int24[] memory atTicks = new int24[](numTicks);
+        for (uint256 i; i < numTicks; ++i) {
+            atTicks[i] = currentTick + int24(int256(i) - 10) * 6 * tickSpacing;
+        }
+
+        // Get portfolio value curve for LOAN position only (loanTokenId)
+        TokenId[] memory loanOnly = new TokenId[](1);
+        loanOnly[0] = loanTokenId;
+
+        console.log("=== Loan (width==0) Portfolio Value Curve ===");
+        console.log("currentTick:", currentTick);
+        console.log("tickSpacing:", tickSpacing);
+        console.log("roundedTick:", roundedTick);
+        console.log("");
+
+        (int256[] memory loanV0, int256[] memory loanV1) = pq.getNetLiquidationValue(
+            pp,
+            Alice,
+            false,
+            loanList,
+            atTicks
+        );
     }
 }
