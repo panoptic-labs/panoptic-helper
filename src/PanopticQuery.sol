@@ -620,35 +620,58 @@ contract PanopticQuery {
         TokenId[] calldata positionIdList,
         int24[] memory atTicks
     ) public view returns (int256[] memory value0, int256[] memory value1) {
+        (
+            LeftRightUnsigned shortPremium,
+            LeftRightUnsigned longPremium,
+            PositionBalance[] memory positionBalanceArray
+        ) = pool.getAccumulatedFeesAndPositionsData(account, includePendingPremium, positionIdList);
+
+        return
+            computeNetLiquidationValue(
+                positionIdList,
+                shortPremium,
+                longPremium,
+                positionBalanceArray,
+                atTicks
+            );
+    }
+
+    function computeNetLiquidationValue(
+        TokenId[] memory positionIdList,
+        LeftRightUnsigned shortPremium,
+        LeftRightUnsigned longPremium,
+        PositionBalance[] memory positionBalanceArray,
+        int24[] memory atTicks
+    ) public pure returns (int256[] memory value0, int256[] memory value1) {
         value0 = new int256[](atTicks.length);
         value1 = new int256[](atTicks.length);
 
-        PositionBalance[] memory positionBalanceArray;
         {
-            // Compute premia for all options (includes short+long premium)
-            LeftRightUnsigned shortPremium;
-            LeftRightUnsigned longPremium;
-            (shortPremium, longPremium, positionBalanceArray) = pool
-                .getAccumulatedFeesAndPositionsData(account, includePendingPremium, positionIdList);
+            int256 premiumDelta0 = int256(uint256(shortPremium.rightSlot())) -
+                int256(uint256(longPremium.rightSlot()));
+            int256 premiumDelta1 = int256(uint256(shortPremium.leftSlot())) -
+                int256(uint256(longPremium.leftSlot()));
 
-            // pre-fill with the premium values
-            for (uint256 j; j < atTicks.length; ++j) {
-                value0[j] +=
-                    int256(uint256(shortPremium.rightSlot())) -
-                    int256(uint256(longPremium.rightSlot()));
-                value1[j] +=
-                    int256(uint256(shortPremium.leftSlot())) -
-                    int256(uint256(longPremium.leftSlot()));
+            for (uint256 j; j < atTicks.length; ) {
+                value0[j] = premiumDelta0;
+                value1[j] = premiumDelta1;
+                unchecked {
+                    ++j;
+                }
             }
         }
-
         for (uint256 k = 0; k < positionIdList.length; ++k) {
             TokenId tokenId = positionIdList[k];
             uint128 positionSize = positionBalanceArray[k].positionSize();
 
-            (LeftRightSigned longAmounts, LeftRightSigned shortAmounts) = PanopticMath
-                .computeExercisedAmounts(tokenId, positionSize, false);
-
+            int256 net0;
+            int256 net1;
+            {
+                (LeftRightSigned longAmounts, LeftRightSigned shortAmounts) = PanopticMath
+                    .computeExercisedAmounts(tokenId, positionSize, false);
+                net0 = int256(longAmounts.rightSlot()) - int256(shortAmounts.rightSlot());
+                net1 = int256(longAmounts.leftSlot()) - int256(shortAmounts.leftSlot());
+            }
             uint256 numLegs = tokenId.countLegs();
 
             LiquidityChunk[] memory legChunks = new LiquidityChunk[](numLegs);
@@ -657,11 +680,12 @@ contract PanopticQuery {
                     legChunks[leg] = PanopticMath.getLiquidityChunk(tokenId, leg, positionSize);
                 }
             }
+
             for (uint256 j; j < atTicks.length; ++j) {
                 int24 _atTick = atTicks[j];
 
-                value0[j] += int256(longAmounts.rightSlot()) - int256(shortAmounts.rightSlot());
-                value1[j] += int256(longAmounts.leftSlot()) - int256(shortAmounts.leftSlot());
+                value0[j] += net0;
+                value1[j] += net1;
 
                 for (uint256 leg = 0; leg < numLegs; ++leg) {
                     uint256 amount0;
