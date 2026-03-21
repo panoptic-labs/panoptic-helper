@@ -643,6 +643,7 @@ contract PanopticQuery {
         PositionBalance[] memory positionBalanceArray,
         int24[] memory atTicks
     ) public pure returns (int256[] memory value0, int256[] memory value1) {
+        if (positionIdList.length != positionBalanceArray.length) revert();
         value0 = new int256[](atTicks.length);
         value1 = new int256[](atTicks.length);
 
