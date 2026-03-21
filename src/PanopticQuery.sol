@@ -153,8 +153,10 @@ contract PanopticQuery {
         (
             LeftRightUnsigned shortPremium,
             LeftRightUnsigned longPremium,
-            PositionBalance[] memory positionBalanceArray
-        ) = pool.getAccumulatedFeesAndPositionsData(account, false, positionIdList);
+            PositionBalance[] memory positionBalanceArray,
+            ,
+
+        ) = pool.getFullPositionsData(account, false, positionIdList);
 
         CollateralTrackerV2 ct0 = pool.collateralToken0();
         CollateralTrackerV2 ct1 = pool.collateralToken1();
@@ -199,8 +201,10 @@ contract PanopticQuery {
         (
             LeftRightUnsigned shortPremium,
             LeftRightUnsigned longPremium,
-            PositionBalance[] memory positionBalanceArray
-        ) = pool.getAccumulatedFeesAndPositionsData(account, false, positionIdList);
+            PositionBalance[] memory positionBalanceArray,
+            ,
+
+        ) = pool.getFullPositionsData(account, false, positionIdList);
 
         CollateralTrackerV2 ct0 = pool.collateralToken0();
         CollateralTrackerV2 ct1 = pool.collateralToken1();
@@ -410,8 +414,11 @@ contract PanopticQuery {
         TokenId[] calldata positionIdList
     ) external view returns (int256 value0, int256 value1) {
         // Compute premia for all options (includes short+long premium)
-        (, , PositionBalance[] memory positionBalanceArray) = pool
-            .getAccumulatedFeesAndPositionsData(account, false, positionIdList);
+        (, , PositionBalance[] memory positionBalanceArray, , ) = pool.getFullPositionsData(
+            account,
+            false,
+            positionIdList
+        );
 
         for (uint256 k = 0; k < positionIdList.length; ) {
             TokenId tokenId = positionIdList[k];
@@ -623,8 +630,10 @@ contract PanopticQuery {
         (
             LeftRightUnsigned shortPremium,
             LeftRightUnsigned longPremium,
-            PositionBalance[] memory positionBalanceArray
-        ) = pool.getAccumulatedFeesAndPositionsData(account, includePendingPremium, positionIdList);
+            PositionBalance[] memory positionBalanceArray,
+            ,
+
+        ) = pool.getFullPositionsData(account, includePendingPremium, positionIdList);
 
         return
             computeNetLiquidationValue(
@@ -936,8 +945,10 @@ contract PanopticQuery {
         (
             LeftRightUnsigned shortPremium,
             LeftRightUnsigned longPremium,
-            PositionBalance[] memory positionBalanceArray
-        ) = pool.getAccumulatedFeesAndPositionsData(account, false, existingPositionIds);
+            PositionBalance[] memory positionBalanceArray,
+            ,
+
+        ) = pool.getFullPositionsData(account, false, existingPositionIds);
         shortLongPremium[0] = shortPremium;
         shortLongPremium[1] = longPremium;
         // Cache expensive external calls once
