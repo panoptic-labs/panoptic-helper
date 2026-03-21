@@ -2,7 +2,7 @@
 pragma solidity ^0.8.0;
 
 // Interfaces
-import {PanopticPool} from "@contracts/PanopticPool.sol";
+import {PanopticPoolV2} from "@contracts/PanopticPool.sol";
 // Types
 import {TokenId, TokenIdLibrary} from "@types/TokenId.sol";
 
@@ -90,7 +90,7 @@ contract StrategyBuilder {
     /// @param start leg index where the (2 legs) of the strangle begin (usually 0)
     /// @return tokenId the position id with the strategy configured
     function createStrangle(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         int24 width,
         int24 callStrike,
         int24 putStrike,
@@ -142,7 +142,7 @@ contract StrategyBuilder {
     /// @param start leg index where the (2 legs) of the straddle begin (usually 0)
     /// @return tokenId the position id with the strategy configured
     function createStraddle(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         int24 width,
         int24 strike,
         uint256 asset,
@@ -175,7 +175,7 @@ contract StrategyBuilder {
     /// @param start leg index where the (2 legs) of the spread begin (usually 0)
     /// @return tokenId the position id with the strategy configured
     function createCallSpread(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         int24 width,
         int24 strikeLong,
         int24 strikeShort,
@@ -208,7 +208,7 @@ contract StrategyBuilder {
     /// @param start leg index where the (2 legs) of the spread begin (usually 0)
     /// @return tokenId the position id with the strategy configured
     function createPutSpread(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         int24 width,
         int24 strikeLong,
         int24 strikeShort,
@@ -242,7 +242,7 @@ contract StrategyBuilder {
     /// @param start leg index where the (2 legs) of the spread begin (usually 0)
     /// @return tokenId the position id with the strategy configured
     function createCallDiagonalSpread(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         int24 widthLong,
         int24 widthShort,
         int24 strikeLong,
@@ -295,7 +295,7 @@ contract StrategyBuilder {
     /// @param start leg index where the (2 legs) of the spread begin (usually 0)
     /// @return tokenId the position id with the strategy configured
     function createPutDiagonalSpread(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         int24 widthLong,
         int24 widthShort,
         int24 strikeLong,
@@ -347,7 +347,7 @@ contract StrategyBuilder {
     /// @param start leg index where the (2 legs) of the spread begin (usually 0)
     /// @return tokenId the position id with the strategy configured
     function createCallCalendarSpread(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         int24 widthLong,
         int24 widthShort,
         int24 strike,
@@ -380,7 +380,7 @@ contract StrategyBuilder {
     /// @param start leg index where the (2 legs) of the spread begin (usually 0)
     /// @return tokenId the position id with the strategy configured
     function createPutCalendarSpread(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         int24 widthLong,
         int24 widthShort,
         int24 strike,
@@ -412,7 +412,7 @@ contract StrategyBuilder {
     /// @param asset asset of the strategy
     /// @return tokenId the position id with the strategy configured
     function createIronCondor(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         int24 width,
         int24 callStrike,
         int24 putStrike,
@@ -432,7 +432,7 @@ contract StrategyBuilder {
             TokenId.unwrap(tokenId) +
                 TokenId.unwrap(
                     createPutSpread(
-                        PanopticPool(address(0)),
+                        PanopticPoolV2(address(0)),
                         width,
                         putStrike - wingWidth,
                         putStrike,
@@ -454,7 +454,7 @@ contract StrategyBuilder {
     /// @param asset asset of the strategy
     /// @return tokenId the position id with the strategy configured
     function createJadeLizard(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         int24 width,
         int24 longCallStrike,
         int24 shortCallStrike,
@@ -481,7 +481,7 @@ contract StrategyBuilder {
     /// @param asset asset of the strategy
     /// @return tokenId the position id with the strategy configured
     function createBigLizard(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         int24 width,
         int24 longCallStrike,
         int24 straddleStrike,
@@ -508,7 +508,7 @@ contract StrategyBuilder {
     /// @param asset asset of the strategy
     /// @return tokenId the position id with the strategy configured
     function createSuperBull(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         int24 width,
         int24 longCallStrike,
         int24 shortCallStrike,
@@ -536,7 +536,7 @@ contract StrategyBuilder {
     /// @param asset asset of the strategy
     /// @return tokenId the position id with the strategy configured
     function createSuperBear(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         int24 width,
         int24 longPutStrike,
         int24 shortPutStrike,
@@ -563,7 +563,7 @@ contract StrategyBuilder {
     /// @param asset asset of the strategy
     /// @return tokenId the position id with the strategy configured
     function createIronButterfly(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         int24 width,
         int24 strike,
         int24 wingWidth,
@@ -581,7 +581,7 @@ contract StrategyBuilder {
             TokenId.unwrap(tokenId) +
                 TokenId.unwrap(
                     createPutSpread(
-                        PanopticPool(address(0)),
+                        PanopticPoolV2(address(0)),
                         width,
                         strike,
                         strike - wingWidth,
@@ -605,7 +605,7 @@ contract StrategyBuilder {
     /// @return tokenId the position id with the strategy configured
 
     function createCallRatioSpread(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         int24 width,
         int24 longStrike,
         int24 shortStrike,
@@ -638,7 +638,7 @@ contract StrategyBuilder {
     /// @param start leg index where the (2 legs) of the spread begin (usually 0)
     /// @return tokenId the position id with the strategy configured
     function createPutRatioSpread(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         int24 width,
         int24 longStrike,
         int24 shortStrike,
@@ -671,7 +671,7 @@ contract StrategyBuilder {
     /// @param start leg index where the (2 legs) of the spread begin (usually 0)
     /// @return tokenId the position id with the strategy configured
     function createCallZEBRASpread(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         int24 width,
         int24 longStrike,
         int24 shortStrike,
@@ -704,7 +704,7 @@ contract StrategyBuilder {
     /// @param start leg index where the (2 legs) of the spread begin (usually 0)
     /// @return tokenId the position id with the strategy configured
     function createPutZEBRASpread(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         int24 width,
         int24 longStrike,
         int24 shortStrike,
@@ -736,7 +736,7 @@ contract StrategyBuilder {
     /// @param ratio ratio of the short legs to the long legs
     /// @return tokenId the position id with the strategy configured
     function createZEEHBS(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         int24 width,
         int24 longStrike,
         int24 shortStrike,
@@ -755,7 +755,7 @@ contract StrategyBuilder {
             TokenId.unwrap(tokenId) +
                 TokenId.unwrap(
                     createPutZEBRASpread(
-                        PanopticPool(address(0)),
+                        PanopticPoolV2(address(0)),
                         width,
                         longStrike,
                         shortStrike,
@@ -777,7 +777,7 @@ contract StrategyBuilder {
     /// @param ratio ratio of the short legs to the long legs
     /// @return tokenId the position id with the strategy configured
     function createBATS(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         int24 width,
         int24 longStrike,
         int24 shortStrike,
@@ -796,7 +796,7 @@ contract StrategyBuilder {
             TokenId.unwrap(tokenId) +
                 TokenId.unwrap(
                     createPutRatioSpread(
-                        PanopticPool(address(0)),
+                        PanopticPoolV2(address(0)),
                         width,
                         longStrike,
                         shortStrike,

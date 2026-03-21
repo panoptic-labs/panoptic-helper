@@ -2,7 +2,7 @@
 pragma solidity ^0.8.18;
 
 // Interfaces
-import {CollateralTracker} from "@contracts/CollateralTracker.sol";
+import {CollateralTrackerV2} from "@contracts/CollateralTracker.sol";
 import {INonfungiblePositionManager} from "v3-periphery/interfaces/INonfungiblePositionManager.sol";
 import {IERC20Partial} from "@tokens/interfaces/IERC20Partial.sol";
 /// Libraries
@@ -31,8 +31,8 @@ contract UniswapMigrator {
     function migrate(
         uint256[] calldata tokenIds,
         uint256[2][] calldata amountMins,
-        CollateralTracker ct0,
-        CollateralTracker ct1
+        CollateralTrackerV2 ct0,
+        CollateralTrackerV2 ct1
     ) external {
         uint256 amount0Collected;
         uint256 amount1Collected;

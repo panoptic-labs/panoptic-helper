@@ -3,8 +3,8 @@ pragma solidity ^0.8.0;
 
 // Interfaces
 import {IUniswapV3Pool} from "univ3-core/interfaces/IUniswapV3Pool.sol";
-import {PanopticPool} from "@contracts/PanopticPool.sol";
-import {CollateralTracker} from "@contracts/CollateralTracker.sol";
+import {PanopticPoolV2} from "@contracts/PanopticPool.sol";
+import {CollateralTrackerV2} from "@contracts/CollateralTracker.sol";
 import {IRiskEngine} from "@contracts/interfaces/IRiskEngine.sol";
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 // Libraries
@@ -45,7 +45,7 @@ contract PanopticQuery {
     /// @param positionIdList List of positions. Written as [tokenId1, tokenId2, ...]
     /// @return balancesAndRequired The total combined balance and required of token0 and token1 for a user
     function checkCollateral(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         address account,
         TokenId[] calldata positionIdList,
         int24 atTick
@@ -66,7 +66,7 @@ contract PanopticQuery {
             tokenDatas[0] = tokenData0;
             tokenDatas[1] = tokenData1;
             {
-                PanopticPool _pool = pool;
+                PanopticPoolV2 _pool = pool;
                 uint256 crossBuffer0 = _pool.riskEngine().CROSS_BUFFER_0();
                 uint256 crossBuffer1 = _pool.riskEngine().CROSS_BUFFER_1();
                 uint256 utilization0;
@@ -131,7 +131,7 @@ contract PanopticQuery {
     /// @param crossBuffer The configured cross-buffer parameter.
     /// @return crossBufferRatio The resulting ratio used to scale surplus collateral.
     function _crossBufferRatio(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         int256 utilization,
         uint256 crossBuffer
     ) internal view returns (uint256 crossBufferRatio) {
@@ -145,7 +145,7 @@ contract PanopticQuery {
     /// @param positionIdList List of positions. Written as [tokenId1, tokenId2, ...]
     /// @return solvent A boolean flag on whether the account is solvent (true)
     function isAccountSolvent(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         address account,
         TokenId[] calldata positionIdList,
         int24 atTick
@@ -156,8 +156,8 @@ contract PanopticQuery {
             PositionBalance[] memory positionBalanceArray
         ) = pool.getAccumulatedFeesAndPositionsData(account, false, positionIdList);
 
-        CollateralTracker ct0 = pool.collateralToken0();
-        CollateralTracker ct1 = pool.collateralToken1();
+        CollateralTrackerV2 ct0 = pool.collateralToken0();
+        CollateralTrackerV2 ct1 = pool.collateralToken1();
 
         return (
             pool.riskEngine().isAccountSolvent(
@@ -183,7 +183,7 @@ contract PanopticQuery {
     /// @return tokenData1 Packed required and available collateral data for token1.
     /// @return globalUtilizations Global utilization values used by risk calculations.
     function _getMargin(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         int24 atTick,
         address account,
         TokenId[] calldata positionIdList
@@ -202,8 +202,8 @@ contract PanopticQuery {
             PositionBalance[] memory positionBalanceArray
         ) = pool.getAccumulatedFeesAndPositionsData(account, false, positionIdList);
 
-        CollateralTracker ct0 = pool.collateralToken0();
-        CollateralTracker ct1 = pool.collateralToken1();
+        CollateralTrackerV2 ct0 = pool.collateralToken0();
+        CollateralTrackerV2 ct1 = pool.collateralToken1();
 
         //TokenId[] memory _positionIdList = positionIdList;
 
@@ -229,7 +229,7 @@ contract PanopticQuery {
     /// @return collateralBalances1 The total combined balance of token0 and token1 for a user in terms of token1 (currentTick, fastOracleTick, slowOracleTick, latestObservation)
     /// @return requiredCollaterals1 The combined collateral requirement for a user in terms of token1 (currentTick, fastOracleTick, slowOracleTick, latestObservation)
     function checkCollateral(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         address account,
         TokenId[] calldata positionIdList
     )
@@ -272,7 +272,7 @@ contract PanopticQuery {
     /// @return liquidationPriceDown The liquidation price below currentTick (returns type(int24).min if none)
     /// @return liquidationPriceUp The liquidation price above currentTick (returns type(int24).max if none)
     function getLiquidationPrices(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         address account,
         TokenId[] calldata positionIdList
     ) public view returns (int24 liquidationPriceDown, int24 liquidationPriceUp) {
@@ -311,7 +311,7 @@ contract PanopticQuery {
     /// @return tickList The list of ticks where each collateral and required quantities are computed at
     /// @return liquidationPrices The liauidation prices on the way up or down
     function checkCollateralListOutput(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         address account,
         TokenId[] calldata positionIdList
     ) external view returns (uint256[4][] memory, int256[] memory, int24[] memory) {
@@ -377,7 +377,7 @@ contract PanopticQuery {
     /// @param searchUp If true, searches upward boundary; otherwise downward boundary.
     /// @return The boundary tick found at `TICK_PRECISION` granularity.
     function _binarySearch(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         address account,
         int24 lowerBound,
         int24 upperBound,
@@ -404,7 +404,7 @@ contract PanopticQuery {
     /// @return value0 The amount of token0 owned by portfolio
     /// @return value1 The amount of token1 owned by portfolio
     function getPortfolioValue(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         address account,
         int24 atTick,
         TokenId[] calldata positionIdList
@@ -471,7 +471,7 @@ contract PanopticQuery {
     /// @param positionIdList List of TokenIds to evaluate
     /// @return chunkData A [2][4][positionIdList.length] array containing netLiquidity and removedLiquidity for each leg
     function getChunkData(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         TokenId[] memory positionIdList
     ) external view returns (uint256[2][4][] memory) {
         uint256[2][4][] memory chunkData = new uint256[2][4][](positionIdList.length);
@@ -514,7 +514,7 @@ contract PanopticQuery {
     /// @return removedLiquidities Array[2] of chunk's removed liquidities, index0 = tokenType0
     /// @return settledTokens Array[2] of chunk's settled tokens, index0 = tokenType0
     function scanChunks(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         int24 tickLower,
         int24 tickUpper,
         int24 width
@@ -552,7 +552,7 @@ contract PanopticQuery {
 
         uint256 k;
         int256 _width = int256(width);
-        PanopticPool _pool = pool;
+        PanopticPoolV2 _pool = pool;
         for (int256 t = tickLower; t + _width <= tickUpper; t += tickSpacing) {
             int24 strike;
             LeftRightUnsigned liq0;
@@ -606,7 +606,7 @@ contract PanopticQuery {
     }
 
     /// @notice Calculate approximate NLV of user's option portfolio (token delta after closing `positionIdList`) at a given tick.
-    /// @param pool The PanopticPool instance to check collateral on
+    /// @param pool The PanopticPoolV2 instance to check collateral on
     /// @param account Address of the user that owns the positions
     /// @param includePendingPremium If true, include premium that is owed to the user but has not yet settled; if false, only include premium that is available to collect
     /// @param positionIdList A list of all positions the user holds on that pool
@@ -614,7 +614,7 @@ contract PanopticQuery {
     /// @return value0 The NLV of `positionIdList` owned by `account` at the price `atTick` in terms of token0
     /// @return value1 The NLV of `positionIdList` owned by `account` at the price `atTick` in terms of token1
     function getNetLiquidationValue(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         address account,
         bool includePendingPremium,
         TokenId[] calldata positionIdList,
@@ -717,7 +717,7 @@ contract PanopticQuery {
     /// @return value0 The NLV of `positionIdList` owned by `account` at the price `atTick` in terms of token0
     /// @return value1 The NLV of `positionIdList` owned by `account` at the price `atTick` in terms of token1
     function getNetLiquidationValue(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         address account,
         bool includePendingPremium,
         TokenId[] calldata positionIdList,
@@ -744,7 +744,7 @@ contract PanopticQuery {
     /// @param tokenId the input tokenId
     /// @return the optimized tokenId
     function optimizeRiskPartners(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         int24 atTick,
         TokenId tokenId
     ) external view returns (TokenId) {
@@ -872,7 +872,7 @@ contract PanopticQuery {
     /// @param tokenId the input tokenId
     /// @return the required collateral for that position in terms of token0
     function getRequiredBase(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         TokenId tokenId,
         int24 atTick
     ) external view returns (uint256) {
@@ -926,7 +926,7 @@ contract PanopticQuery {
     /// @return maxSizeAtMinUtil Max size assuming 0% utilization.
     /// @return maxSizeAtMaxUtil Max size assuming 100% utilization.
     function getMaxPositionSizeBounds(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         TokenId[] calldata existingPositionIds,
         address account,
         TokenId tokenId
@@ -986,7 +986,7 @@ contract PanopticQuery {
 
     /// @notice Binary search to find maximum position size that maintains solvency
     function _binarySearchMaxSize(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         address account,
         TokenId[] memory allPositionIds,
         PositionBalance[] memory allBalances,
@@ -996,7 +996,7 @@ contract PanopticQuery {
         int24 atTick;
         (atTick, , , , ) = pool.getOracleTicks();
 
-        CollateralTracker[2] memory cts;
+        CollateralTrackerV2[2] memory cts;
         {
             cts[0] = pool.collateralToken0();
             cts[1] = pool.collateralToken1();
@@ -1102,7 +1102,7 @@ contract PanopticQuery {
         uint128 size,
         uint32 utilization,
         LeftRightUnsigned[2] memory shortLongPremium,
-        CollateralTracker[2] memory cts
+        CollateralTrackerV2[2] memory cts
     ) internal view returns (bool) {
         // Create synthetic balance for the position
         // PositionBalance encoding:
@@ -1172,7 +1172,7 @@ contract PanopticQuery {
     /// @return tickData Array of tick values in the scanned range
     /// @return liquidityNets Array of cumulative liquidity at each tick, rescaled to match actual pool liquidity at currentTick
     function getTickNets(
-        PanopticPool pool,
+        PanopticPoolV2 pool,
         int24 startTick,
         uint256 nTicks
     ) external view returns (int256[] memory tickData, int256[] memory liquidityNets) {
