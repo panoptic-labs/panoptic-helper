@@ -20,15 +20,14 @@ import {PoolAddress} from "v3-periphery/libraries/PoolAddress.sol";
 import {PositionKey} from "v3-periphery/libraries/PositionKey.sol";
 import {PositionBalance, PositionBalanceLibrary} from "@types/PositionBalance.sol";
 import {ISwapRouter} from "v3-periphery/interfaces/ISwapRouter.sol";
-import {SemiFungiblePositionManager} from "@contracts/SemiFungiblePositionManagerV4.sol";
+import {SemiFungiblePositionManagerV4} from "@contracts/SemiFungiblePositionManagerV4.sol";
 import {ISemiFungiblePositionManager} from "@contracts/interfaces/ISemiFungiblePositionManager.sol";
-import {PanopticPool} from "@contracts/PanopticPool.sol";
+import {PanopticPoolV2} from "@contracts/PanopticPool.sol";
 import {RiskEngine} from "@contracts/RiskEngine.sol";
 import {IRiskEngine} from "@contracts/interfaces/IRiskEngine.sol";
-import {CollateralTracker} from "@contracts/CollateralTracker.sol";
-import {PanopticFactory} from "@contracts/PanopticFactoryV4.sol";
+import {CollateralTrackerV2} from "@contracts/CollateralTracker.sol";
+import {PanopticFactoryV4} from "@contracts/PanopticFactoryV4.sol";
 import {PanopticQuery} from "../src/PanopticQuery.sol";
-import {TokenIdHelper} from "../src/TokenIdHelper.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {PositionUtils} from "lib/panoptic-v2-core/test/foundry/testUtils/PositionUtils.sol";
 import {UniPoolPriceMock} from "lib/panoptic-v2-core/test/foundry/testUtils/PriceMocks.sol";
@@ -43,13 +42,13 @@ import {Currency} from "v4-core/types/Currency.sol";
 import {PoolManager} from "v4-core/PoolManager.sol";
 import {IHooks} from "v4-core/interfaces/IHooks.sol";
 
-contract SemiFungiblePositionManagerHarness is SemiFungiblePositionManager {
+contract SemiFungiblePositionManagerHarness is SemiFungiblePositionManagerV4 {
     constructor(
         IPoolManager _manager
-    ) SemiFungiblePositionManager(_manager, 10 ** 13, 10 ** 13, 0) {}
+    ) SemiFungiblePositionManagerV4(_manager, 10 ** 13, 10 ** 13, 0) {}
 }
 
-contract PanopticPoolHarness is PanopticPool {
+contract PanopticPoolHarness is PanopticPoolV2 {
     /// @notice get the positions hash of an account
     /// @param user the account to get the positions hash of
     /// @return _positionsHash positions hash of the account
@@ -57,7 +56,7 @@ contract PanopticPoolHarness is PanopticPool {
         _positionsHash = uint248(s_positionsHash[user]);
     }
 
-    constructor(ISemiFungiblePositionManager _sfpm) PanopticPool(_sfpm) {}
+    constructor(ISemiFungiblePositionManager _sfpm) PanopticPoolV2(_sfpm) {}
 }
 
 contract PanopticQueryTest is PositionUtils {
@@ -72,8 +71,6 @@ contract PanopticQueryTest is PositionUtils {
     IPoolManager manager;
 
     PoolKey poolKey;
-    // A TokenIdHelper for getting equivalent token IDs as need be
-    TokenIdHelper tih;
 
     // reference implemenatations used by the factory
     address poolReference;
@@ -124,11 +121,11 @@ contract PanopticQueryTest is PositionUtils {
     int24 medianTick;
     int24 TWAPtick;
 
-    PanopticFactory factory;
+    PanopticFactoryV4 factory;
     PanopticPoolHarness pp;
     PanopticQuery pq;
-    CollateralTracker ct0;
-    CollateralTracker ct1;
+    CollateralTrackerV2 ct0;
+    CollateralTrackerV2 ct1;
 
     address Deployer = address(0x1234);
     address Alice = address(0x123456);
@@ -224,7 +221,7 @@ contract PanopticQueryTest is PositionUtils {
     TokenId positionSolo;
 
     function mintOptions(
-        PanopticPool pp,
+        PanopticPoolV2 pp,
         TokenId[] memory positionIdList,
         uint128 positionSize,
         uint24 effectiveLiquidityLimitX32,
@@ -371,7 +368,7 @@ contract PanopticQueryTest is PositionUtils {
         deal(token1, address(manager), type(uint128).max);
         manager.initialize(poolKey, currentSqrtPriceX96);
 
-        factory = new PanopticFactory(
+        factory = new PanopticFactoryV4(
             sfpm,
             manager,
             poolReference,
@@ -480,12 +477,11 @@ contract PanopticQueryTest is PositionUtils {
         sfpm = new SemiFungiblePositionManagerHarness(manager);
 
         pq = new PanopticQuery();
-        tih = new TokenIdHelper(ISemiFungiblePositionManager(address(sfpm)));
 
         poolReference = address(
             new PanopticPoolHarness(ISemiFungiblePositionManager(address(sfpm)))
         );
-        collateralReference = address(new CollateralTracker(10));
+        collateralReference = address(new CollateralTrackerV2());
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -1115,8 +1111,6 @@ contract PanopticQueryTest is PositionUtils {
         console2.log("seed", seed);
         uint256 numberOfLegs = ((seed >> 222) % 4) + 1;
 
-        TokenIdHelper.Leg[] memory inputLeg = new TokenIdHelper.Leg[](numberOfLegs);
-
         TokenId tokenId = TokenId.wrap(0).addPoolId(poolId);
 
         for (uint256 leg; leg < numberOfLegs; ++leg) {
@@ -1157,19 +1151,6 @@ contract PanopticQueryTest is PositionUtils {
             int24 width = int24(uint24(2 * bound(widthSeed, 1, 100)));
 
             tokenId = tokenId.addWidth(width, i);
-
-            // add to input array of legs
-            TokenIdHelper.Leg memory _Leg = TokenIdHelper.Leg({
-                poolId: poolId,
-                optionRatio: optionRatio,
-                asset: asset,
-                isLong: isLong,
-                tokenType: tokenId.tokenType(i),
-                riskPartner: tokenId.riskPartner(i),
-                strike: strike,
-                width: width
-            });
-            inputLeg[i] = _Leg;
         }
 
         uint256 requiredBefore = pq.getRequiredBase(pp, tokenId, currentTick);
