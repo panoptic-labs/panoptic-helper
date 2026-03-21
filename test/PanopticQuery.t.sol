@@ -67,7 +67,7 @@ contract PanopticQueryTest is PositionUtils {
     // the instance of SFPM we are testing
     SemiFungiblePositionManagerHarness sfpm;
     IRiskEngine re;
-    uint256 vegoid = 4;
+    uint256 vegoid = 8;
     IPoolManager manager;
 
     PoolKey poolKey;
