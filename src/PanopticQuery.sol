@@ -20,6 +20,7 @@ import {V4StateReader} from "@libraries/V4StateReader.sol";
 import {LeftRightUnsigned, LeftRightSigned} from "@types/LeftRight.sol";
 import {LiquidityChunk, LiquidityChunkLibrary} from "@types/LiquidityChunk.sol";
 import {TokenId, TokenIdLibrary} from "@types/TokenId.sol";
+import {OraclePack} from "@types/OraclePack.sol";
 import {PositionBalance, PositionBalanceLibrary} from "@types/PositionBalance.sol";
 import {PoolId} from "v4-core/types/PoolId.sol";
 import {PoolKey} from "v4-core/types/PoolKey.sol";
@@ -224,6 +225,12 @@ contract PanopticQuery {
         );
     }
 
+    function _getOracleTicks(
+        PanopticPoolV2 pool
+    ) internal view returns (int24, int24, int24, int24, OraclePack) {
+        return pool.getOracleTicks();
+    }
+
     /// @notice Compute the total amount of collateral needed to cover the existing list of active positions in positionIdList at (currentTick, fastOracleTick, slowOracleTick, latestObservation).
     /// @param pool The PanopticPool instance to check collateral on
     /// @param account Address of the user that owns the positions
@@ -247,7 +254,7 @@ contract PanopticQuery {
         )
     {
         int24[4] memory ticks;
-        (ticks[0], ticks[1], ticks[2], ticks[3], ) = pool.getOracleTicks();
+        (ticks[0], ticks[1], ticks[2], ticks[3], ) = _getOracleTicks(pool);
         for (uint256 i = 0; i < ticks.length; ++i) {
             uint256[4] memory balanceAndRequired = checkCollateral(
                 pool,
@@ -283,7 +290,7 @@ contract PanopticQuery {
         liquidationPriceUp = type(int24).max;
         liquidationPriceDown = type(int24).min;
         int24 currentTick;
-        (currentTick, , , , ) = pool.getOracleTicks();
+        (currentTick, , , , ) = _getOracleTicks(pool);
 
         if (!isAccountSolvent(pool, account, positionIdList, MIN_TICK)) {
             liquidationPriceDown = _binarySearch(
@@ -325,7 +332,7 @@ contract PanopticQuery {
             int24 scaledTick;
             int24 tickSpacing;
             {
-                (int24 currentTick, , , , ) = pool.getOracleTicks();
+                (int24 currentTick, , , , ) = _getOracleTicks(pool);
                 tickSpacing = positionIdList[0].tickSpacing();
                 scaledTick = ((currentTick / tickSpacing) * tickSpacing);
             }
@@ -1005,7 +1012,7 @@ contract PanopticQuery {
         LeftRightUnsigned[2] memory shortLongPremium
     ) internal view returns (uint128) {
         int24 atTick;
-        (atTick, , , , ) = pool.getOracleTicks();
+        (atTick, , , , ) = _getOracleTicks(pool);
 
         CollateralTrackerV2[2] memory cts;
         {
