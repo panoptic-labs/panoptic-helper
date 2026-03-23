@@ -1,8 +1,8 @@
 {
   "lib/panoptic-v2-core": {
     "branch": {
-      "name": "dev6",
-      "rev": "f6599768a47a9d45a5269db3304ef3a9e5b4198e"
+      "name": "main",
+      "rev": "225e8d74703514afbce9f015e575886609f7aad3"
     }
   },
   "lib/v4-core": {
