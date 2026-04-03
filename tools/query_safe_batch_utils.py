@@ -1,4 +1,5 @@
 import json
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -47,6 +48,11 @@ def load_bytecode(path: Path) -> str:
     return normalize_hex(artifact["bytecode"]["object"])
 
 
+def load_artifact(path: Path) -> dict:
+    with path.open() as file:
+        return json.load(file)
+
+
 def create2_address(deployer: str, salt: str, initcode: str) -> str:
     initcode_hash = keccak_hex(initcode)
     packed = (
@@ -79,3 +85,7 @@ def safe_transaction(
         },
         "contractInputsValues": values,
     }
+
+
+def shell_join(parts: list[str]) -> str:
+    return shlex.join(parts)
