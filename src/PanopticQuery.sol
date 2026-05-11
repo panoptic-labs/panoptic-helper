@@ -1200,12 +1200,12 @@ contract PanopticQuery {
         if (poolManager == address(0)) {
             // V3 Pool
             IUniswapV3Pool univ3pool = IUniswapV3Pool(abi.decode(pool.poolKey(), (address)));
-            return _getTickNetsV3(univ3pool, startTick, nTicks);
+            return getTickNetsV3(univ3pool, startTick, nTicks);
         } else {
             // V4 Pool
             IPoolManager manager = IPoolManager(poolManager);
             PoolKey memory key = abi.decode(pool.poolKey(), (PoolKey));
-            return _getTickNetsV4(manager, key.toId(), key.tickSpacing, startTick, nTicks);
+            return getTickNetsV4(manager, key.toId(), key.tickSpacing, startTick, nTicks);
         }
     }
 
@@ -1217,13 +1217,13 @@ contract PanopticQuery {
     /// @param nTicks The number of ticks to scan in each direction from startTick
     /// @return tickData Array of tick values in the scanned range
     /// @return liquidityNets Array of cumulative liquidity at each tick
-    function _getTickNetsV4(
+    function getTickNetsV4(
         IPoolManager manager,
         PoolId poolId,
         int24 tickSpacing,
         int24 startTick,
         uint256 nTicks
-    ) internal view returns (int256[] memory tickData, int256[] memory liquidityNets) {
+    ) public view returns (int256[] memory tickData, int256[] memory liquidityNets) {
         int256 scaledCurrentTick;
         int256 scaledStartTick;
         uint256 arraySize;
@@ -1282,11 +1282,11 @@ contract PanopticQuery {
     /// @param nTicks The number of ticks to scan in each direction from startTick
     /// @return tickData Array of tick values in the scanned range
     /// @return liquidityNets Array of cumulative liquidity at each tick
-    function _getTickNetsV3(
+    function getTickNetsV3(
         IUniswapV3Pool univ3pool,
         int24 startTick,
         uint256 nTicks
-    ) internal view returns (int256[] memory tickData, int256[] memory liquidityNets) {
+    ) public view returns (int256[] memory tickData, int256[] memory liquidityNets) {
         (, int24 currentTick, , , , , ) = univ3pool.slot0();
         uint128 liquidity = univ3pool.liquidity();
         int24 tickSpacing = univ3pool.tickSpacing();
