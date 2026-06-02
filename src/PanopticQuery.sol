@@ -1135,8 +1135,10 @@ contract PanopticQuery {
         // Update only the target element (no allocation)
         allBalances[allBalances.length - 1] = syntheticBalance;
 
-        // Check solvency using ground truth
-        return
+        // Check solvency using ground truth. Oversized synthetic probes can exceed
+        // the protocol's liquidity bounds; for max-size search those are simply
+        // non-openable sizes.
+        try
             riskEngine.isAccountSolvent(
                 allBalances,
                 allPositionIds,
@@ -1147,7 +1149,12 @@ contract PanopticQuery {
                 cts[0],
                 cts[1],
                 NO_BUFFER // 10_000_000 = 100% collateral ratio, no buffer
-            );
+            )
+        returns (bool solvent) {
+            return solvent;
+        } catch {
+            return false;
+        }
     }
 
     /// @notice An external function that validates a tokenId.
