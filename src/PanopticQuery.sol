@@ -724,36 +724,6 @@ contract PanopticQuery {
         }
     }
 
-    /// @notice Calculate approximate NLV of user's option portfolio (token delta after closing `positionIdList`) at a given tick.
-    /// @param pool The PanopticPool instance to check collateral on
-    /// @param account Address of the user that owns the positions
-    /// @param includePendingPremium If true, include premium that is owed to the user but has not yet settled; if false, only include premium that is available to collect
-    /// @param positionIdList A list of all positions the user holds on that pool
-    /// @param atTick The tick to calculate the value at
-    /// @return value0 The NLV of `positionIdList` owned by `account` at the price `atTick` in terms of token0
-    /// @return value1 The NLV of `positionIdList` owned by `account` at the price `atTick` in terms of token1
-    function getNetLiquidationValue(
-        PanopticPoolV2 pool,
-        address account,
-        bool includePendingPremium,
-        TokenId[] calldata positionIdList,
-        int24 atTick
-    ) public view returns (int256 value0, int256 value1) {
-        int24[] memory _atTick = new int24[](1);
-        _atTick[0] = atTick;
-
-        (int256[] memory v0, int256[] memory v1) = getNetLiquidationValue(
-            pool,
-            account,
-            includePendingPremium,
-            positionIdList,
-            _atTick
-        );
-
-        value0 = v0[0];
-        value1 = v1[0];
-    }
-
     /// @notice Optimize the risk partnering of all legs within a tokenId.
     /// @param pool The PanopticPool instance to optimize the tokenId for
     /// @param atTick The price at which the collateral requirement is evaluated
@@ -1216,6 +1186,18 @@ contract PanopticQuery {
         }
     }
 
+    /// @dev Floor `tick` to the nearest multiple of `tickSpacing` toward -infinity.
+    /// Solidity integer division truncates toward zero, which for negative ticks
+    /// lands on the bucket *above* the one containing the price. Flooring picks the
+    /// bucket that actually contains `tick`, so the current-tick rescale anchors correctly.
+    function _floorToSpacing(int24 tick, int24 tickSpacing) private pure returns (int256) {
+        int256 q = int256(tick) / int256(tickSpacing);
+        if (int256(tick) % int256(tickSpacing) != 0 && tick < 0) {
+            q -= 1;
+        }
+        return q * int256(tickSpacing);
+    }
+
     /// @notice Internal helper for V4 tick net retrieval
     /// @param manager The Uniswap V4 pool manager
     /// @param poolId The pool ID
@@ -1238,7 +1220,7 @@ contract PanopticQuery {
 
         {
             int24 currentTick = V4StateReader.getTick(manager, poolId);
-            scaledCurrentTick = int256((currentTick / tickSpacing) * tickSpacing);
+            scaledCurrentTick = _floorToSpacing(currentTick, tickSpacing);
             scaledStartTick = int256((startTick / tickSpacing) * tickSpacing);
             arraySize = 2 * nTicks + 1;
             currentTickIndex = type(uint256).max;
@@ -1298,7 +1280,7 @@ contract PanopticQuery {
         uint128 liquidity = univ3pool.liquidity();
         int24 tickSpacing = univ3pool.tickSpacing();
 
-        int256 scaledCurrentTick = int256((currentTick / tickSpacing) * tickSpacing);
+        int256 scaledCurrentTick = _floorToSpacing(currentTick, tickSpacing);
         int256 scaledStartTick = int256((startTick / tickSpacing) * tickSpacing);
 
         uint256 arraySize = 2 * nTicks + 1;
