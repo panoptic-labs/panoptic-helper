@@ -2621,70 +2621,101 @@ contract PanopticQueryTest is PositionUtils {
         return TokenId.wrap(0).addPoolId(poolId).addLeg(0, 1, 1, 0, tokenType, 0, strike, 2);
     }
 
-    /// @dev A same-strike, same-asset straddle plus two width=0 legs (one per token type) that
-    ///      neutralize its in-the-money amounts. `isLong` selects credit (true, signMult +1) vs
-    ///      loan (false, signMult -1); the neutralizing legs must oppose the straddle's sign, so a
-    ///      short straddle (positive itm) is cancelled by loans and a long straddle (negative itm)
-    ///      by credits.
-    /// legIndex, optionRatio, asset, isLong, tokenType, riskPartner, strike, width
-    function _straddle(int24 strike, uint256 isLong) internal view returns (TokenId t) {
-        t = TokenId.wrap(0).addPoolId(poolId);
-        t = t.addLeg(0, 1, 1, isLong, 0, 0, strike, 2); // put
-        t = t.addLeg(1, 1, 1, isLong, 1, 1, strike, 2); // call
-    }
-
-    function _straddleNeutralized(
-        int24 strike,
-        uint256 straddleLong
-    ) internal view returns (TokenId t) {
-        // The width=0 legs must share the straddle's direction to oppose its itm sign: a short
-        // straddle (isLong=0, positive itm) needs signMult=-1 => isLong=0 (loan); a long straddle
-        // (isLong=1, negative itm) needs signMult=+1 => isLong=1 (credit).
-        t = TokenId.wrap(0).addPoolId(poolId);
-        t = t.addLeg(0, 1, 1, straddleLong, 0, 0, strike, 2); // put
-        t = t.addLeg(1, 1, 1, straddleLong, 1, 1, strike, 2); // call
-        t = t.addLeg(2, 1, 1, straddleLong, 0, 2, strike, 0); // width=0 leg, tokenType 0 (itm0)
-        t = t.addLeg(3, 1, 1, straddleLong, 1, 3, strike, 0); // width=0 leg, tokenType 1 (itm1)
-    }
-
-    /// @dev A short straddle placed a few spacings below the current tick lives entirely in token1,
-    ///      so its only meaningful itm is a positive itm1 whose magnitude equals the leg notional.
-    ///      A width=0 loan leg (tokenType==asset==1) carries exactly that fixed notional, so the
-    ///      combined 4-leg position nets to ~0 in both tokens.
-    function test_Success_getItmAmounts_ShortStraddleNeutralizedByLoans(uint256 x) public {
-        _initPool(x);
-        int24 strike = (currentTick / tickSpacing) * tickSpacing - 3 * tickSpacing;
-        uint128 size = 1e15;
-
-        (, int256 s1) = pq.getItmAmounts(pp, _straddle(strike, 0), size);
-        (int256 n0, int256 n1) = pq.getItmAmounts(pp, _straddleNeutralized(strike, 0), size);
-
-        assertGt(s1, 0, "short straddle below tick should have a large positive itm1");
-
-        // The width=0 loan legs cancel the straddle's itm to dust (flow-neutral open).
-        assertLt(_abs(n0), _abs(s1) / 1e9 + 1e7, "itm0 not neutralized");
-        assertLt(_abs(n1), _abs(s1) / 1e9 + 1e7, "itm1 not neutralized");
-        assertLt(_abs(n1), _abs(s1), "neutralized itm1 must be far smaller than the straddle's");
-    }
-
-    /// @dev Mirror of the above with a long straddle (negative itm) cancelled by width=0 credit legs.
-    function test_Success_getItmAmounts_LongStraddleNeutralizedByCredits(uint256 x) public {
-        _initPool(x);
-        int24 strike = (currentTick / tickSpacing) * tickSpacing - 3 * tickSpacing;
-        uint128 size = 1e15;
-
-        (, int256 s1) = pq.getItmAmounts(pp, _straddle(strike, 1), size);
-        (int256 n0, int256 n1) = pq.getItmAmounts(pp, _straddleNeutralized(strike, 1), size);
-
-        assertLt(s1, 0, "long straddle below tick should have a large negative itm1");
-
-        assertLt(_abs(n0), _abs(s1) / 1e9 + 1e7, "itm0 not neutralized");
-        assertLt(_abs(n1), _abs(s1) / 1e9 + 1e7, "itm1 not neutralized");
-        assertLt(_abs(n1), _abs(s1), "neutralized itm1 must be far smaller than the straddle's");
-    }
-
     function _abs(int256 v) internal pure returns (uint256) {
         return v < 0 ? uint256(-v) : uint256(v);
+    }
+
+    /// @dev A short strangle straddling the current tick: put strike below, call strike above, both
+    ///      width 2, same asset. Each leg's chunk is single-sided, so itm0 (from the call, above the
+    ///      tick, all token0) and itm1 (from the put, below the tick, all token1) are BOTH full,
+    ///      nonzero notionals — the genuine two-sided case getItmAmounts exists for.
+    /// legIndex, optionRatio, asset, isLong, tokenType, riskPartner, strike, width
+    function _strangle(int24 callStrike, int24 putStrike) internal view returns (TokenId t) {
+        t = TokenId.wrap(0).addPoolId(poolId);
+        t = t.addLeg(0, 1, 1, 0, 0, 0, putStrike, 2); // short put below tick  -> itm1
+        t = t.addLeg(1, 1, 1, 0, 1, 1, callStrike, 2); // short call above tick -> itm0
+    }
+
+    /// @dev The strangle plus two width=0 loan legs, each placed on the SAME strike as the leg whose
+    ///      itm it cancels so their fixed full-notional matches exactly:
+    ///        - tokenType0 loan at the call strike cancels itm0 (rightSlot == call's amount0)
+    ///        - tokenType1 loan at the put strike  cancels itm1 (leftSlot  == put's  amount1)
+    function _strangleNeutralized(
+        int24 callStrike,
+        int24 putStrike
+    ) internal view returns (TokenId t) {
+        t = TokenId.wrap(0).addPoolId(poolId);
+        t = t.addLeg(0, 1, 1, 0, 0, 0, putStrike, 2); // short put  -> itm1
+        t = t.addLeg(1, 1, 1, 0, 1, 1, callStrike, 2); // short call -> itm0
+        t = t.addLeg(2, 1, 1, 0, 0, 2, callStrike, 0); // width=0 loan, tokenType 0 -> cancels itm0
+        t = t.addLeg(3, 1, 1, 0, 1, 3, putStrike, 0); // width=0 loan, tokenType 1 -> cancels itm1
+    }
+
+    /// @dev Two-sided case: a short strangle has itm0 > 0 AND itm1 > 0, and each slot is neutralized
+    ///      to dust by its own matching width=0 loan leg. Asserts each slot against its OWN
+    ///      pre-neutralization magnitude.
+    function test_Success_getItmAmounts_StrangleNeutralized(uint256 x) public {
+        _initPool(x);
+        int24 roundedTick = (currentTick / tickSpacing) * tickSpacing;
+        int24 callStrike = roundedTick + 3 * tickSpacing;
+        int24 putStrike = roundedTick - 3 * tickSpacing;
+        uint128 size = 1e15;
+
+        (int256 s0, int256 s1) = pq.getItmAmounts(pp, _strangle(callStrike, putStrike), size);
+
+        // Genuinely two-sided: both slots are in the money.
+        assertGt(s0, 0, "strangle should have positive itm0 (call above tick)");
+        assertGt(s1, 0, "strangle should have positive itm1 (put below tick)");
+
+        (int256 n0, int256 n1) = pq.getItmAmounts(
+            pp,
+            _strangleNeutralized(callStrike, putStrike),
+            size
+        );
+
+        // Each matching same-chunk loan cancels its slot exactly up to the round-up dust of
+        // getAmount{0,1}ForLiquidityUp (a couple wei), independent of the itm magnitude.
+        assertLe(_abs(n0), 64, "itm0 not neutralized");
+        assertLe(_abs(n1), 64, "itm1 not neutralized");
+    }
+
+    /// @dev Single-sided guard: a below-tick straddle is in the money only in itm1 (itm0 == 0). The
+    ///      SDK must neutralize ONLY the ITM slot. Neutralizing with the matching tokenType1 leg
+    ///      alone yields dust in both slots; additionally adding the tokenType0 leg INJECTS flow into
+    ///      the empty itm0 slot, so blindly neutralizing both slots is wrong.
+    function test_Success_getItmAmounts_BelowTickStraddle_OnlyItmSlotNeutralizes(uint256 x) public {
+        _initPool(x);
+        int24 strike = (currentTick / tickSpacing) * tickSpacing - 3 * tickSpacing;
+        uint128 size = 1e15;
+
+        (int256 s0, int256 s1) = pq.getItmAmounts(pp, _belowTickStraddle(strike), size);
+        assertEq(s0, 0, "below-tick straddle has no itm0");
+        assertGt(s1, 0, "below-tick straddle has positive itm1");
+
+        // Correct: neutralize only the ITM slot (itm1) -> dust in both slots.
+        (int256 c0, int256 c1) = pq.getItmAmounts(pp, _belowTickStraddleFixItm1(strike), size);
+        assertEq(c0, 0, "itm0 must stay zero when only the itm1 leg is added");
+        assertLt(_abs(c1), _abs(s1) / 1e6, "itm1 not neutralized by the matching leg");
+
+        // Wrong: also adding the tokenType0 leg injects flow into the empty itm0 slot.
+        (int256 w0, ) = pq.getItmAmounts(pp, _belowTickStraddleFixBoth(strike), size);
+        assertGt(_abs(w0), 0, "adding the non-ITM slot leg should inject flow into itm0");
+    }
+
+    function _belowTickStraddle(int24 strike) internal view returns (TokenId t) {
+        t = TokenId.wrap(0).addPoolId(poolId);
+        t = t.addLeg(0, 1, 1, 0, 0, 0, strike, 2); // short put
+        t = t.addLeg(1, 1, 1, 0, 1, 1, strike, 2); // short call
+    }
+
+    function _belowTickStraddleFixItm1(int24 strike) internal view returns (TokenId t) {
+        t = _belowTickStraddle(strike);
+        t = t.addLeg(2, 1, 1, 0, 1, 2, strike, 0); // width=0 loan, tokenType 1 -> cancels itm1 only
+    }
+
+    function _belowTickStraddleFixBoth(int24 strike) internal view returns (TokenId t) {
+        t = _belowTickStraddleFixItm1(strike);
+        t = t.addLeg(3, 1, 1, 0, 0, 3, strike, 0); // width=0 loan, tokenType 0 -> injects itm0
     }
 
     /// @dev Build a short-call + short-put 2-leg tokenId (isolated frame to keep callers shallow).
