@@ -139,6 +139,42 @@ contract PanopticQuery {
         crossBufferRatio = pool.riskEngine().crossBufferRatio(utilization, crossBuffer);
     }
 
+    /// @notice Shared prelude that loads position data and both collateral trackers for an account.
+    /// @param pool The PanopticPool instance to query
+    /// @param account Address of the user that owns the positions
+    /// @param includePendingPremium If true, include premium owed but not yet settled
+    /// @param positionIdList List of positions
+    /// @return shortPremium The aggregate short premium
+    /// @return longPremium The aggregate long premium
+    /// @return positionBalanceArray The per-position balances
+    /// @return ct0 The token0 collateral tracker
+    /// @return ct1 The token1 collateral tracker
+    function _loadPositions(
+        PanopticPoolV2 pool,
+        address account,
+        bool includePendingPremium,
+        TokenId[] calldata positionIdList
+    )
+        internal
+        view
+        returns (
+            LeftRightUnsigned shortPremium,
+            LeftRightUnsigned longPremium,
+            PositionBalance[] memory positionBalanceArray,
+            CollateralTrackerV2 ct0,
+            CollateralTrackerV2 ct1
+        )
+    {
+        (shortPremium, longPremium, positionBalanceArray, , ) = pool.getFullPositionsData(
+            account,
+            includePendingPremium,
+            positionIdList
+        );
+
+        ct0 = pool.collateralToken0();
+        ct1 = pool.collateralToken1();
+    }
+
     /// @notice Compute the total amount of collateral needed to cover the existing list of active positions in positionIdList.
     /// @param pool The PanopticPool instance to check collateral on
     /// @param account Address of the user that owns the positions
@@ -155,12 +191,9 @@ contract PanopticQuery {
             LeftRightUnsigned shortPremium,
             LeftRightUnsigned longPremium,
             PositionBalance[] memory positionBalanceArray,
-            ,
-
-        ) = pool.getFullPositionsData(account, false, positionIdList);
-
-        CollateralTrackerV2 ct0 = pool.collateralToken0();
-        CollateralTrackerV2 ct1 = pool.collateralToken1();
+            CollateralTrackerV2 ct0,
+            CollateralTrackerV2 ct1
+        ) = _loadPositions(pool, account, false, positionIdList);
 
         return (
             pool.riskEngine().isAccountSolvent(
@@ -203,12 +236,9 @@ contract PanopticQuery {
             LeftRightUnsigned shortPremium,
             LeftRightUnsigned longPremium,
             PositionBalance[] memory positionBalanceArray,
-            ,
-
-        ) = pool.getFullPositionsData(account, false, positionIdList);
-
-        CollateralTrackerV2 ct0 = pool.collateralToken0();
-        CollateralTrackerV2 ct1 = pool.collateralToken1();
+            CollateralTrackerV2 ct0,
+            CollateralTrackerV2 ct1
+        ) = _loadPositions(pool, account, false, positionIdList);
 
         //TokenId[] memory _positionIdList = positionIdList;
 
@@ -421,7 +451,8 @@ contract PanopticQuery {
         TokenId[] calldata positionIdList
     ) external view returns (int256 value0, int256 value1) {
         // Compute premia for all options (includes short+long premium)
-        (, , PositionBalance[] memory positionBalanceArray, , ) = pool.getFullPositionsData(
+        (, , PositionBalance[] memory positionBalanceArray, , ) = _loadPositions(
+            pool,
             account,
             false,
             positionIdList
@@ -712,7 +743,7 @@ contract PanopticQuery {
             PositionBalance[] memory positionBalanceArray,
             ,
 
-        ) = pool.getFullPositionsData(account, includePendingPremium, positionIdList);
+        ) = _loadPositions(pool, account, includePendingPremium, positionIdList);
 
         return
             computeNetLiquidationValue(
@@ -936,7 +967,7 @@ contract PanopticQuery {
             PositionBalance[] memory positionBalanceArray,
             ,
 
-        ) = pool.getFullPositionsData(account, false, existingPositionIds);
+        ) = _loadPositions(pool, account, false, existingPositionIds);
         shortLongPremium[0] = shortPremium;
         shortLongPremium[1] = longPremium;
         // Cache expensive external calls once
