@@ -2613,4 +2613,170 @@ contract PanopticQueryTest is PositionUtils {
             atTicks
         );
     }
+
+    // ============================ getItmAmounts ============================
+
+    /// @dev Build a single short leg (legIndex 0) at `strike`, width 2.
+    function _itmLeg(uint256 tokenType, int24 strike) internal view returns (TokenId) {
+        return TokenId.wrap(0).addPoolId(poolId).addLeg(0, 1, 1, 0, tokenType, 0, strike, 2);
+    }
+
+    /// @dev Build a short-call + short-put 2-leg tokenId (isolated frame to keep callers shallow).
+    function _itmCallPut(int24 callStrike, int24 putStrike) internal view returns (TokenId t) {
+        t = TokenId.wrap(0).addPoolId(poolId);
+        t = t.addLeg(0, 1, 1, 0, 1, 0, callStrike, 2);
+        t = t.addLeg(1, 1, 1, 0, 0, 1, putStrike, 2);
+    }
+
+    /// @dev A short, width>0 call leg (range above the current tick) is all token0, so its
+    ///      in-the-money contribution lands in itm0 (tokenType==1 => itm0) with a positive sign
+    ///      (short mint pays in), and itm1 stays zero.
+    function test_Success_getItmAmounts_ShortCall_WidthGtZero(uint256 x) public {
+        _initPool(x);
+        int24 roundedTick = (currentTick / tickSpacing) * tickSpacing;
+        uint128 positionSize = 1e15;
+
+        // legIndex, optionRatio, asset, isLong(0=short), tokenType(1=call), riskPartner, strike, width
+        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            0,
+            1,
+            0,
+            roundedTick + 6 * tickSpacing,
+            2
+        );
+
+        (int256 itm0, int256 itm1) = pq.getItmAmounts(pp, tokenId, positionSize);
+
+        // Recompute the exact projection the method mirrors.
+        LiquidityChunk chunk = PanopticMath.getLiquidityChunk(tokenId, 0, positionSize);
+        (uint256 amount0, uint256 amount1) = Math.getAmountsForLiquidity(currentTick, chunk);
+
+        assertGt(amount0, 0, "range above tick should be all token0");
+        assertEq(amount1, 0, "no token1 for a range above the current tick");
+        assertEq(itm0, int256(amount0), "itm0 should equal +amount0 for short call");
+        assertEq(itm1, int256(0), "itm1 should be zero for a call leg");
+    }
+
+    /// @dev A short, width>0 put leg (range below the current tick) is all token1, so its
+    ///      contribution lands in itm1 (tokenType==0 => itm1); itm0 stays zero.
+    function test_Success_getItmAmounts_ShortPut_WidthGtZero(uint256 x) public {
+        _initPool(x);
+        int24 roundedTick = (currentTick / tickSpacing) * tickSpacing;
+        uint128 positionSize = 1e15;
+
+        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            0,
+            0, // put
+            0,
+            roundedTick - 6 * tickSpacing,
+            2
+        );
+
+        (int256 itm0, int256 itm1) = pq.getItmAmounts(pp, tokenId, positionSize);
+
+        LiquidityChunk chunk = PanopticMath.getLiquidityChunk(tokenId, 0, positionSize);
+        (uint256 amount0, uint256 amount1) = Math.getAmountsForLiquidity(currentTick, chunk);
+
+        assertGt(amount1, 0, "range below tick should be all token1");
+        assertEq(amount0, 0, "no token0 for a range below the current tick");
+        assertEq(itm1, int256(amount1), "itm1 should equal +amount1 for short put");
+        assertEq(itm0, int256(0), "itm0 should be zero for a put leg");
+    }
+
+    /// @dev Long and short legs are mirror images: a long mint burns/receives (−) exactly what the
+    ///      short mint pays in (+). getItmAmounts(long) must be the componentwise negation of short.
+    function test_Success_getItmAmounts_ShortLong_SignSymmetry(uint256 x) public {
+        _initPool(x);
+        int24 roundedTick = (currentTick / tickSpacing) * tickSpacing;
+        uint128 positionSize = 1e15;
+
+        TokenId shortId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            0, // short
+            1,
+            0,
+            roundedTick + 6 * tickSpacing,
+            2
+        );
+        TokenId longId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            1,
+            1, // long
+            1,
+            0,
+            roundedTick + 6 * tickSpacing,
+            2
+        );
+
+        (int256 s0, int256 s1) = pq.getItmAmounts(pp, shortId, positionSize);
+        (int256 l0, int256 l1) = pq.getItmAmounts(pp, longId, positionSize);
+
+        assertTrue(s0 != 0, "short leg should have a nonzero itm0");
+        assertEq(l0, -s0, "long itm0 must negate short");
+        assertEq(l1, -s1, "long itm1 must negate short");
+    }
+
+    /// @dev A width==0 loan/credit leg is tick-independent: its contribution is
+    ///      signMult * getAmountsMoved(...) into the slot selected by tokenType (short => −).
+    function test_Success_getItmAmounts_WidthZeroLoanLeg(uint256 x) public {
+        _initPool(x);
+        int24 roundedTick = (currentTick / tickSpacing) * tickSpacing;
+        uint128 positionSize = 1e15;
+
+        // width == 0 => loan/credit; short call (tokenType==1) => contributes to itm1 with sign −1
+        TokenId tokenId = TokenId.wrap(0).addPoolId(poolId).addLeg(
+            0,
+            1,
+            0,
+            0, // short
+            1, // call
+            0,
+            roundedTick + 6 * tickSpacing,
+            0 // width == 0
+        );
+
+        (int256 itm0, int256 itm1) = pq.getItmAmounts(pp, tokenId, positionSize);
+
+        LeftRightUnsigned amountsMoved = PanopticMath.getAmountsMoved(
+            tokenId,
+            positionSize,
+            0,
+            true
+        );
+
+        assertGt(uint256(amountsMoved.leftSlot()), 0, "loan leg should move a nonzero notional");
+        assertEq(itm0, int256(0), "itm0 should be zero for a tokenType==1 loan leg");
+        assertEq(
+            itm1,
+            -int256(uint256(amountsMoved.leftSlot())),
+            "itm1 should be -amountsMoved.leftSlot() for a short loan leg"
+        );
+    }
+
+    /// @dev The per-leg contributions accumulate: a multi-leg tokenId's itm equals the sum of the
+    ///      itm of each leg evaluated on its own.
+    function test_Success_getItmAmounts_MultiLeg_Additive(uint256 x) public {
+        _initPool(x);
+        int24 callStrike = ((currentTick / tickSpacing) * tickSpacing) + 6 * tickSpacing;
+        int24 putStrike = ((currentTick / tickSpacing) * tickSpacing) - 6 * tickSpacing;
+
+        // Combined 2-leg (short call + short put) evaluated in one call.
+        (int256 c0, int256 c1) = pq.getItmAmounts(pp, _itmCallPut(callStrike, putStrike), 1e15);
+
+        // Each leg on its own (as legIndex 0); their sum must match the combined result.
+        (int256 a0, int256 a1) = pq.getItmAmounts(pp, _itmLeg(1, callStrike), 1e15);
+        (int256 b0, int256 b1) = pq.getItmAmounts(pp, _itmLeg(0, putStrike), 1e15);
+
+        assertEq(c0, a0 + b0, "combined itm0 should equal sum of per-leg itm0");
+        assertEq(c1, a1 + b1, "combined itm1 should equal sum of per-leg itm1");
+    }
 }
