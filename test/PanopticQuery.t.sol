@@ -2625,35 +2625,42 @@ contract PanopticQueryTest is PositionUtils {
         return v < 0 ? uint256(-v) : uint256(v);
     }
 
-    /// @dev A short strangle straddling the current tick: put strike below, call strike above, both
-    ///      width 2, same asset. Each leg's chunk is single-sided, so itm0 (from the call, above the
-    ///      tick, all token0) and itm1 (from the put, below the tick, all token1) are BOTH full,
-    ///      nonzero notionals — the genuine two-sided case getItmAmounts exists for.
+    /// @dev A strangle straddling the current tick: put strike below, call strike above, both width
+    ///      2, same asset. Each leg's chunk is single-sided, so itm0 (from the call, above the tick,
+    ///      all token0) and itm1 (from the put, below the tick, all token1) are BOTH full, nonzero
+    ///      notionals — the genuine two-sided case getItmAmounts exists for. `isLong` selects short
+    ///      (0, positive itm) vs long (1, negative itm).
     /// legIndex, optionRatio, asset, isLong, tokenType, riskPartner, strike, width
-    function _strangle(int24 callStrike, int24 putStrike) internal view returns (TokenId t) {
-        t = TokenId.wrap(0).addPoolId(poolId);
-        t = t.addLeg(0, 1, 1, 0, 0, 0, putStrike, 2); // short put below tick  -> itm1
-        t = t.addLeg(1, 1, 1, 0, 1, 1, callStrike, 2); // short call above tick -> itm0
-    }
-
-    /// @dev The strangle plus two width=0 loan legs, each placed on the SAME strike as the leg whose
-    ///      itm it cancels so their fixed full-notional matches exactly:
-    ///        - tokenType0 loan at the call strike cancels itm0 (rightSlot == call's amount0)
-    ///        - tokenType1 loan at the put strike  cancels itm1 (leftSlot  == put's  amount1)
-    function _strangleNeutralized(
+    function _strangle(
         int24 callStrike,
-        int24 putStrike
+        int24 putStrike,
+        uint256 isLong
     ) internal view returns (TokenId t) {
         t = TokenId.wrap(0).addPoolId(poolId);
-        t = t.addLeg(0, 1, 1, 0, 0, 0, putStrike, 2); // short put  -> itm1
-        t = t.addLeg(1, 1, 1, 0, 1, 1, callStrike, 2); // short call -> itm0
-        t = t.addLeg(2, 1, 1, 0, 0, 2, callStrike, 0); // width=0 loan, tokenType 0 -> cancels itm0
-        t = t.addLeg(3, 1, 1, 0, 1, 3, putStrike, 0); // width=0 loan, tokenType 1 -> cancels itm1
+        t = t.addLeg(0, 1, 1, isLong, 0, 0, putStrike, 2); // put below tick  -> itm1
+        t = t.addLeg(1, 1, 1, isLong, 1, 1, callStrike, 2); // call above tick -> itm0
     }
 
-    /// @dev Two-sided case: a short strangle has itm0 > 0 AND itm1 > 0, and each slot is neutralized
-    ///      to dust by its own matching width=0 loan leg. Asserts each slot against its OWN
-    ///      pre-neutralization magnitude.
+    /// @dev The strangle plus two width=0 legs, each on the SAME strike as the leg whose itm it
+    ///      cancels so their fixed full-notional matches exactly. The neutralizing legs share the
+    ///      strangle's `isLong`: a short strangle (positive itm) is cancelled by loans (signMult -1),
+    ///      a long strangle (negative itm) by credits (signMult +1).
+    ///        - tokenType0 leg at the call strike cancels itm0 (rightSlot == call's amount0)
+    ///        - tokenType1 leg at the put strike  cancels itm1 (leftSlot  == put's  amount1)
+    function _strangleNeutralized(
+        int24 callStrike,
+        int24 putStrike,
+        uint256 isLong
+    ) internal view returns (TokenId t) {
+        t = TokenId.wrap(0).addPoolId(poolId);
+        t = t.addLeg(0, 1, 1, isLong, 0, 0, putStrike, 2); // put  -> itm1
+        t = t.addLeg(1, 1, 1, isLong, 1, 1, callStrike, 2); // call -> itm0
+        t = t.addLeg(2, 1, 1, isLong, 0, 2, callStrike, 0); // width=0 leg, tokenType 0 -> cancels itm0
+        t = t.addLeg(3, 1, 1, isLong, 1, 3, putStrike, 0); // width=0 leg, tokenType 1 -> cancels itm1
+    }
+
+    /// @dev Two-sided short case: itm0 > 0 AND itm1 > 0, each slot neutralized to dust by its own
+    ///      matching width=0 loan leg (signMult -1).
     function test_Success_getItmAmounts_StrangleNeutralized(uint256 x) public {
         _initPool(x);
         int24 roundedTick = (currentTick / tickSpacing) * tickSpacing;
@@ -2661,7 +2668,7 @@ contract PanopticQueryTest is PositionUtils {
         int24 putStrike = roundedTick - 3 * tickSpacing;
         uint128 size = 1e15;
 
-        (int256 s0, int256 s1) = pq.getItmAmounts(pp, _strangle(callStrike, putStrike), size);
+        (int256 s0, int256 s1) = pq.getItmAmounts(pp, _strangle(callStrike, putStrike, 0), size);
 
         // Genuinely two-sided: both slots are in the money.
         assertGt(s0, 0, "strangle should have positive itm0 (call above tick)");
@@ -2669,7 +2676,7 @@ contract PanopticQueryTest is PositionUtils {
 
         (int256 n0, int256 n1) = pq.getItmAmounts(
             pp,
-            _strangleNeutralized(callStrike, putStrike),
+            _strangleNeutralized(callStrike, putStrike, 0),
             size
         );
 
@@ -2677,6 +2684,55 @@ contract PanopticQueryTest is PositionUtils {
         // getAmount{0,1}ForLiquidityUp (a couple wei), independent of the itm magnitude.
         assertLe(_abs(n0), 64, "itm0 not neutralized");
         assertLe(_abs(n1), 64, "itm1 not neutralized");
+    }
+
+    /// @dev Long counterpart: a long strangle pays the user out, so itm0 < 0 AND itm1 < 0 (the
+    ///      width>0 long branch flips the sign, moved = -amount). Each negative slot is neutralized to
+    ///      dust by a width=0 CREDIT leg (isLong=1, signMult +1) — the credit-neutralization path.
+    function test_Success_getItmAmounts_LongStrangleNeutralizedByCredits(uint256 x) public {
+        _initPool(x);
+        int24 roundedTick = (currentTick / tickSpacing) * tickSpacing;
+        int24 callStrike = roundedTick + 3 * tickSpacing;
+        int24 putStrike = roundedTick - 3 * tickSpacing;
+        uint128 size = 1e15;
+
+        (int256 s0, int256 s1) = pq.getItmAmounts(pp, _strangle(callStrike, putStrike, 1), size);
+
+        // Long => both slots pay out (negative), exercising the width>0 isLong=1 sign flip.
+        assertLt(s0, 0, "long strangle should have negative itm0 (call above tick)");
+        assertLt(s1, 0, "long strangle should have negative itm1 (put below tick)");
+
+        (int256 n0, int256 n1) = pq.getItmAmounts(
+            pp,
+            _strangleNeutralized(callStrike, putStrike, 1),
+            size
+        );
+
+        // width=0 credits (signMult +1) cancel the negative itm to dust.
+        assertLe(_abs(n0), 64, "itm0 not neutralized by credit");
+        assertLe(_abs(n1), 64, "itm1 not neutralized by credit");
+    }
+
+    /// @dev Width>0 long sign check in isolation: a long in-range call pays out, so itm0 is the
+    ///      NEGATION of the tick-split amount0 (moved0 = -amount0), while a short call gives +amount0.
+    function test_Success_getItmAmounts_InRangeLongCall_NegativePartial(uint256 x) public {
+        _initPool(x);
+        int24 strike = (currentTick / tickSpacing) * tickSpacing;
+        uint128 size = 1e15;
+
+        // long call (isLong=1), wide so the range brackets the tick
+        TokenId id = TokenId.wrap(0).addPoolId(poolId).addLeg(0, 1, 1, 1, 1, 0, strike, WIDE);
+        (int256 itm0, int256 itm1) = pq.getItmAmounts(pp, id, size);
+
+        LiquidityChunk chunk = PanopticMath.getLiquidityChunk(id, 0, size);
+        (uint256 a0, uint256 a1) = Math.getAmountsForLiquidity(currentTick, chunk);
+
+        assertGt(a0, 0, "expected token0 above the tick");
+        assertGt(a1, 0, "expected token1 below the tick (range brackets currentTick)");
+
+        // Long flips the sign relative to the short case.
+        assertEq(itm0, -int256(a0), "long call itm0 must be the negated tick-split amount0");
+        assertEq(itm1, int256(0), "a call leg leaves itm1 zero");
     }
 
     /// @dev Single-sided guard: a below-tick straddle is in the money only in itm1 (itm0 == 0). The
