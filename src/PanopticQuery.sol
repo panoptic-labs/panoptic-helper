@@ -588,13 +588,15 @@ contract PanopticQuery {
         uint256[2][4][] memory chunkData = new uint256[2][4][](positionIdList.length);
 
         for (uint256 i; i < positionIdList.length; ) {
-            for (uint256 j; j < positionIdList[i].countLegs(); ) {
-                if (positionIdList[i].width(j) != 0) {
-                    (int24 tickLower, int24 tickUpper) = positionIdList[i].asTicks(j);
+            TokenId tid = positionIdList[i];
+            uint256 legs = tid.countLegs();
+            for (uint256 j; j < legs; ) {
+                if (tid.width(j) != 0) {
+                    (int24 tickLower, int24 tickUpper) = tid.asTicks(j);
                     (LeftRightUnsigned liquidities0, LeftRightUnsigned liquidities1, , ) = pool
                         .getChunkData(tickLower, tickUpper);
 
-                    LeftRightUnsigned liquidityData = positionIdList[i].tokenType(j) == 0
+                    LeftRightUnsigned liquidityData = tid.tokenType(j) == 0
                         ? liquidities0
                         : liquidities1;
 
