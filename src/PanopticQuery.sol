@@ -707,21 +707,17 @@ contract PanopticQuery {
             }
         }
 
-        int24[] memory strikes = new int24[](k);
-        uint128[2][] memory netLiquidities = new uint128[2][](k);
-        uint128[2][] memory removedLiquidities = new uint128[2][](k);
-        LeftRightUnsigned[2][] memory settledTokens = new LeftRightUnsigned[2][](k);
-
-        for (uint256 i; i < k; ) {
-            strikes[i] = s_strikes[i];
-            netLiquidities[i] = s_net[i];
-            removedLiquidities[i] = s_removed[i];
-            settledTokens[i] = s_settled[i];
-            unchecked {
-                ++i;
-            }
+        // The scratch arrays were over-allocated to `maxChunks`; only the first `k`
+        // slots are populated. Since k <= maxChunks, shrink each array's length word
+        // to `k` in place and return them directly (no second allocation + copy).
+        // memory-safe: we only shrink lengths, never grow past the allocated region.
+        assembly ("memory-safe") {
+            mstore(s_strikes, k)
+            mstore(s_net, k)
+            mstore(s_removed, k)
+            mstore(s_settled, k)
         }
-        return (strikes, netLiquidities, removedLiquidities, settledTokens);
+        return (s_strikes, s_net, s_removed, s_settled);
     }
 
     /// @notice Calculate approximate NLV of user's option portfolio (token delta after closing `positionIdList`) at a given tick.
