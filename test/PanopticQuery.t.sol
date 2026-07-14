@@ -2718,6 +2718,107 @@ contract PanopticQueryTest is PositionUtils {
         t = t.addLeg(3, 1, 1, 0, 0, 3, strike, 0); // width=0 loan, tokenType 0 -> injects itm0
     }
 
+    // ---- in-range (wide) legs: the chunk contains currentTick, so itm is a partial split ----
+
+    // Wide width (in tick-spacing units) so the leg's range brackets the current tick with room on
+    // both sides; the itm is then the tick-split amount, strictly less than the full notional.
+    int24 constant WIDE = 60;
+
+    function _wideStraddle(int24 strike) internal view returns (TokenId t) {
+        t = TokenId.wrap(0).addPoolId(poolId);
+        t = t.addLeg(0, 1, 1, 0, 0, 0, strike, WIDE); // short put
+        t = t.addLeg(1, 1, 1, 0, 1, 1, strike, WIDE); // short call
+    }
+
+    /// @dev A wide short call whose range brackets the current tick: getAmountsForLiquidity splits
+    ///      the chunk at currentTick, so itm0 is the token0 portion above the tick — strictly less
+    ///      than the leg's full token0 notional, and token1 is simultaneously present in the chunk.
+    function test_Success_getItmAmounts_InRangeCall_PartialSplit(uint256 x) public {
+        _initPool(x);
+        int24 strike = (currentTick / tickSpacing) * tickSpacing;
+        uint128 size = 1e15;
+
+        TokenId id = TokenId.wrap(0).addPoolId(poolId).addLeg(0, 1, 1, 0, 1, 0, strike, WIDE);
+        (int256 itm0, int256 itm1) = pq.getItmAmounts(pp, id, size);
+
+        LiquidityChunk chunk = PanopticMath.getLiquidityChunk(id, 0, size);
+        (uint256 a0, uint256 a1) = Math.getAmountsForLiquidity(currentTick, chunk);
+
+        // Range brackets the tick: both tokens are present in the chunk.
+        assertGt(a0, 0, "expected token0 above the tick");
+        assertGt(a1, 0, "expected token1 below the tick (range brackets currentTick)");
+
+        // A call only touches itm0, and its value is the partial (tick-split) amount0.
+        assertEq(itm0, int256(a0), "itm0 must equal the tick-split amount0");
+        assertEq(itm1, int256(0), "a call leg leaves itm1 zero");
+
+        // The partial split is strictly less than the full one-sided token0 notional.
+        assertLt(
+            a0,
+            Math.getAmount0ForLiquidity(chunk),
+            "in-range itm0 must be below full notional"
+        );
+    }
+
+    /// @dev Mirror for a wide short put: itm1 is the partial token1 amount below the tick.
+    function test_Success_getItmAmounts_InRangePut_PartialSplit(uint256 x) public {
+        _initPool(x);
+        int24 strike = (currentTick / tickSpacing) * tickSpacing;
+        uint128 size = 1e15;
+
+        TokenId id = TokenId.wrap(0).addPoolId(poolId).addLeg(0, 1, 1, 0, 0, 0, strike, WIDE);
+        (int256 itm0, int256 itm1) = pq.getItmAmounts(pp, id, size);
+
+        LiquidityChunk chunk = PanopticMath.getLiquidityChunk(id, 0, size);
+        (uint256 a0, uint256 a1) = Math.getAmountsForLiquidity(currentTick, chunk);
+
+        assertGt(a0, 0, "expected token0 above the tick");
+        assertGt(a1, 0, "expected token1 below the tick (range brackets currentTick)");
+
+        assertEq(itm1, int256(a1), "itm1 must equal the tick-split amount1");
+        assertEq(itm0, int256(0), "a put leg leaves itm0 zero");
+
+        assertLt(
+            a1,
+            Math.getAmount1ForLiquidity(chunk),
+            "in-range itm1 must be below full notional"
+        );
+    }
+
+    /// @dev A single-strike wide straddle whose range brackets the tick is genuinely two-sided:
+    ///      itm0 and itm1 are BOTH the partial tick-split amounts of the shared chunk (not the full
+    ///      notional a single-sided leg would report).
+    function test_Success_getItmAmounts_InRangeStraddle_TwoSidedPartial(uint256 x) public {
+        _initPool(x);
+        int24 strike = (currentTick / tickSpacing) * tickSpacing;
+        uint128 size = 1e15;
+
+        TokenId straddle = _wideStraddle(strike);
+        (int256 itm0, int256 itm1) = pq.getItmAmounts(pp, straddle, size);
+
+        LiquidityChunk chunk = PanopticMath.getLiquidityChunk(straddle, 0, size);
+        (uint256 a0, uint256 a1) = Math.getAmountsForLiquidity(currentTick, chunk);
+
+        // Both slots are in the money from a single strike because the range brackets the tick.
+        assertGt(itm0, 0, "wide straddle should have positive itm0");
+        assertGt(itm1, 0, "wide straddle should have positive itm1");
+
+        assertEq(itm0, int256(a0), "itm0 must equal the tick-split amount0 (call)");
+        assertEq(itm1, int256(a1), "itm1 must equal the tick-split amount1 (put)");
+
+        // Each is a partial split, strictly below the full one-sided notional.
+        assertLt(
+            uint256(itm0),
+            Math.getAmount0ForLiquidity(chunk),
+            "itm0 must be below full notional"
+        );
+        assertLt(
+            uint256(itm1),
+            Math.getAmount1ForLiquidity(chunk),
+            "itm1 must be below full notional"
+        );
+    }
+
     /// @dev Build a short-call + short-put 2-leg tokenId (isolated frame to keep callers shallow).
     function _itmCallPut(int24 callStrike, int24 putStrike) internal view returns (TokenId t) {
         t = TokenId.wrap(0).addPoolId(poolId);
