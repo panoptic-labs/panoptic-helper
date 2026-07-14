@@ -54,12 +54,15 @@ contract PanopticQuery {
         LeftRightUnsigned[2] memory tokenDatas;
         uint256[2] memory utilizations;
         {
+            // Cache the risk engine once instead of re-fetching it on every sub-call
+            IRiskEngine re = pool.riskEngine();
             LeftRightUnsigned tokenData0;
             LeftRightUnsigned tokenData1;
             // Compute premia for all options (includes short+long premium)
             PositionBalance globalUtilizations;
             (tokenData0, tokenData1, globalUtilizations) = _getMargin(
                 pool,
+                re,
                 atTick,
                 account,
                 positionIdList
@@ -67,23 +70,16 @@ contract PanopticQuery {
             tokenDatas[0] = tokenData0;
             tokenDatas[1] = tokenData1;
             {
-                PanopticPoolV2 _pool = pool;
-                uint256 crossBuffer0 = _pool.riskEngine().CROSS_BUFFER_0();
-                uint256 crossBuffer1 = _pool.riskEngine().CROSS_BUFFER_1();
-                uint256 utilization0;
-                uint256 utilization1;
-                utilization0 = _crossBufferRatio(
-                    _pool,
+                uint256 crossBuffer0 = re.CROSS_BUFFER_0();
+                uint256 crossBuffer1 = re.CROSS_BUFFER_1();
+                utilizations[0] = re.crossBufferRatio(
                     globalUtilizations.utilization0(),
                     crossBuffer0
                 );
-                utilization1 = _crossBufferRatio(
-                    _pool,
+                utilizations[1] = re.crossBufferRatio(
                     globalUtilizations.utilization1(),
                     crossBuffer1
                 );
-                utilizations[0] = utilization0;
-                utilizations[1] = utilization1;
             }
         }
         // mulDivRoundingUp(x, NO_BUFFER, DECIMALS) == x whenever NO_BUFFER == DECIMALS
@@ -127,19 +123,6 @@ contract PanopticQuery {
         balancesAndRequired[1] = effectiveReq0;
         balancesAndRequired[2] = effectiveBal1;
         balancesAndRequired[3] = effectiveReq1;
-    }
-
-    /// @notice Computes utilization-adjusted cross-buffer ratio via the pool risk engine.
-    /// @param pool The PanopticPool whose risk engine is queried.
-    /// @param utilization The utilization value to evaluate.
-    /// @param crossBuffer The configured cross-buffer parameter.
-    /// @return crossBufferRatio The resulting ratio used to scale surplus collateral.
-    function _crossBufferRatio(
-        PanopticPoolV2 pool,
-        int256 utilization,
-        uint256 crossBuffer
-    ) internal view returns (uint256 crossBufferRatio) {
-        crossBufferRatio = pool.riskEngine().crossBufferRatio(utilization, crossBuffer);
     }
 
     /// @notice Shared prelude that loads position data and both collateral trackers for an account.
@@ -215,6 +198,7 @@ contract PanopticQuery {
 
     /// @notice Computes premium-adjusted collateral state for an account at a specific tick.
     /// @param pool The PanopticPool instance to query.
+    /// @param re The cached risk engine for `pool`.
     /// @param atTick The tick used for margin evaluation.
     /// @param account The account to evaluate.
     /// @param positionIdList The list of open position token IDs for the account.
@@ -223,6 +207,7 @@ contract PanopticQuery {
     /// @return globalUtilizations Global utilization values used by risk calculations.
     function _getMargin(
         PanopticPoolV2 pool,
+        IRiskEngine re,
         int24 atTick,
         address account,
         TokenId[] calldata positionIdList
@@ -246,7 +231,7 @@ contract PanopticQuery {
         //TokenId[] memory _positionIdList = positionIdList;
 
         // Query the current and required collateral amounts for the two tokens
-        (tokenData0, tokenData1, globalUtilizations) = pool.riskEngine().getMargin(
+        (tokenData0, tokenData1, globalUtilizations) = re.getMargin(
             positionBalanceArray,
             atTick,
             account,
