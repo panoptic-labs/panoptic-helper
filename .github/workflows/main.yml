@@ -5,12 +5,16 @@ jobs:
     strategy:
       fail-fast: true
     name: Foundry suite
-    runs-on: mainnet-node
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           token: ${{ secrets.GH_PAT }}
           submodules: recursive
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
       - name: Build
         env:
           FOUNDRY_PROFILE: ci_test
@@ -21,8 +25,9 @@ jobs:
       - name: Run Forge tests
         env:
           FOUNDRY_PROFILE: ci_test
+          MAINNET_RPC_URL: ${{ secrets.MAINNET_RPC_URL }}
         run: |
-          forge test --fork-url http://localhost:8545 -vvv --fuzz-runs 1000
+          forge test --fork-url "$MAINNET_RPC_URL" -vvv --fuzz-runs 1000
         id: forge-test
 
   contract_sizes:
