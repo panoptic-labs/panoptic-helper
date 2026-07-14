@@ -480,6 +480,78 @@ contract PanopticQuery {
         }
     }
 
+    /// @notice Compute the net in-the-money amounts (`itmAmounts`) a mint of `tokenId` would
+    ///         accumulate in `SemiFungiblePositionManager._createPositionInAMM`, WITHOUT minting.
+    /// @dev This is the exact projection that drives the mint-time netting swap: the SFPM only
+    ///      swaps `if (itmAmounts != 0)`. Callers can size width=0 credit/loan legs so the
+    ///      combined tokenId returns (0, 0) here, making the mint swap dust (flow-neutral open),
+    ///      independent of whether the mint zaps (swapAtMint) or not.
+    ///
+    ///      Mirrors `_createPositionInAMM` exactly:
+    ///        - width==0 leg: signMult = isLong ? +1 : -1; tokenType==0 adds signMult*amount0 to
+    ///          itm0, tokenType==1 adds signMult*amount1 to itm1 (getAmountsMoved, opening=true).
+    ///        - width>0 leg: movedLeg = ±getAmountsForLiquidity(currentTick, chunk) (short mint =
+    ///          +, long burn = −); tokenType==0 adds movedLeg1 to itm1, tokenType==1 adds
+    ///          movedLeg0 to itm0 (the "cross" token that makes the leg ITM).
+    /// @param pool The PanopticPool the position would be minted on
+    /// @param tokenId The option position (base legs; may already include width=0 neutralizing legs)
+    /// @param positionSize The size of the option position
+    /// @return itm0 Net in-the-money amount of token0 (rightSlot); positive/negative per SFPM sign
+    /// @return itm1 Net in-the-money amount of token1 (leftSlot)
+    function getItmAmounts(
+        PanopticPoolV2 pool,
+        TokenId tokenId,
+        uint128 positionSize
+    ) external view returns (int256 itm0, int256 itm1) {
+        int24 currentTick;
+        (currentTick, , , , ) = _getOracleTicks(pool);
+
+        uint256 numLegs = tokenId.countLegs();
+        for (uint256 leg; leg < numLegs; ) {
+            uint256 tokenType = tokenId.tokenType(leg);
+            bool isLong = tokenId.isLong(leg) == 1;
+
+            if (tokenId.width(leg) == 0) {
+                // width=0 loan/credit leg: fixed notional, tick-independent.
+                LeftRightUnsigned amountsMoved = PanopticMath.getAmountsMoved(
+                    tokenId,
+                    positionSize,
+                    leg,
+                    true
+                );
+                int256 signMult = isLong ? int256(1) : int256(-1);
+                if (tokenType == 0) {
+                    itm0 += signMult * int256(uint256(amountsMoved.rightSlot()));
+                } else {
+                    itm1 += signMult * int256(uint256(amountsMoved.leftSlot()));
+                }
+            } else {
+                // width>0 option leg: the swap-relevant contribution is the "cross" token moved
+                // into/out of Uniswap at the current tick.
+                LiquidityChunk liquidityChunk = PanopticMath.getLiquidityChunk(
+                    tokenId,
+                    leg,
+                    positionSize
+                );
+                (uint256 amount0, uint256 amount1) = Math.getAmountsForLiquidity(
+                    currentTick,
+                    liquidityChunk
+                );
+                // short (isLong=0) mints → pays in (+); long (isLong=1) burns → receives (−).
+                int256 moved0 = isLong ? -int256(amount0) : int256(amount0);
+                int256 moved1 = isLong ? -int256(amount1) : int256(amount1);
+                if (tokenType == 0) {
+                    itm1 += moved1;
+                } else {
+                    itm0 += moved0;
+                }
+            }
+            unchecked {
+                ++leg;
+            }
+        }
+    }
+
     /// @notice Fetch data about chunks in a positionIdList.
     /// @param pool The PanopticPool instance containing the positions
     /// @param positionIdList List of TokenIds to evaluate
@@ -742,93 +814,32 @@ contract PanopticQuery {
                 TokenId.unwrap(tokenId) &
                     0xFFFFFFFFF3FFFFFFFFFFF3FFFFFFFFFFF3FFFFFFFFFFF3FFFFFFFFFFFFFFFFFF
             );
-            TokenId[] memory tokenIdList;
+            // Packed partner tables: for each candidate `c` (8 bits) and leg `l`
+            // (2 bits at offset l*2), the value is the risk partner for that leg.
+            // N=2:  {0,1},{1,0}
+            // N=3:  {0,1,2},{1,0,2},{2,1,0},{0,2,1}
+            // N=4:  {0,1,2,3},{1,0,2,3},{2,1,0,3},{3,1,2,0},{0,2,1,3},
+            //       {0,3,2,1},{0,1,3,2},{1,0,3,2},{2,3,0,1},{3,2,1,0}
+            uint256 table;
             uint256 N;
-
             if (numberOfLegs == 2) {
                 N = 2;
-                tokenIdList = new TokenId[](N);
-
-                tokenIdList[0] = _tempTokenId.addRiskPartner(0, 0).addRiskPartner(1, 1);
-                tokenIdList[1] = _tempTokenId.addRiskPartner(1, 0).addRiskPartner(0, 1);
+                table = 0x0104;
             } else if (numberOfLegs == 3) {
                 N = 4;
-                tokenIdList = new TokenId[](N);
-
-                tokenIdList[0] = _tempTokenId
-                    .addRiskPartner(0, 0)
-                    .addRiskPartner(1, 1)
-                    .addRiskPartner(2, 2);
-
-                tokenIdList[1] = _tempTokenId
-                    .addRiskPartner(1, 0)
-                    .addRiskPartner(0, 1)
-                    .addRiskPartner(2, 2);
-                tokenIdList[2] = _tempTokenId
-                    .addRiskPartner(2, 0)
-                    .addRiskPartner(1, 1)
-                    .addRiskPartner(0, 2);
-                tokenIdList[3] = _tempTokenId
-                    .addRiskPartner(0, 0)
-                    .addRiskPartner(2, 1)
-                    .addRiskPartner(1, 2);
+                table = 0x18062124;
             } else {
                 N = 10;
-                tokenIdList = new TokenId[](N);
+                table = 0x1b4eb1b46cd827c6e1e4;
+            }
 
-                tokenIdList[0] = _tempTokenId
-                    .addRiskPartner(0, 0)
-                    .addRiskPartner(1, 1)
-                    .addRiskPartner(2, 2)
-                    .addRiskPartner(3, 3);
-
-                tokenIdList[1] = _tempTokenId
-                    .addRiskPartner(1, 0)
-                    .addRiskPartner(0, 1)
-                    .addRiskPartner(2, 2)
-                    .addRiskPartner(3, 3);
-                tokenIdList[2] = _tempTokenId
-                    .addRiskPartner(2, 0)
-                    .addRiskPartner(1, 1)
-                    .addRiskPartner(0, 2)
-                    .addRiskPartner(3, 3);
-                tokenIdList[3] = _tempTokenId
-                    .addRiskPartner(3, 0)
-                    .addRiskPartner(1, 1)
-                    .addRiskPartner(2, 2)
-                    .addRiskPartner(0, 3);
-
-                tokenIdList[4] = _tempTokenId
-                    .addRiskPartner(0, 0)
-                    .addRiskPartner(2, 1)
-                    .addRiskPartner(1, 2)
-                    .addRiskPartner(3, 3);
-                tokenIdList[5] = _tempTokenId
-                    .addRiskPartner(0, 0)
-                    .addRiskPartner(3, 1)
-                    .addRiskPartner(2, 2)
-                    .addRiskPartner(1, 3);
-                tokenIdList[6] = _tempTokenId
-                    .addRiskPartner(0, 0)
-                    .addRiskPartner(1, 1)
-                    .addRiskPartner(3, 2)
-                    .addRiskPartner(2, 3);
-
-                tokenIdList[7] = _tempTokenId
-                    .addRiskPartner(1, 0)
-                    .addRiskPartner(0, 1)
-                    .addRiskPartner(3, 2)
-                    .addRiskPartner(2, 3);
-                tokenIdList[8] = _tempTokenId
-                    .addRiskPartner(2, 0)
-                    .addRiskPartner(3, 1)
-                    .addRiskPartner(0, 2)
-                    .addRiskPartner(1, 3);
-                tokenIdList[9] = _tempTokenId
-                    .addRiskPartner(3, 0)
-                    .addRiskPartner(2, 1)
-                    .addRiskPartner(1, 2)
-                    .addRiskPartner(0, 3);
+            TokenId[] memory tokenIdList = new TokenId[](N);
+            for (uint256 c = 0; c < N; ++c) {
+                TokenId raw = _tempTokenId;
+                for (uint256 leg = 0; leg < numberOfLegs; ++leg) {
+                    raw = raw.addRiskPartner((table >> (c * 8 + leg * 2)) & 3, leg);
+                }
+                tokenIdList[c] = raw;
             }
 
             uint256 lowestCollateralRequirement = this.getRequiredBase(
@@ -1134,29 +1145,6 @@ contract PanopticQuery {
         for (uint256 leg; leg < self.countLegs(); ++leg) {
             self.asTicks(leg);
         }
-    }
-
-    /// @notice An external function that ensures that the proposed tokenId can be minted.
-    /// @param tokenId the input tokenId
-    /// @param positionSize the size of the position
-    /// @return a boolean value, valid = true / invalid = false
-    function checkTokenId(TokenId tokenId, uint128 positionSize) internal pure returns (bool) {
-        for (uint256 legIndex; legIndex < tokenId.countLegs(); ++legIndex) {
-            LeftRightUnsigned amountsMoved = PanopticMath.getAmountsMoved(
-                tokenId,
-                positionSize,
-                legIndex,
-                false
-            );
-
-            if (
-                (amountsMoved.rightSlot() > type(uint120).max) ||
-                (amountsMoved.leftSlot() > type(uint120).max)
-            ) {
-                return false;
-            }
-        }
-        return true;
     }
 
     /// @notice Retrieves cumulative liquidity across a range of ticks around a starting point
