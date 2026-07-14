@@ -86,8 +86,11 @@ contract PanopticQuery {
                 utilizations[1] = utilization1;
             }
         }
-        uint256 maintReq0 = Math.mulDivRoundingUp(tokenDatas[0].leftSlot(), NO_BUFFER, DECIMALS);
-        uint256 maintReq1 = Math.mulDivRoundingUp(tokenDatas[1].leftSlot(), NO_BUFFER, DECIMALS);
+        // mulDivRoundingUp(x, NO_BUFFER, DECIMALS) == x whenever NO_BUFFER == DECIMALS
+        // (mulmod is 0, so there is no round-up). Both are equal constants today, so the
+        // no-buffer maintenance requirement is just the raw leftSlot value.
+        uint256 maintReq0 = tokenDatas[0].leftSlot();
+        uint256 maintReq1 = tokenDatas[1].leftSlot();
 
         uint256 bal0 = tokenDatas[0].rightSlot();
         uint256 bal1 = tokenDatas[1].rightSlot();
@@ -285,7 +288,7 @@ contract PanopticQuery {
     {
         int24[4] memory ticks;
         (ticks[0], ticks[1], ticks[2], ticks[3], ) = _getOracleTicks(pool);
-        for (uint256 i = 0; i < ticks.length; ++i) {
+        for (uint256 i = 0; i < ticks.length; ) {
             uint256[4] memory balanceAndRequired = checkCollateral(
                 pool,
                 account,
@@ -303,6 +306,9 @@ contract PanopticQuery {
                 balanceAndRequired[2],
                 balanceAndRequired[3]
             );
+            unchecked {
+                ++i;
+            }
         }
     }
 
@@ -391,10 +397,13 @@ contract PanopticQuery {
             int256 tickRange = int256(endTick) - int256(startTick);
             int256 step = tickRange / 298; // 298 slots between MIN_TICK and MAX_TICK
 
-            for (uint256 i = 1; i < 300; i++) {
+            for (uint256 i = 1; i < 300; ) {
                 int256 tick = int256(startTick) + (int256(i - 1) * step);
                 // Round to tick spacing
                 tickData[i] = (tick / tickSpacing) * tickSpacing;
+                unchecked {
+                    ++i;
+                }
             }
         }
         uint256[4][] memory balanceRequired = new uint256[4][](301);
@@ -670,7 +679,7 @@ contract PanopticQuery {
         uint256 k;
         int256 _width = int256(width);
         PanopticPoolV2 _pool = pool;
-        for (int256 t = tickLower; t + _width <= tickUpper; t += tickSpacing) {
+        for (int256 t = tickLower; t + _width <= tickUpper; ) {
             int24 strike;
             LeftRightUnsigned liq0;
             LeftRightUnsigned liq1;
@@ -693,7 +702,12 @@ contract PanopticQuery {
             net[1] = liq1.rightSlot();
             removed[1] = liq1.leftSlot();
 
-            if ((net[0] | removed[0] | net[1] | removed[1]) == 0) continue;
+            if ((net[0] | removed[0] | net[1] | removed[1]) == 0) {
+                unchecked {
+                    t += tickSpacing;
+                }
+                continue;
+            }
 
             s_strikes[k] = strike;
             s_net[k] = net;
@@ -702,6 +716,7 @@ contract PanopticQuery {
             s_settled[k][1] = settled1;
             unchecked {
                 ++k;
+                t += tickSpacing;
             }
         }
 
@@ -912,7 +927,7 @@ contract PanopticQuery {
             // Create a synthetic position balance with max size and 0 utilization baseline
             positionBalanceArray[0] = PositionBalanceLibrary.storeBalanceData(
                 type(uint64).max,
-                0 + (0 << 16),
+                0,
                 0,
                 0,
                 0,
