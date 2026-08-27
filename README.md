@@ -1,5 +1,11 @@
 # PanopticHelper
 
+The canonical source for this package lives in the Panoptic monorepo at
+`packages/panoptic-helper`. It was imported as a squashed snapshot from
+`panoptic-labs/panoptic-helper` at commit
+`c19a1cc623095e52dd9a5f4fa3ff2d4eeb31c02d`. The public repository is maintained
+as a one-way mirror of protected monorepo `main`.
+
 ## Installation
 
 Panoptic uses the Foundry framework for testing and deployment, and Prettier for linting.
@@ -7,7 +13,7 @@ Panoptic uses the Foundry framework for testing and deployment, and Prettier for
 To get started, clone the repo and install the pre-commit hooks.
 
 ```bash
-git clone https://github.com/panoptic-labs/panoptic-v1-helper.git --recurse-submodules
+git clone https://github.com/panoptic-labs/panoptic-helper.git --recurse-submodules
 npm i
 ```
 
