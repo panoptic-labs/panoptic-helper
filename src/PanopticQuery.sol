@@ -907,15 +907,8 @@ contract PanopticQuery {
             TokenId[] memory positionIdList = new TokenId[](1);
 
             positionIdList[0] = tokenId;
-            // Create a synthetic position balance with max size and 0 utilization baseline
-            positionBalanceArray[0] = PositionBalanceLibrary.storeBalanceData(
-                type(uint64).max,
-                0,
-                0,
-                0,
-                0,
-                false
-            );
+            // Synthetic position balance with max size and a 0 utilization baseline
+            positionBalanceArray[0] = _syntheticBalance(type(uint64).max, 0);
 
             try
                 pool.riskEngine().getMargin(
@@ -1132,15 +1125,8 @@ contract PanopticQuery {
         LeftRightUnsigned[2] memory shortLongPremium,
         CollateralTrackerV2[2] memory cts
     ) internal view returns (bool) {
-        // Create synthetic balance for the position
-        // PositionBalance encoding:
-        //   bits 0-127:   positionSize (uint128)
-        //   bits 128-143: poolUtilization0 (uint16)
-        //   bits 144-159: poolUtilization1 (uint16)
-        //   bits 160+:    tickAtMint, timestamps, etc. (unused in solvency check)
-        PositionBalance syntheticBalance = PositionBalance.wrap(
-            uint256(size) | (uint256(utilization) << 128)
-        );
+        // Synthetic balance for the probed position; see _syntheticBalance for why the metadata is stamped.
+        PositionBalance syntheticBalance = _syntheticBalance(size, utilization);
 
         // Update only the target element (no allocation)
         allBalances[allBalances.length - 1] = syntheticBalance;
@@ -1165,6 +1151,30 @@ contract PanopticQuery {
         } catch {
             return false;
         }
+    }
+
+    /// @notice Builds a synthetic `PositionBalance` for what-if probes (max size search, base requirement).
+    /// @dev Stamps the current block number and timestamp. The RiskEngine treats a balance whose block and
+    /// timestamp are zero and whose utilizations are both 100% as the pool's safe-mode sentinel; a probe left with
+    /// unset metadata would therefore be priced under the safe-mode utilization floor and over-estimate the
+    /// openable size. Real positions always carry non-zero metadata, so stamping keeps probes indistinguishable
+    /// from them.
+    /// @param size The probed position size
+    /// @param utilizations Packed utilizations, `utilization0 | (utilization1 << 16)`
+    /// @return The synthetic balance
+    function _syntheticBalance(
+        uint128 size,
+        uint32 utilizations
+    ) internal view returns (PositionBalance) {
+        return
+            PositionBalanceLibrary.storeBalanceData(
+                size,
+                utilizations,
+                0,
+                uint32(block.timestamp),
+                uint40(block.number),
+                false
+            );
     }
 
     /// @notice An external function that validates a tokenId.
